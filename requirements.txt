@@ -1,0 +1,5 @@
+mahjong-1.2.1
+#torch
+#tensorboard
+numpy>=1.23
+gymnasium>=0.28
