@@ -2,12 +2,12 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
-import pickle, numpy as np
+import numpy as np
 import torch
 from typing import List, Optional, Sequence, Dict, Tuple, Iterable, Generator, Union, IO, Any
 import xml.etree.ElementTree as ET
 import sqlite3
-import json, math, numpy as np
+import json, math
 import zarr
 from numcodecs import Blosc
 from mahjong_features import RiichiResNetFeatures
@@ -60,9 +60,46 @@ class RiichiZarrDatasetBuilder:
                 json.dump({k: list(map(int, v)) for k, v in splits.items()}, f, indent=2)
 
         print(f"[OK] Zarr dataset built at: {out_dir}")
-    
-    def write_data(self, images, labels, masks, start=0, length=100):
-        pass
+
+    def write_data(self, images, labels, masks, start: int = 0, length: Optional[int] = None) -> int:
+        """Write a batch of samples into the zarr datasets.
+
+        Parameters
+        ----------
+        images, labels, masks: array-like
+            Data to be written.  ``images`` is expected to have shape
+            ``(N, C, H)``; ``labels`` has shape ``(N,)`` and ``masks``
+            has shape ``(N, H)``.  ``start`` specifies the starting
+            index in the underlying datasets.  ``length`` optionally
+            limits how many samples from the inputs should be written.
+
+        Returns
+        -------
+        int
+            The number of samples that were written.
+        """
+
+        # Convert inputs to numpy arrays of the correct dtype.  Using
+        # ``np.asarray`` instead of ``np.array`` allows already-numpy
+        # inputs to be used without copying when possible.
+        imgs = np.asarray(images)
+        lbls = np.asarray(labels)
+        msks = np.asarray(masks)
+
+        n = min(len(imgs), len(lbls), len(msks))
+        if length is not None:
+            n = min(n, int(length))
+
+        end = start + n
+        if end > len(self.z_lbls):
+            raise IndexError("Attempting to write beyond allocated dataset size")
+
+        # Ensure dtype compatibility before assignment
+        self.z_imgs[start:end, ...] = imgs[:n].astype(self.z_imgs.dtype, copy=False)
+        self.z_lbls[start:end] = lbls[:n].astype(self.z_lbls.dtype, copy=False)
+        self.z_msks[start:end, ...] = msks[:n].astype(self.z_msks.dtype, copy=False)
+
+        return n
 
 
 
@@ -183,19 +220,37 @@ def fetch_xmls_from_database(db, num_examples=100, start=0, is_tonpusen=False, i
     finally:
         conn.close()
 
-def main():
-    db = 'data/2016.db'
+def main() -> None:
+    """Simple CLI entry point used for manual dataset building.
+
+    The function expects a SQLite database in ``data/2016.db`` with a
+    ``logs`` table containing Tenhou log XML strings.  When the database
+    is not present the function will simply exit without doing any work
+    so that importing this module during tests has no side effects.
+    """
+
+    db = "data/2016.db"
+    if not os.path.exists(db):
+        print(f"Database '{db}' not found; skipping dataset build")
+        return
+
     total_logs = count_xmls_in_database(db)
-    total_logs = 1000
-    print(total_logs)
-    dataset = RiichiZarrDatasetBuilder((1000000,29,34))
+
+    # Estimate upper bound on number of samples. A typical log contains
+    # fewer than 70 discard actions, so allocate accordingly.
+    estimated_samples = max(total_logs * 70, 1)
+    dataset = RiichiZarrDatasetBuilder((estimated_samples, 29, 34))
+
     sql_batch_size = 100
-    for i in tqdm(np.arange(total_logs//sql_batch_size+1)*sql_batch_size):
-        xmls = fetch_xmls_from_database(db, start=i, num_examples=sql_batch_size)
-        print(len(xmls))
+    cursor = 0
+    for start in tqdm(range(0, total_logs, sql_batch_size)):
+        xmls = fetch_xmls_from_database(db, start=start, num_examples=sql_batch_size)
+        if not xmls:
+            break
         images, labels, masks = read_xmls(xmls)
-        dataset.write_data(images, labels, masks, start=i, length=sql_batch_size)
-    
+        written = dataset.write_data(images, labels, masks, start=cursor)
+        cursor += written
+
 
 if __name__ == "__main__":
     main()
