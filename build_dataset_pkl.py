@@ -3,6 +3,7 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
 import pickle, numpy as np
+import torch
 from typing import List, Optional, Sequence, Dict, Tuple, Iterable, Generator, Union, IO, Any
 import xml.etree.ElementTree as ET
 import sqlite3
@@ -54,9 +55,10 @@ def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
     masks = []
 
     for st, who, disc_t34, meta in iter_discard_states(xml):
-        out = extractor(st)
-        legal_mask = out["legal_mask"]
-        x = out["x"][...,0] # remove the broadcasted rows
+        with torch.no_grad():
+            out = extractor(st)
+        legal_mask = out["legal_mask"].cpu().numpy().astype(np.uint8)
+        x = out["x"][...,0].cpu().numpy().astype(np.uint8) # remove the broadcasted rows
         y = disc_t34
         # Save x, y and legal_mask like a image dataset like CIFAR-10
         images.append(x)

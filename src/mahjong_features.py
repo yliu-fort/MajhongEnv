@@ -297,8 +297,8 @@ class RiichiResNetFeatures(torch.nn.Module):
         x = torch.stack(planes, dim=0)  # (C,34,34)
 
         return {
-            "x": x.to(torch.uint8),                              # model input
-            "legal_mask": legal.to(torch.uint8),                 # (34,)
+            "x": x,                              # model input
+            "legal_mask": legal,                 # (34,)
             "meta": {
                 "num_channels": x.shape[0],
                 "spec": "baseline+extras-31ch",
