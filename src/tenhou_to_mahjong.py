@@ -52,6 +52,7 @@ import pickle
 # ----------------------------
 # Import schema from feature module if available
 # ----------------------------
+'''
 try:
     from mahjong_features import RiichiState, PlayerPublic, NUM_TILES  # type: ignore
     _HAVE_SCHEMA = True
@@ -91,6 +92,8 @@ except Exception:
         aka5p: bool = False
         aka5s: bool = False
         legal_discards_mask: Optional[Sequence[int]] = None
+'''
+from mahjong_features import RiichiState, PlayerPublic, NUM_TILES
 
 # ----------------------------
 # Tenhou basics
