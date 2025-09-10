@@ -139,39 +139,46 @@ def iter_xmls_from_database(db, num_examples=10000, start=0, batch_size=1000,
     isn't loaded into memory at once. This avoids huge memory spikes when
     requesting many logs.
     """
-    conn = sqlite3.connect(db)
-    try:
-        cur = conn.cursor()
-        query = "SELECT log_content FROM logs WHERE 1=1"
-        params: List[int] = []
+    base_query = "SELECT log_content FROM logs WHERE 1=1"
+    params: List[int] = []
 
-        def add_filter(column: str, value: Optional[bool]):
-            nonlocal query
-            if value is not None:
-                query += f" AND {column} = ?"
-                params.append(int(value))
+    def add_filter(column: str, value: Optional[bool]):
+        nonlocal base_query
+        if value is not None:
+            base_query += f" AND {column} = ?"
+            params.append(int(value))
 
-        add_filter("is_tonpusen", is_tonpusen)
-        add_filter("is_sanma", is_sanma)
-        add_filter("is_speed", is_speed)
-        add_filter("is_processed", is_processed)
-        add_filter("was_error", was_error)
+    add_filter("is_tonpusen", is_tonpusen)
+    add_filter("is_sanma", is_sanma)
+    add_filter("is_speed", is_speed)
+    add_filter("is_processed", is_processed)
+    add_filter("was_error", was_error)
 
-        query += " ORDER BY log_id LIMIT ? OFFSET ?"
-        params.extend([num_examples, start])
+    print("Fetch logs from database...")
+    remaining = num_examples
+    offset = start
 
-        print("Fetch logs from database...")
-        cur.execute(query, params)
+    while remaining > 0:
+        limit = min(batch_size, remaining)
+        query = base_query + " ORDER BY log_id LIMIT ? OFFSET ?"
+        batch_params = params + [limit, offset]
 
-        while True:
-            rows = cur.fetchmany(batch_size)
-            if not rows:
-                break
-            for row in rows:
-                yield row[0]
-        print("OK")
-    finally:
-        conn.close()
+        conn = sqlite3.connect(db)
+        try:
+            cur = conn.cursor()
+            cur.execute(query, batch_params)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            break
+
+        for row in rows:
+            yield row[0]
+
+        offset += len(rows)
+        remaining -= len(rows)
 
 
 def main():
