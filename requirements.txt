@@ -3,3 +3,4 @@ numpy>=1.21.0
 torch>=1.9.0
 mahjong>=1.0.0
 tqdm
+zarr>=3.0.0

@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 import sqlite3
 import json, math
 import zarr
-from numcodecs import Blosc
+from zarr.codecs import BloscCodec, BloscCname, BloscShuffle  # v3 codecs
 from mahjong_features import RiichiResNetFeatures
 from tenhou_to_mahjong import iter_discard_states
 
@@ -25,10 +25,11 @@ class RiichiZarrDatasetBuilder:
         self, shape, squared=True,  # images:(N,C,H)  labels:(N,)  masks:(N,1,H)或(N,H), W=H
         out_dir="output/dataset_zarr",
         chunk_n=2048, chunk_hw=256,            # 分块参数：每块多少样本、空间块大小
-        compressor=Blosc(cname="zstd", clevel=3, shuffle=Blosc.BITSHUFFLE),
-        meta=None, splits=None, overwrite=True, dtype=torch.uint8
+        compressor=BloscCodec(cname=BloscCname.zstd, clevel=3, shuffle=BloscShuffle.bitshuffle),
+        meta=None, splits=None, overwrite=True, dtype="uint8"
     ):
-        N, C, H = shape
+        self.shape = shape
+        C, H = shape
 
         if meta is None:
             meta = {"channel_names": [f"ch{i}" for i in range(C)],
@@ -38,18 +39,18 @@ class RiichiZarrDatasetBuilder:
             import shutil; shutil.rmtree(out_dir)
 
         # 选一组适合的块尺度（按需要微调）
-        chunks_img = (min(chunk_n, N), C, min(chunk_hw, H))
-        chunks_msk = (min(chunk_n, N), min(chunk_hw, H))
+        chunks_img = (chunk_n, C, min(chunk_hw, H))
+        chunks_msk = (chunk_n, min(chunk_hw, H))
 
-        root = zarr.open_group(out_dir, mode="w")
-        self.z_imgs = root.create_dataset(
-            "images", shape=(N, C, H), chunks=chunks_img, dtype=dtype, compressor=compressor
+        root = zarr.open_group(out_dir, mode="a")
+        self.z_imgs = root.require_array(
+            "images", shape=(0, C, H), chunks=chunks_img, dtype=dtype, compressor=None
         )
-        self.z_lbls = root.create_dataset(
-            "labels", shape=(N,), chunks=(min(chunk_n, N),), dtype=dtype, compressor=None
+        self.z_lbls = root.require_array(
+            "labels", shape=(0,), chunks=(chunk_n,), dtype=dtype, compressor=None
         )
-        self.z_msks = root.create_dataset(
-            "masks", shape=(N, H), chunks=chunks_msk, dtype=dtype, compressor=compressor
+        self.z_msks = root.require_array(
+            "masks", shape=(0, H), chunks=chunks_msk, dtype=dtype, compressor=None
         )
 
         # 元信息 + 切分（可选）
@@ -86,13 +87,16 @@ class RiichiZarrDatasetBuilder:
         lbls = np.asarray(labels)
         msks = np.asarray(masks)
 
-        n = min(len(imgs), len(lbls), len(msks))
+        n = lbls.shape[0]
         if length is not None:
             n = min(n, int(length))
 
         end = start + n
-        if end > len(self.z_lbls):
-            raise IndexError("Attempting to write beyond allocated dataset size")
+        if end > self.z_lbls.shape[0]:
+            C, H = self.shape
+            self.z_imgs.resize((end, C, H))
+            self.z_lbls.resize((end, ))
+            self.z_msks.resize((end, H))
 
         # Ensure dtype compatibility before assignment
         self.z_imgs[start:end, ...] = imgs[:n].astype(self.z_imgs.dtype, copy=False)
@@ -212,10 +216,10 @@ def fetch_xmls_from_database(db, num_examples=100, start=0, is_tonpusen=False, i
 
         query += " ORDER BY log_id LIMIT ? OFFSET ?"
         params.extend([num_examples, start])
-        print("Fetch logs from database...")
+        #print("Fetch logs from database...")
         cur.execute(query, params)
         rows = cur.fetchall()
-        print("OK")
+        #print("OK")
         return [row[0] for row in rows]
     finally:
         conn.close()
@@ -235,11 +239,11 @@ def main() -> None:
         return
 
     total_logs = count_xmls_in_database(db)
+    total_logs = 1000
 
     # Estimate upper bound on number of samples. A typical log contains
     # fewer than 70 discard actions, so allocate accordingly.
-    estimated_samples = max(total_logs * 70, 1)
-    dataset = RiichiZarrDatasetBuilder((estimated_samples, 29, 34))
+    dataset = RiichiZarrDatasetBuilder((29, 34))
 
     sql_batch_size = 100
     cursor = 0
