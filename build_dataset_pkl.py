@@ -65,15 +65,25 @@ def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
 
     return images, labels, masks
 
-def read_xmls(xmls: List[TagLike]):
-    """Read a list of xml strings/paths and return stacked numpy arrays."""
+def read_xmls(xmls: Iterable[TagLike], total: Optional[int] = None):
+    """Read XML strings/paths and return stacked numpy arrays.
+
+    Parameters
+    ----------
+    xmls:
+        Iterable of XML sources. Using an iterable instead of a materialised
+        list prevents loading all logs into memory at once.
+    total:
+        Optional total count for progress reporting.
+    """
+
     imageset: List[np.ndarray] = []
     labelset: List[int] = []
     maskset: List[np.ndarray] = []
 
     extractor = RiichiResNetFeatures()
-    
-    for xml in tqdm(xmls):
+
+    for xml in tqdm(xmls, total=total):
         images, labels, masks = collect_discard_samples(xml, extractor)
         imageset.extend(images)
         labelset.extend(labels)
@@ -119,18 +129,15 @@ def count_xmls_in_database(db, is_tonpusen=False, is_sanma=False, is_speed=False
         conn.close()
 
 # Return logs (as xmls) from sqlite database /logs
-def fetch_xmls_from_database(db, num_examples=10000, start=0, is_tonpusen=False, is_sanma=False, is_speed=False, is_processed=True, was_error=False):
-    """Fetch log XML strings from the database according to filters.
+def iter_xmls_from_database(db, num_examples=10000, start=0, batch_size=1000,
+                            is_tonpusen=False, is_sanma=False,
+                            is_speed=False, is_processed=True,
+                            was_error=False) -> Iterable[str]:
+    """Yield log XML strings from the database according to filters.
 
-    Args:
-        db: Path to the sqlite database.
-        num_examples: Number of logs to fetch.
-        start: Offset from which to start returning logs.
-        is_tonpusen/is_sanma/is_speed/is_processed/was_error: Filtering flags
-            corresponding to columns in the ``logs`` table.
-
-    Returns:
-        A list of XML strings from the ``log_content`` column.
+    This generator streams results using ``fetchmany`` so the full result set
+    isn't loaded into memory at once. This avoids huge memory spikes when
+    requesting many logs.
     """
     conn = sqlite3.connect(db)
     try:
@@ -152,21 +159,29 @@ def fetch_xmls_from_database(db, num_examples=10000, start=0, is_tonpusen=False,
 
         query += " ORDER BY log_id LIMIT ? OFFSET ?"
         params.extend([num_examples, start])
+
         print("Fetch logs from database...")
         cur.execute(query, params)
-        rows = cur.fetchall()
+
+        while True:
+            rows = cur.fetchmany(batch_size)
+            if not rows:
+                break
+            for row in rows:
+                yield row[0]
         print("OK")
-        return [row[0] for row in rows]
     finally:
         conn.close()
 
+
 def main():
     db = 'data/2016.db'
-    print(count_xmls_in_database(db))
-    xmls = fetch_xmls_from_database(db)
-    print(len(xmls))
-    images, labels, masks = read_xmls(xmls)
+    total = count_xmls_in_database(db)
+    print(total)
+    xmls_iter = iter_xmls_from_database(db, num_examples=total)
+    images, labels, masks = read_xmls(xmls_iter, total=total)
     save_as_pkl(images, labels, masks)
+
 
 if __name__ == "__main__":
     main()
