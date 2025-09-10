@@ -167,8 +167,8 @@ class RiichiResNetFeatures(torch.nn.Module):
         25 riichi_sticks (/5)
         26 dora_flag (any tile that is current dora)
         27 dora_indicator_mark
-        28-30 aka5 flags for m/p/s
-        31 legal_discard_mask (if provided, else derived from hand_count>0)
+        28 aka5 flags for m/p/s
+        29 legal_discard_mask (if provided, else derived from hand_count>0)
 
     Total: 31 channels
 
@@ -297,8 +297,8 @@ class RiichiResNetFeatures(torch.nn.Module):
         x = torch.stack(planes, dim=0)  # (C,34,34)
 
         return {
-            "x": x,                              # model input
-            "legal_mask": legal,                 # (34,)
+            "x": x.to(torch.uint8),                              # model input
+            "legal_mask": legal.to(torch.uint8),                 # (34,)
             "meta": {
                 "num_channels": x.shape[0],
                 "spec": "baseline+extras-31ch",

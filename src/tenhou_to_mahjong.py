@@ -324,7 +324,6 @@ class TenhouRoundTracker:
         state = RiichiState(
             hand_counts=counts,
             meld_counts_self=list(self.meld_counts[who]),
-            my_river=list(self.rivers_t34[who]),
             left=pp_left, across=pp_across, right=pp_right,
             round_wind=round_wind,
             seat_wind_self=seat_wind_self,

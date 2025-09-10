@@ -9,51 +9,54 @@ import sqlite3
 from mahjong_features import RiichiResNetFeatures
 from tenhou_to_mahjong import iter_discard_states
 
+from tqdm import tqdm
+
 TagLike = Union[str, bytes, os.PathLike, IO[bytes], IO[str]]
 
 def save_as_pkl(images, labels, masks, filenames=None, out_file="dataset.pkl"):
     """
     把整个数据集打包进一个 .pkl 文件
-    - images: (N,C,H,W)
+    - images: (N,C,H,1) -> broadcast to (N,C,H,W).
     - labels: (N,)
-    - masks:  (N,1,H,W) 或 (N,H,W)
+    - masks:  (N,H)
     - filenames: (N,) 字符串，可选
     """
     N = images.shape[0]
-    if filenames is None:
-        filenames = np.array([f"sample_{i}" for i in range(N)], dtype="U")
+    #if filenames is None:
+    #    filenames = np.array([f"sample_{i}" for i in range(N)], dtype="U")
 
     dataset = {
-        "images": images.astype(np.float32),  # 你也可以用 uint8/float16 节省空间
-        "labels": labels.astype(np.int64),
+        "images": images.astype(np.uint8),  # 用 uint8/float16 节省空间
+        "labels": labels.astype(np.uint8),
         "masks": masks.astype(np.uint8),      # 0/1 掩码存 uint8 就够了
         "filenames": filenames,
         "meta": {
             "num_samples": N,
             "num_channels": images.shape[1],
             "image_shape": images.shape[2:],
-            "classes": None,   # 你可以填类别名列表
+            "classes": None,   # 可以填类别名列表
         }
     }
 
-    with open(out_file, "wb") as f:
+    print("Dumping to pickle file...")
+    with open("output/" + out_file, "wb") as f:
         pickle.dump(dataset, f, protocol=pickle.HIGHEST_PROTOCOL)
+    print("OK")
 
     print(f"Saved dataset with {N} samples into {out_file}")
 
-def collect_discard_samples(xml: TagLike):
+def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
     """Return a list of **lightweight dicts** for easy JSON/pickle dumping.
     (If you want full dataclasses, iterate `iter_discard_states` directly.)
     """
     images = []
     labels = []
     masks = []
-    extractor = RiichiResNetFeatures()
 
     for st, who, disc_t34, meta in iter_discard_states(xml):
         out = extractor(st)
         legal_mask = out["legal_mask"]
-        x = out["x"]
+        x = out["x"][...,0] # remove the broadcasted rows
         y = disc_t34
         # Save x, y and legal_mask like a image dataset like CIFAR-10
         images.append(x)
@@ -63,15 +66,29 @@ def collect_discard_samples(xml: TagLike):
     return images, labels, masks
 
 def read_xmls(xmls: List[TagLike]):
-    imageset = []
-    labelset = []
-    maskset = []
-    for xml in xmls:
-        images, labels, masks = collect_discard_samples(xml)
-        imageset += images
-        labelset += labels
-        maskset += masks
-    return imageset, labelset, maskset
+    """Read a list of xml strings/paths and return stacked numpy arrays."""
+    imageset: List[np.ndarray] = []
+    labelset: List[int] = []
+    maskset: List[np.ndarray] = []
+
+    extractor = RiichiResNetFeatures()
+    
+    for xml in tqdm(xmls):
+        images, labels, masks = collect_discard_samples(xml, extractor)
+        imageset.extend(images)
+        labelset.extend(labels)
+        maskset.extend(masks)
+
+    if imageset:
+        images_arr = np.stack(imageset)
+        labels_arr = np.asarray(labelset)
+        masks_arr = np.stack(maskset)
+    else:
+        images_arr = np.empty((0,), dtype=np.float32)
+        labels_arr = np.empty((0,), dtype=np.int64)
+        masks_arr = np.empty((0,), dtype=np.uint8)
+
+    return images_arr, labels_arr, masks_arr
 
 # Count logs in sqlite database /logs
 # with entries: log_id, date, is_tonpusen, is_sanma, is_speed, is_processed, was_error, log_content
@@ -102,7 +119,7 @@ def count_xmls_in_database(db, is_tonpusen=False, is_sanma=False, is_speed=False
         conn.close()
 
 # Return logs (as xmls) from sqlite database /logs
-def fetch_xmls_from_database(db, num_examples=100, start=0, is_tonpusen=False, is_sanma=False, is_speed=False, is_processed=True, was_error=False):
+def fetch_xmls_from_database(db, num_examples=10000, start=0, is_tonpusen=False, is_sanma=False, is_speed=False, is_processed=True, was_error=False):
     """Fetch log XML strings from the database according to filters.
 
     Args:
@@ -135,15 +152,21 @@ def fetch_xmls_from_database(db, num_examples=100, start=0, is_tonpusen=False, i
 
         query += " ORDER BY log_id LIMIT ? OFFSET ?"
         params.extend([num_examples, start])
+        print("Fetch logs from database...")
         cur.execute(query, params)
         rows = cur.fetchall()
+        print("OK")
         return [row[0] for row in rows]
     finally:
         conn.close()
 
 def main():
-    db = '2018.db'
+    db = 'data/2016.db'
     print(count_xmls_in_database(db))
     xmls = fetch_xmls_from_database(db)
+    print(len(xmls))
     images, labels, masks = read_xmls(xmls)
     save_as_pkl(images, labels, masks)
+
+if __name__ == "__main__":
+    main()
