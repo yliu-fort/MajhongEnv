@@ -5,7 +5,7 @@ from collections import Counter
 from random import randint
 from .gen_yama import YamaGenerator
 from .mahjong_tiles_print_style import tile_printout, tiles_printout
-from .majhong_hand_checker import MahjongHandChecker
+from .mahjong_hand_checker import MahjongHandChecker
 from .mahjong_logger import MahjongLogger
 from agent.random_discard_agent import RandomDiscardAgent
 
