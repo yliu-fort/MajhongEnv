@@ -21,6 +21,9 @@ class RandomDiscardAgent:
         Given the current observation (list of tiles in hand),
         return a random tile to discard from the hand.
         """
+        if self.env is None or not hasattr(self.env, "action_masks"):
+            raise ValueError("RandomDiscardAgent requires an environment with an action_masks method")
+
         action_masks = self.env.action_masks()
         valid_action_list = [i for i in list(range(len(action_masks))) if action_masks[i] == 1]
         valid_confirm_list = [1-i for i in [0, 1] if action_masks[(-i-1)] == 0]
@@ -39,8 +42,13 @@ class RandomDiscardAgent:
     
 
 if __name__=="__main__":
-    # Test the RandomDiscardAgent
-    agent = RandomDiscardAgent(None, seed=77777)
+    # Test the RandomDiscardAgent with a dummy environment
+
+    class DummyEnv:
+        def action_masks(self):
+            return [1] * 14 + [0, 0]
+
+    agent = RandomDiscardAgent(DummyEnv(), seed=77777)
     observation = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     print("Test observation:", observation)
     action = agent.predict({"hands": observation})

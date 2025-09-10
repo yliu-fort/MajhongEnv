@@ -32,7 +32,8 @@ class MahjongTileStyle:
         return str
     
     @staticmethod
-    def get_tiles_printout(tile_ids: list) -> list:
+    def get_tiles_printout(tile_ids: list) -> str:
+        """Return a string of emoji representations for the provided tile ids."""
         return "".join([MahjongTileStyle.get_tile_printout(tile_id) for tile_id in tile_ids])
 
 
