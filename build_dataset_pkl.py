@@ -5,6 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 import pickle, numpy as np
 from typing import List, Optional, Sequence, Dict, Tuple, Iterable, Generator, Union, IO, Any
 import xml.etree.ElementTree as ET
+import sqlite3
 from mahjong_features import RiichiResNetFeatures
 from tenhou_to_mahjong import iter_discard_states
 
@@ -75,11 +76,70 @@ def read_xmls(xmls: List[TagLike]):
 # Count logs in sqlite database /logs
 # with entries: log_id, date, is_tonpusen, is_sanma, is_speed, is_processed, was_error, log_content
 def count_xmls_in_database(db, is_tonpusen=False, is_sanma=False, is_speed=False, is_processed=True, was_error=False):
-    pass
+    """Return the number of logs in the sqlite database matching filters."""
+    conn = sqlite3.connect(db)
+    try:
+        cur = conn.cursor()
+        query = "SELECT COUNT(*) FROM logs WHERE 1=1"
+        params: List[int] = []
+
+        def add_filter(column: str, value: Optional[bool]):
+            nonlocal query
+            if value is not None:
+                query += f" AND {column} = ?"
+                params.append(int(value))
+
+        add_filter("is_tonpusen", is_tonpusen)
+        add_filter("is_sanma", is_sanma)
+        add_filter("is_speed", is_speed)
+        add_filter("is_processed", is_processed)
+        add_filter("was_error", was_error)
+
+        cur.execute(query, params)
+        (count,) = cur.fetchone()
+        return int(count)
+    finally:
+        conn.close()
 
 # Return logs (as xmls) from sqlite database /logs
 def fetch_xmls_from_database(db, num_examples=100, start=0, is_tonpusen=False, is_sanma=False, is_speed=False, is_processed=True, was_error=False):
-    pass
+    """Fetch log XML strings from the database according to filters.
+
+    Args:
+        db: Path to the sqlite database.
+        num_examples: Number of logs to fetch.
+        start: Offset from which to start returning logs.
+        is_tonpusen/is_sanma/is_speed/is_processed/was_error: Filtering flags
+            corresponding to columns in the ``logs`` table.
+
+    Returns:
+        A list of XML strings from the ``log_content`` column.
+    """
+    conn = sqlite3.connect(db)
+    try:
+        cur = conn.cursor()
+        query = "SELECT log_content FROM logs WHERE 1=1"
+        params: List[int] = []
+
+        def add_filter(column: str, value: Optional[bool]):
+            nonlocal query
+            if value is not None:
+                query += f" AND {column} = ?"
+                params.append(int(value))
+
+        add_filter("is_tonpusen", is_tonpusen)
+        add_filter("is_sanma", is_sanma)
+        add_filter("is_speed", is_speed)
+        add_filter("is_processed", is_processed)
+        add_filter("was_error", was_error)
+
+        query += " ORDER BY log_id LIMIT ? OFFSET ?"
+        params.extend([num_examples, start])
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        return [row[0] for row in rows]
+    finally:
+        conn.close()
 
 def main():
     db = '2018.db'
