@@ -264,7 +264,7 @@ def main() -> None:
     n_training = int(total_logs*0.9)
     dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training")
 
-    sql_batch_size = 4096
+    sql_batch_size = 256
     cursor = 0
     for start in tqdm(range(0, n_training, sql_batch_size)):
         xmls = fetch_xmls_from_database(db, start=start, num_examples=sql_batch_size)
@@ -279,7 +279,7 @@ def main() -> None:
     # Gen Test dataset
     dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test")
 
-    sql_batch_size = 4096
+    sql_batch_size = 256
     cursor = 0
     for start in tqdm(range(n_training, total_logs, sql_batch_size)):
         xmls = fetch_xmls_from_database(db, start=start, num_examples=sql_batch_size)
