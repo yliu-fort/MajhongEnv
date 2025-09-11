@@ -20,7 +20,7 @@ class RiichiDatasetZarr(Dataset):
 
         # 延迟打开（每个 worker 各自打开一次，避免句柄共享问题）
         self._g = None
-        self._imgs = self._lbls = self._msks = self._fns = None
+        self._imgs = self._lbls = self._msks = None
 
         # 预读 N 以便 __len__
         g = zarr.open_group(root, mode="r")
@@ -63,7 +63,7 @@ class RiichiDatasetZarr(Dataset):
         if self.to_float32 and x.dtype != np.float32:
             x = x.astype(np.float32, copy=False)
 
-        x = torch.from_numpy(x).unsqueeze(-1).expand(NUM_FEATURES, NUM_TILES, NUM_TILES).contiguous()          # (C,H,W)
+        x = torch.from_numpy(x).unsqueeze(-1).expand(NUM_FEATURES, NUM_TILES, NUM_TILES).contiguous()  # (C,H,W)
         m = torch.from_numpy(m.astype(np.float32, copy=False))
         if self.transform:
             x = self.transform(x)
