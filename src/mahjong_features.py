@@ -30,6 +30,7 @@ import torch
 # 27..33: winds+dragons [East,South,West,North,White,Green,Red]
 
 NUM_TILES = 34
+NUM_FEATURES = 29
 
 # Red fives are tracked via flags, not separate indices.
 

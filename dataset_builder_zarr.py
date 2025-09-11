@@ -17,7 +17,19 @@ from tqdm import tqdm
 
 TagLike = Union[str, bytes, os.PathLike, IO[bytes], IO[str]]
 
+# make_splits.py
+from sklearn.model_selection import train_test_split
 
+def make_holdout_split(labels, test_size=0.2, val_size=0.1, seed=42):
+    N = labels.shape[0]; idx = np.arange(N)
+    idx_trv, idx_te = train_test_split(idx, test_size=test_size, random_state=seed, stratify=labels)
+    val_size_adj = val_size / (1 - test_size)
+    idx_tr, idx_va = train_test_split(idx_trv, test_size=val_size_adj, random_state=seed, stratify=labels[idx_trv])
+    return {"train": idx_tr, "val": idx_va, "test": idx_te}
+
+# 示例：
+# splits = make_holdout_split(labels)
+# json.dump({k: list(map(int,v)) for k,v in splits.items()}, open("splits.json","w"))
 
 
 class RiichiZarrDatasetBuilder:
@@ -30,6 +42,7 @@ class RiichiZarrDatasetBuilder:
     ):
         self.shape = shape
         C, H = shape
+        self.out_dir=out_dir
 
         if meta is None:
             meta = {"channel_names": [f"ch{i}" for i in range(C)],
@@ -56,11 +69,13 @@ class RiichiZarrDatasetBuilder:
         # 元信息 + 切分（可选）
         with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
-        if splits:
-            with open(os.path.join(out_dir, "splits.json"), "w", encoding="utf-8") as f:
-                json.dump({k: list(map(int, v)) for k, v in splits.items()}, f, indent=2)
 
         print(f"[OK] Zarr dataset built at: {out_dir}")
+    
+    def write_splits(self):
+        splits = make_holdout_split(self.z_lbls, test_size=0.2, val_size=0.1, seed=42)
+        with open(os.path.join(self.out_dir, "splits.json"), "w", encoding="utf-8") as f:
+            json.dump({k: list(map(int, v)) for k, v in splits.items()}, f, indent=2)
 
     def write_data(self, images, labels, masks, start: int = 0, length: Optional[int] = None) -> int:
         """Write a batch of samples into the zarr datasets.
