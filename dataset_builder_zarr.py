@@ -65,6 +65,7 @@ class RiichiZarrDatasetBuilder:
         self.z_msks = root.require_array(
             "masks", shape=(0, H), chunks=chunks_msk, dtype=dtype, compressor=None
         )
+        self.root = root
 
         # 元信息 + 切分（可选）
         with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
@@ -119,6 +120,10 @@ class RiichiZarrDatasetBuilder:
         self.z_msks[start:end, ...] = msks[:n].astype(self.z_msks.dtype, copy=False)
 
         return n
+    
+    def close(self):
+        # Close self.root Zarr connection
+        pass
 
 
 
@@ -247,28 +252,44 @@ def main() -> None:
     is not present the function will simply exit without doing any work
     so that importing this module during tests has no side effects.
     """
-
-    db = "data/2016.db"
+    
+    db = "data/2018.db"
     if not os.path.exists(db):
         print(f"Database '{db}' not found; skipping dataset build")
         return
 
     total_logs = count_xmls_in_database(db)
-    total_logs = 1000
 
-    # Estimate upper bound on number of samples. A typical log contains
-    # fewer than 70 discard actions, so allocate accordingly.
-    dataset = RiichiZarrDatasetBuilder((29, 34))
+    # Gen Training dataset
+    n_training = int(total_logs*0.9)
+    dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training")
 
-    sql_batch_size = 100
+    sql_batch_size = 4096
     cursor = 0
-    for start in tqdm(range(0, total_logs, sql_batch_size)):
+    for start in tqdm(range(0, n_training, sql_batch_size)):
         xmls = fetch_xmls_from_database(db, start=start, num_examples=sql_batch_size)
         if not xmls:
             break
         images, labels, masks = read_xmls(xmls)
         written = dataset.write_data(images, labels, masks, start=cursor)
         cursor += written
+
+    dataset.close()
+
+    # Gen Test dataset
+    dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test")
+
+    sql_batch_size = 4096
+    cursor = 0
+    for start in tqdm(range(n_training, total_logs, sql_batch_size)):
+        xmls = fetch_xmls_from_database(db, start=start, num_examples=sql_batch_size)
+        if not xmls:
+            break
+        images, labels, masks = read_xmls(xmls)
+        written = dataset.write_data(images, labels, masks, start=cursor)
+        cursor += written
+
+    dataset.close()
 
 
 if __name__ == "__main__":
