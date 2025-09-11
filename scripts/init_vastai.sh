@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ===  ===
 PY_VER="3.10"
-ENV_NAME="visual"
+ENV_NAME="riichi_data_builder"
 REPO_URL="https://github.com/yliu-fort/MajhongEnv.git"
 REPO_DIR="/workspace/MajhongEnv"
 
@@ -24,3 +24,11 @@ fi
 
 echo "[*] Running unittests..."
 python -m unittest discover -s ./tests -v || true
+
+echo
+echo "[] Init done."
+echo "To start working:"
+echo "cd $REPO_DIR"
+
+cd $REPO_DIR
+nohup python dataset_builder_zarr.py > log.out 2>&1 &
