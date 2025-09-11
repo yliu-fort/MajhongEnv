@@ -170,17 +170,19 @@ def read_xmls_serial(xmls: List[TagLike]):
         labels_arr = np.asarray(labelset)
         masks_arr = np.stack(maskset)
     else:
-        images_arr = np.empty((0,), dtype=np.float32)
-        labels_arr = np.empty((0,), dtype=np.int64)
+        images_arr = np.empty((0,), dtype=np.uint8)
+        labels_arr = np.empty((0,), dtype=np.uint8)
         masks_arr = np.empty((0,), dtype=np.uint8)
 
     return images_arr, labels_arr, masks_arr
 
 # Implementation of read_xmls for multi-CPU cores execution.
+def _worker_fn(xml):
+    return collect_discard_samples(xml, RiichiResNetFeatures())
+    
 def read_xmls(xmls: List[TagLike]):
     """并行读取一组 xml 并返回堆叠后的 numpy 数组."""
     imageset, labelset, maskset = [], [], []
-    extractor = RiichiResNetFeatures()
 
     # 自动获取 CPU 核心数
     cpu_count = os.cpu_count() or 1
@@ -189,12 +191,9 @@ def read_xmls(xmls: List[TagLike]):
     # 如果任务较少，不必开太多进程
     workers = min(workers, len(xmls))
 
-    def worker(xml):
-        return collect_discard_samples(xml, extractor)
-
     # 根据 CPU 核数调整 workers 数量（不要直接 72，内存可能吃不消）
-    with ProcessPoolExecutor(max_workers=32) as executor:
-        results = list(executor.map(worker, xmls))
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(_worker_fn, xmls))
 
     for images, labels, masks in results:
         imageset.extend(images)
@@ -206,8 +205,8 @@ def read_xmls(xmls: List[TagLike]):
                 np.asarray(labelset),
                 np.stack(maskset))
     else:
-        return (np.empty((0,), dtype=np.float32),
-                np.empty((0,), dtype=np.int64),
+        return (np.empty((0,), dtype=np.uint8),
+                np.empty((0,), dtype=np.uint8),
                 np.empty((0,), dtype=np.uint8))
 
 # Count logs in sqlite database /logs
