@@ -37,7 +37,7 @@ class RiichiZarrDatasetBuilder:
         self, shape, squared=True,  # images:(N,C,H)  labels:(N,)  masks:(N,1,H)或(N,H), W=H
         out_dir="output/dataset_zarr",
         chunk_n=2048, chunk_hw=256,            # 分块参数：每块多少样本、空间块大小
-        compressor=BloscCodec(cname=BloscCname.zstd, clevel=3, shuffle=BloscShuffle.bitshuffle),
+        compressors=BloscCodec(cname=BloscCname.zstd, clevel=3, shuffle=BloscShuffle.bitshuffle),
         meta=None, splits=None, overwrite=True, dtype="uint8"
     ):
         self.shape = shape
@@ -57,13 +57,13 @@ class RiichiZarrDatasetBuilder:
 
         root = zarr.open_group(out_dir, mode="a")
         self.z_imgs = root.require_array(
-            "images", shape=(0, C, H), chunks=chunks_img, dtype=dtype, compressor=None
+            "images", shape=(0, C, H), chunks=chunks_img, dtype=dtype, compressors=None
         )
         self.z_lbls = root.require_array(
-            "labels", shape=(0,), chunks=(chunk_n,), dtype=dtype, compressor=None
+            "labels", shape=(0,), chunks=(chunk_n,), dtype=dtype, compressors=None
         )
         self.z_msks = root.require_array(
-            "masks", shape=(0, H), chunks=chunks_msk, dtype=dtype, compressor=None
+            "masks", shape=(0, H), chunks=chunks_msk, dtype=dtype, compressors=None
         )
         self.root = root
 
