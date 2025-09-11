@@ -13,6 +13,8 @@ from zarr.codecs import BloscCodec, BloscCname, BloscShuffle  # v3 codecs
 from mahjong_features import RiichiResNetFeatures
 from tenhou_to_mahjong import iter_discard_states
 
+from concurrent.futures import ProcessPoolExecutor
+
 from tqdm import tqdm
 
 TagLike = Union[str, bytes, os.PathLike, IO[bytes], IO[str]]
@@ -149,7 +151,7 @@ def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
 
     return images, labels, masks
 
-def read_xmls(xmls: List[TagLike]):
+def read_xmls_serial(xmls: List[TagLike]):
     """Read a list of xml strings/paths and return stacked numpy arrays."""
     imageset: List[np.ndarray] = []
     labelset: List[int] = []
@@ -173,6 +175,40 @@ def read_xmls(xmls: List[TagLike]):
         masks_arr = np.empty((0,), dtype=np.uint8)
 
     return images_arr, labels_arr, masks_arr
+
+# Implementation of read_xmls for multi-CPU cores execution.
+def read_xmls(xmls: List[TagLike]):
+    """并行读取一组 xml 并返回堆叠后的 numpy 数组."""
+    imageset, labelset, maskset = [], [], []
+    extractor = RiichiResNetFeatures()
+
+    # 自动获取 CPU 核心数
+    cpu_count = os.cpu_count() or 1
+    # 保留一部分核心给系统，不要全用
+    workers = max(1, cpu_count - 2)
+    # 如果任务较少，不必开太多进程
+    workers = min(workers, len(xmls))
+
+    def worker(xml):
+        return collect_discard_samples(xml, extractor)
+
+    # 根据 CPU 核数调整 workers 数量（不要直接 72，内存可能吃不消）
+    with ProcessPoolExecutor(max_workers=32) as executor:
+        results = list(executor.map(worker, xmls))
+
+    for images, labels, masks in results:
+        imageset.extend(images)
+        labelset.extend(labels)
+        maskset.extend(masks)
+
+    if imageset:
+        return (np.stack(imageset),
+                np.asarray(labelset),
+                np.stack(maskset))
+    else:
+        return (np.empty((0,), dtype=np.float32),
+                np.empty((0,), dtype=np.int64),
+                np.empty((0,), dtype=np.uint8))
 
 # Count logs in sqlite database /logs
 # with entries: log_id, date, is_tonpusen, is_sanma, is_speed, is_processed, was_error, log_content
