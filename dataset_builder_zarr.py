@@ -1,5 +1,5 @@
 # build_zarr_dataset.py
-import os, sys
+import os, sys, psutil
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
 import numpy as np
@@ -185,9 +185,9 @@ def read_xmls(xmls: List[TagLike]):
     imageset, labelset, maskset = [], [], []
 
     # 自动获取 CPU 核心数
-    cpu_count = os.cpu_count() or 1
+    cpu_count = psutil.cpu_count(logical=False) or 1
     # 保留一部分核心给系统，不要全用
-    workers = max(1, cpu_count - 2)
+    workers = max(1, cpu_count - 1)
     # 如果任务较少，不必开太多进程
     workers = min(workers, len(xmls))
 
@@ -287,14 +287,16 @@ def main() -> None:
     is not present the function will simply exit without doing any work
     so that importing this module during tests has no side effects.
     """
-    
+
+    print(f"物理核心数: {psutil.cpu_count(logical=False)}, 逻辑核心数: {psutil.cpu_count(logical=True)}")
+
     db = "data/2018.db"
     if not os.path.exists(db):
         print(f"Database '{db}' not found; skipping dataset build")
         return
 
     total_logs = count_xmls_in_database(db)
-
+    
     # Gen Training dataset
     n_training = int(total_logs*0.9)
     dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training")
