@@ -324,6 +324,7 @@ class TenhouRoundTracker:
         state = RiichiState(
             hand_counts=counts,
             meld_counts_self=list(self.meld_counts[who]),
+            riichi=self.riichi_flag[who],
             left=pp_left, across=pp_across, right=pp_right,
             round_wind=round_wind,
             seat_wind_self=seat_wind_self,
@@ -444,7 +445,7 @@ def collect_discard_samples(xml: TagLike) -> List[Dict[str, Any]]:
             "left_river": list(st.left.river),
             "across_river": list(st.across.river),
             "right_river": list(st.right.river),
-            "riichi_flags": [False, st.left.riichi, st.across.riichi, st.right.riichi],
+            "riichi_flags": [st.riichi, st.left.riichi, st.across.riichi, st.right.riichi],
         })
     return items
 

@@ -117,6 +117,7 @@ class RiichiState:
     # Ego (current player)
     hand_counts: Sequence[int]                 # length 34, 0..4
     meld_counts_self: Optional[Sequence[int]] = None  # exposed tiles only (chi/pon/kan)
+    riichi: bool = False
 
     # Opponents (relative seats: Left, Across/Center, Right)
     left: PlayerPublic = field(default_factory=PlayerPublic)
