@@ -141,7 +141,7 @@ def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
     for st, who, disc_t34, meta in iter_discard_states(xml):
         if meta['riichi_flags'][0]:
             continue
-        
+
         with torch.no_grad():
             out = extractor(st)
         legal_mask = out["legal_mask"].cpu().numpy().astype(np.uint8)
@@ -301,7 +301,7 @@ def main() -> None:
     total_logs = count_xmls_in_database(db)
     
     # Gen Training dataset
-    n_training = int(total_logs*0.9)
+    n_training = int(total_logs*0.99)
     dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training")
 
     sql_batch_size = 256
