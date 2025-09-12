@@ -139,7 +139,7 @@ def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
     masks = []
 
     for st, who, disc_t34, meta in iter_discard_states(xml):
-        if st['riichi_flags'][0]:
+        if st.riichi:
             continue
 
         with torch.no_grad():
