@@ -171,7 +171,7 @@ class RiichiResNetFeatures(torch.nn.Module):
         28 aka5 flags for m/p/s
         29 legal_discard_mask (if provided, else derived from hand_count>0)
 
-    Total: 31 channels
+    Total: 29 channels
 
     Notes:
       - Rivers can be provided as ordered lists; if `river_counts` is None
@@ -286,14 +286,14 @@ class RiichiResNetFeatures(torch.nn.Module):
             aka[13] = 1.0  # p5 index = 9+ (5-1) = 13
         if state.aka5s:
             aka[22] = 1.0  # s5 index = 18+ (5-1) = 22
-        planes.append(self._broadcast_row(aka))                                  # 28-30 (packed as one plane)
+        planes.append(self._broadcast_row(aka))                                  # 28 (packed as one plane)
 
         # 7) Legal discard mask (hand>0 by default)
         if state.legal_discards_mask is not None:
             legal = self._to_tensor_1d(state.legal_discards_mask)
         else:
             legal = (hand_clamped > 0).float()
-        planes.append(self._broadcast_row(legal))                                # 31 legal mask
+        planes.append(self._broadcast_row(legal))                                # 29 legal mask
 
         x = torch.stack(planes, dim=0)  # (C,34,34)
 
