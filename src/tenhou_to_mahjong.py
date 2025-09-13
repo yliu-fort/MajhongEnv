@@ -128,7 +128,10 @@ class TenhouMeld:
         self.from_who: Optional[int] = None
         self.called_index: Optional[int] = None
         self.base_t34: Optional[int] = None
+        self.base_t136: Optional[int] = None
         self.tiles_t34: List[int] = []
+        self.tiles_t136: List[int] = []
+        self.opened: bool = True
         self._decode()
 
     def _decode(self):
@@ -145,7 +148,10 @@ class TenhouMeld:
             base9 = (base7 // 7) * 9 + (base7 % 7)
             self.called_index = called
             self.base_t34 = base9
+            options = [t0, t1, t2]
+            self.base_t136 = (base9 + called) * 4 + options[called]
             self.tiles_t34 = [base9 + 0, base9 + 1, base9 + 2]
+            self.tiles_t136 = [base9 * 4 + t0, (base9 + 1) * 4 + t1, (base9 + 2) * 4 + t2]
         elif data & 0x18:  # PON or CHAKAN (added tile to pon)
             t4 = (data >> 5) & 0x3
             base_and_called = data >> 9
@@ -153,30 +159,73 @@ class TenhouMeld:
             base = base_and_called // 3
             self.called_index = called
             self.base_t34 = base
+            self.base_t136 = base * 4  + called
             if data & 0x8:
                 self.type = "pon"
                 self.tiles_t34 = [base, base, base]
+                self.tiles_t136 = [base * 4 + i for i in range(4) if i != t4]
             else:
                 self.type = "chakan"
                 self.tiles_t34 = [base, base, base, base]
+                self.tiles_t136 = [base * 4 + i for i in range(4)]
         elif data & 0x20:  # NUKI (3P); keep for completeness
             self.type = "nuki"
             self.from_who = None
         else:  # KAN
             base_and_called = data >> 8
-            if self.from_who != 0:  # open kan
+            if self.from_who != self.who:  # open kan
                 called = base_and_called % 4
                 base = base_and_called // 4
                 self.called_index = called
                 self.base_t34 = base
+                self.base_t136 = base * 4  + called
                 self.type = "kan"
                 self.tiles_t34 = [base, base, base, base]
+                self.tiles_t136 = [base * 4 + i for i in range(4)]
             else:  # closed kan
                 base = base_and_called // 4
-                self.from_who = None
+                self.from_who = self.who
                 self.base_t34 = base
+                self.base_t136 = base * 4
                 self.type = "kan"
                 self.tiles_t34 = [base, base, base, base]
+                self.tiles_t136 = [base * 4 + i for i in range(4)]
+                self.opened = False
+        
+    def __str__(self):
+        return (
+            f"Meld(who={self.who}, m={self.m}, type={self.type}, "
+            f"from_who={self.from_who}, called_index={self.called_index}, "
+            f"base_t34={self.base_t34}, base_t136={self.base_t136}, "
+            f"tiles_t34={self.tiles_t34}, tiles_t136={self.tiles_t136}, "
+            f"opened={self.opened})"
+        )
+
+    def encode(self):
+        base = self.base_t34
+        offset = (self.from_who - self.who) % 4
+        match self.type:
+            case "chi":
+                called = self.called_index
+                base_and_called = ((base // 9) * 7 + base % 9) * 3 + called
+                t0 = self.tiles_t136[0] - base * 4
+                t1 = self.tiles_t136[1] - (base + 1) * 4
+                t2 = self.tiles_t136[2] - (base + 2) * 4
+                return (base_and_called << 10) | (t2 << 7) | (t1 << 5) | (t0 << 3) | (1 << 2) | offset
+            case "pon"|"chakan":
+                called = self.called_index
+                base_and_called = base * 3 + called
+                is_kan = self.type == "chakan"
+                t4 = (self.tiles_t136[-1] % 4) if is_kan else [x for x in range(4) if x not in [y % 4 for y in self.tiles_t136]][0]
+                return (base_and_called << 9) | (t4 << 5) | is_kan << 4 | (not is_kan) << 3 | offset
+            case "kan":
+                if self.opened:
+                    called = self.called_index
+                    base_and_called = base * 4 + called % 4
+                    return (base_and_called << 8) | offset
+                else:
+                    base_and_called = base * 4
+                    return base_and_called << 8
 
 
 # ----------------------------
@@ -471,8 +520,14 @@ def _main(argv: Sequence[str]) -> int:
         with open(args.dump, "wb") as f:
             pickle.dump(items, f)
         print("Saved:", args.dump)
+    
     return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(_main(sys.argv))
+    #raise SystemExit(_main(sys.argv))
+    ms = [52703,60615,35847]
+    who = 0
+    for m in ms:
+        print(m, TenhouMeld(who=who, m=m).encode())
+        print(TenhouMeld(who=who, m=m))

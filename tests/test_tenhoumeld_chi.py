@@ -20,3 +20,4 @@ class TestTenhouMeldChi(unittest.TestCase):
         self.assertEqual(meld.base_t34, 0)
         self.assertEqual(meld.tiles_t34, [0, 1, 2])
         self.assertEqual(meld.called_index, 1)
+        self.assertEqual(m_value, meld.encode())

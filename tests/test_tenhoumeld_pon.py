@@ -20,3 +20,4 @@ class TestTenhouMeldPon(unittest.TestCase):
         self.assertEqual(meld.base_t34, 0)
         self.assertEqual(meld.tiles_t34, [0, 0, 0])
         self.assertEqual(meld.called_index, 0)
+        self.assertEqual(m_value, meld.encode())
