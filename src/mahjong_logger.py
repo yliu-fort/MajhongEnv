@@ -1,4 +1,7 @@
+from typing import List, Dict
 import xml.etree.ElementTree as ET
+
+from tenhou_to_mahjong import TenhouRoundTracker
 
 
 def encode_meld(meld):
@@ -27,7 +30,7 @@ def encode_meld(meld):
                 base_and_called = base * 4
                 return base_and_called << 8
             
-class MahjongLogger:
+class MahjongLoggerBase:
 
     draw_syms = "TUVW"
     discard_syms = "DEFG"
@@ -164,3 +167,34 @@ class MahjongLogger:
 
     def __str__(self):
         return ET.tostring(self.root, encoding="unicode", method="xml")
+
+
+class MahjongLogger(MahjongLoggerBase, TenhouRoundTracker):
+    def add_init(self, round, kyoutaku, dice, dora_indicator, scores, oya, hands: List):
+        super().add_init(round, kyoutaku, dice, dora_indicator, scores, oya, hands)
+        seed_list = [round[0],round[1],kyoutaku,dice[0],dice[1],dora_indicator[0]]
+        TenhouRoundTracker.start_init(self, seed_list, oya, {i: pai for i, pai in enumerate(hands)})
+
+    def add_draw(self, who:int, tile:int):
+        super().add_draw(who, tile)
+        TenhouRoundTracker.draw(self, who, tile)
+
+    def add_discard(self, who:int, tile:int):
+        super().add_discard(who, tile)
+        TenhouRoundTracker.discard(self, who, tile)
+    
+    def add_meld(self, who:int, meld):
+        super().add_meld(who, meld)
+        TenhouRoundTracker.apply_meld(self, who, encode_meld(meld))
+
+    def add_dora(self, tile:int):
+        super().add_dora(tile)
+        TenhouRoundTracker.add_dora(self, tile)
+    
+    def add_reach_declare(self, who:int):
+        super().add_reach_declare(who)
+        TenhouRoundTracker.reach(self, who, 1)
+
+    def add_reach_accepted(self, who:int, scores):
+        super().add_reach_accepted(who, scores)
+        TenhouRoundTracker.reach(self, who, 2)
