@@ -631,6 +631,7 @@ class MahjongEnvBase(gym.Env):
                     self.is_selecting_tiles_for_claim = True
                     # 选择手牌中要丢弃的牌
                     num_tiles_to_select = 4 if self.phase == "ankan" else 1
+                    #print(self.phase, action, self.hands[player])
                     claim_tile = self.hands[player][action]
                     
                     # 暗杠时手牌中必然有所有四张牌，加杠时手牌中必然只有一张对应的牌
@@ -1500,7 +1501,7 @@ class MahjongEnv(MahjongEnvBase):
 
     def get_observation(self, player):
         """根据当前玩家，返回相应的状态表示。"""
-        return self.logger.snapshot_before_discard(player)
+        return self.logger.snapshot_before_discard(player), {'who':player}
     
     def action_masks(self) -> list[bool]:
         match self.phase:

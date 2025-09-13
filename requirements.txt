@@ -6,3 +6,4 @@ tqdm>=4.0.0
 zarr>=3.0.0
 scikit-learn>=1.7.0
 psutil>=1.0.0
+timm>=1.0.7

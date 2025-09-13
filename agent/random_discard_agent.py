@@ -16,7 +16,7 @@ class RandomDiscardAgent:
     def load_model(self, path=""):
         pass
 
-    def predict(self, observation):
+    def predict(self, _):
         """
         Given the current observation (list of tiles in hand),
         return a random tile to discard from the hand.
@@ -25,8 +25,8 @@ class RandomDiscardAgent:
             raise ValueError("RandomDiscardAgent requires an environment with an action_masks method")
 
         action_masks = self.env.action_masks()
-        valid_action_list = [i for i in list(range(len(action_masks))) if action_masks[i] == 1]
-        valid_confirm_list = [1-i for i in [0, 1] if action_masks[(-i-1)] == 0]
+        valid_action_list = [i for i in list(range(14)) if action_masks[i] == 1]
+        valid_confirm_list = action_masks[-1]
 
         # Randomly pick one tile from the hand to discard
         if valid_action_list:
@@ -34,7 +34,7 @@ class RandomDiscardAgent:
         else:
             action = 0
         if valid_confirm_list:
-            confirm = self.random_generator.choice(valid_confirm_list)
+            confirm = self.random_generator.choice([0, 1])
         else:
             confirm = 0
 

@@ -1,0 +1,95 @@
+from __future__ import annotations
+import os, sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+
+import gymnasium as gym
+import torch
+import numpy as np
+
+import torch
+import torch.nn as nn
+
+try:
+    import timm  # for ViT and other backbones
+except ImportError:
+    timm = None
+
+from mahjong_features import RiichiResNetFeatures
+from .random_discard_agent import RandomDiscardAgent
+
+def tid136_to_t34(tid: int) -> int:
+    return tid // 4
+
+class VisualClassifier(nn.Module):
+    def __init__(self, backbone: str = "resnet18", in_chans: int = 3, num_classes: int = 10, pretrained: bool = True):
+        super().__init__()
+        self.backbone_name = backbone.lower()
+
+        try:
+            self.model = timm.create_model(self.backbone_name, pretrained=pretrained, num_classes=num_classes, in_chans=in_chans)
+        except ValueError:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class VisualAgent:
+    def __init__(self, env: gym.Env, backbone: str = "resnet18"):
+        self.env = env
+        self.model = VisualClassifier(backbone, in_chans = 29, num_classes = 34, pretrained = False)
+        self.extractor = RiichiResNetFeatures()
+        self._alt_model = RandomDiscardAgent(env)
+ 
+    def train(self, total_timesteps=100000):
+        pass
+ 
+    def save_model(self, path="resnet_mahjong"):
+        pass
+ 
+    def load_model(self, path="resnet18"):
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        self.model.load_state_dict(ckpt["model"], strict=True)
+ 
+    def predict(self, observation):
+        # 如果当前状态是和牌状态，直接返回和牌动作
+        if self.env and (self.env.phase == "tsumo" or self.env.phase == "ron"):
+            return (0, True)
+        
+        # 推理时获取动作
+        out = self.extractor(observation[0])
+        x = out["x"][None,:,:,:]
+        self.model.eval()
+        logits = self.model(x).detach().numpy().squeeze()
+        
+        for i, m in enumerate(out["legal_mask"]):
+            if m == False:
+                logits[i]=-1e9
+
+        pred = int(logits.argmax()) # tile-34
+
+        '''
+        if self.env.phase=='discard':
+            counts = [0]*34
+            for tid in self.env.hands[observation[1]['who']]:
+                counts[tid136_to_t34(tid)] += 1
+
+            print(pred, sorted([x//4 for x in self.env.hands[observation[1]['who']]]), sum([pred==(x//4) for x in self.env.hands[observation[1]['who']]]))
+            print([i for i, v in enumerate(observation[0].hand_counts) if v > 0], counts)
+            #assert sum([x==y for x, y in zip(observation[0].hand_counts, counts)])==34
+            print(self.env.phase, self.env.action_masks())
+        '''
+
+        # No options yet
+        confirm = True
+        if self.env and (self.env.phase == "riichi"):
+            confirm = True
+
+        # Check if pred falls in valid action_masks
+        action_masks = self.env.action_masks() # 0 - 13 position in hand
+        for i, x in enumerate(self.env.hands[observation[1]['who']]):
+            if tid136_to_t34(x) == pred and action_masks[i] == True:
+                return (i, confirm)
+
+        # if preds not in action_masks, return a random choice from action_masks.
+        return self._alt_model.predict(observation)[0], confirm

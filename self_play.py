@@ -5,15 +5,15 @@ import gymnasium as gym
 import numpy as np
 from mahjong_env import MahjongEnv
 from agent.random_discard_agent import RandomDiscardAgent
-
+from agent.visual_agent import VisualAgent
 
 def evaluate_model(episodes=10):
     # 创建环境
     env = MahjongEnv(num_players=4)
-    agent = RandomDiscardAgent(env)
+    agent = VisualAgent(env, backbone="resnet18")
     
     # 加载训练好的模型
-    #agent.load_model("model_weights/"+model_path)
+    agent.load_model("model_weights/resnet18.pt")
  
     total_dscores = np.zeros(4, dtype=np.int32)
     for ep in range(episodes):
