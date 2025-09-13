@@ -3,10 +3,10 @@ import numpy as np
 from gymnasium import spaces
 from collections import Counter
 from random import randint
-from .gen_yama import YamaGenerator
-from .mahjong_tiles_print_style import tile_printout, tiles_printout
-from .mahjong_hand_checker import MahjongHandChecker
-from .mahjong_logger import MahjongLogger
+from gen_yama import YamaGenerator
+from mahjong_tiles_print_style import tile_printout, tiles_printout
+from mahjong_hand_checker import MahjongHandChecker
+from mahjong_logger import MahjongLogger
 from agent.random_discard_agent import RandomDiscardAgent
 
 
@@ -1500,31 +1500,7 @@ class MahjongEnv(MahjongEnvBase):
 
     def get_observation(self, player):
         """根据当前玩家，返回相应的状态表示。"""
-        # 这里只返回当前玩家的手牌
-        obs = -np.ones((14,), dtype=np.int32)
-        # 如果玩家手牌小于14张，就补-1(仅示例)
-        for i, tile in enumerate(self.hands[player]):
-            if i < 14:
-                obs[i] = tile
-        obs_open_hands = np.zeros((34, 4), dtype=np.int32)
-        # 这里返回所有玩家的副露
-        for player in range(self.num_players):
-            for meld in self.melds[player]:
-                for tile in meld["m"]:
-                    obs_open_hands[tile//4, player] += 1
-        obs_discard_pile = np.zeros((34, 4), dtype=np.int32)
-        for player in range(self.num_players):
-            obs_discard_pile[:, player] = self.tiles_bool_to_34(self.discard_pile[player])
-        return {
-            "player": player,
-            "round": self.round,
-            "hands": obs,
-            "discard_pile": obs_discard_pile,
-            "last_discarded_tile": np.array([self.last_discarded_tile], dtype=np.int32),
-            "melds": obs_open_hands,
-            "dora_indicator": [t for t in self.dora_indicator] + [-1]*(5 - len(self.dora_indicator)),
-            "phase": MahjongEnvBase.PHASE_MAP[self.phase],
-            }
+        return self.logger.snapshot_before_discard(player)
     
     def action_masks(self) -> list[bool]:
         match self.phase:
