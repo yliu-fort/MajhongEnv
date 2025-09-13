@@ -1126,10 +1126,9 @@ class MahjongEnvBase(gym.Env):
                 #"is_open_riichi": False,
                 "player_wind": (who+4-self.oya) % 4,
                 "round_wind": (self.round[0] // 4) % 4}
-            result = self.hand_checker.calculate_hand_value(self.hands[who], self.hands[who][-1], self.melds[who], config[0])
+            result = self.hand_checker.calculate_hand_value(self.hands[who]+[tile], tile, self.melds[who], config[0])
             if result["error"]:
                 return False
-        
         return True
     
     def can_kan(self, player, tile):
