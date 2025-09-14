@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Sequence, Tuple
 import math
 import torch
-from mahjong.shanten import Shanten
+from shanten_dp import compute_ukeire_advanced
 
 
 # ----------------------------
@@ -219,7 +219,6 @@ class RiichiResNetFeatures(torch.nn.Module):
         self.max_turns = max_turns
         self.max_sticks = max_sticks
         self.use_constant_width = use_constant_width  # keep 34x34 canvas
-        self.sh = Shanten()
 
     # ---------- utilities ----------
     @staticmethod
@@ -433,25 +432,20 @@ class RiichiResNetFeatures(torch.nn.Module):
 
         # convert hand_clamped (tile counts) to a flat list of tile indices [0..33]
         hand_list = hand_clamped.to(torch.int64).tolist()
-        sh_normal = self.sh.calculate_shanten_for_regular_hand(hand_clamped)
-        sh_chiitoi = self.sh.calculate_shanten_for_chiitoitsu_hand(hand_list)
-        sh_kokushi = self.sh.calculate_shanten_for_kokushi_hand(hand_list)
+        last_draw = state.last_draw_136//4
+        res = compute_ukeire_advanced(hand_list, last_draw, remaining_counts)
+        sh_normal = res["explain"]["shanten_regular"]
+        sh_chiitoi = res["explain"]["shanten_chiitoi"]
+        sh_kokushi = res["explain"]["shanten_kokushi"]
         planes.append(self._const_plane(max(sh_normal, 0) / 8.0))                # 36 shanten normal
         planes.append(self._const_plane(max(sh_chiitoi, 0) / 6.0))               # 37 shanten chiitoi
         planes.append(self._const_plane(max(sh_kokushi, 0) / 13.0))              # 38 shanten kokushi
 
-        ukeire = 0
-        #base_sh = sh_normal
-        #hand_temp = hand_list[:]
-        #last_draw = state.last_draw_136//4
-        #hand_temp[last_draw]-=1
-        #for t in range(NUM_TILES):
-        #    if remaining_counts[t] <= 0:
-        #        continue
-        #    hand_temp[t] += 1
-        #    if self.sh.calculate_shanten(hand_temp) < base_sh:
-        #        ukeire += remaining_counts[t]
-        #    hand_temp[t] -= 1
+        ukeire = res['ukeire']
+        ukeire_counts = [0] * NUM_TILES
+        for t, cnt in res['tiles']:
+            ukeire_counts[t] = cnt
+        ukeire_counts = self._to_tensor_1d(ukeire_counts)
         planes.append(self._const_plane(min(ukeire, 60) / 60.0))                 # 39 ukeire count
 
         for opp in opps:
@@ -489,17 +483,9 @@ class RiichiResNetFeatures(torch.nn.Module):
 
         furiten = 0
         # Need to choose a tile to discard first
-        #my_river_counts = state.river_self_counts or self._counts_from_river(state.river_self)
-        #if sum(my_river_counts) > 0:
-        #    for t in range(NUM_TILES):
-        #        if my_river_counts[t] == 0:
-        #            continue
-        #        hand_temp[t] += 1
-        #        if self.sh.calculate_shanten(hand_temp) == -1:
-        #            furiten = 1
-        #            hand_temp[t] -= 1
-        #            break
-        #        hand_temp[t] -= 1
+        my_river_counts = self._to_tensor_1d(state.river_self_counts or self._counts_from_river(state.river_self))
+        if torch.sum(ukeire_counts * my_river_counts).item() > 0:
+            furiten = 1
         planes.append(self._const_plane(float(furiten)))                         # 51 furiten self
 
         for opp in opps:
