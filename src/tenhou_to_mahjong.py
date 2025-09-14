@@ -259,6 +259,7 @@ class TenhouRoundTracker:
         self.meld_counts: List[List[int]] = [[0]*NUM_TILES for _ in range(4)]
         self.riichi_flag: List[bool] = [False, False, False, False]
         self.discards_total = 0
+        self.last_discarded_tile_136 = -1
 
         self.seen_red = {"m": False, "p": False, "s": False}
 
@@ -303,6 +304,7 @@ class TenhouRoundTracker:
                     break
         self.rivers_t34[who].append(tid136_to_t34(tid))
         self.discards_total += 1
+        self.last_discarded_tile_136 = tid
 
     def apply_meld(self, who: int, m_val: int):
         m = TenhouMeld(who, m_val)
@@ -395,6 +397,7 @@ class TenhouRoundTracker:
             dora_indicators=list(self.dora_inds_t34),
             aka5m=self.seen_red["m"], aka5p=self.seen_red["p"], aka5s=self.seen_red["s"],
             legal_discards_mask=legal,
+            last_discarded_tile_136=self.last_discarded_tile_136
         )
         return state
 
