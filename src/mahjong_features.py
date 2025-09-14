@@ -98,7 +98,7 @@ class PlayerPublic:
     river_counts: Optional[Sequence[int]] = None   # length 34 (optional; built if None)
     meld_counts: Optional[Sequence[int]] = None    # length 34 (exposed tiles from chi/pon/kan)
     riichi: bool = False
-    riichi_turn: int = -1  # turn number when riichi declared (if any)
+    riichi_turn: int = 0  # turn number when riichi declared (if any)
 
 
 @dataclass
@@ -270,6 +270,32 @@ class RiichiResNetFeatures(torch.nn.Module):
                 counts[ind] += 1
         return [min(4, c) for c in counts]
 
+    @staticmethod
+    def _surplus_mask(counts: Sequence[int], ascending: bool) -> torch.Tensor:
+        c = [int(x) for x in counts]
+        for i in range(NUM_TILES):
+            c[i] %= 3
+        rng = range(NUM_TILES-2) if ascending else range(NUM_TILES-3, -1, -1)
+        for i in rng:
+            if suit_of(i) is None or i % 9 > 6:
+                continue
+            m = min(c[i], c[i+1], c[i+2])
+            if m > 0:
+                c[i] -= m; c[i+1] -= m; c[i+2] -= m
+        rng2 = range(NUM_TILES) if ascending else range(NUM_TILES-1, -1, -1)
+        for i in rng2:
+            if suit_of(i) is None:
+                continue
+            for d in (1, 2):
+                j = i + d if ascending else i - d
+                if 0 <= j < NUM_TILES and suit_of(j) == suit_of(i):
+                    m = min(c[i], c[j])
+                    if m > 0:
+                        c[i] -= m; c[j] -= m
+        for i in range(NUM_TILES):
+            c[i] %= 2
+        return torch.tensor([1.0 if v > 0 else 0.0 for v in c], dtype=torch.float32)
+        
     # ---------- core ----------
     def forward(self, state: RiichiState) -> Dict[str, torch.Tensor]:
         planes: List[torch.Tensor] = []
@@ -378,33 +404,8 @@ class RiichiResNetFeatures(torch.nn.Module):
                 shuntsu[t] = shuntsu[t+1] = shuntsu[t+2] = 1.0
         planes.append(self._broadcast_row(shuntsu))                              # 33 shuntsu
 
-        def _surplus_mask(counts: Sequence[int], ascending: bool) -> torch.Tensor:
-            c = [int(x) for x in counts]
-            for i in range(NUM_TILES):
-                c[i] %= 3
-            rng = range(NUM_TILES-2) if ascending else range(NUM_TILES-3, -1, -1)
-            for i in rng:
-                if suit_of(i) is None or i % 9 > 6:
-                    continue
-                m = min(c[i], c[i+1], c[i+2])
-                if m > 0:
-                    c[i] -= m; c[i+1] -= m; c[i+2] -= m
-            rng2 = range(NUM_TILES) if ascending else range(NUM_TILES-1, -1, -1)
-            for i in rng2:
-                if suit_of(i) is None:
-                    continue
-                for d in (1, 2):
-                    j = i + d if ascending else i - d
-                    if 0 <= j < NUM_TILES and suit_of(j) == suit_of(i):
-                        m = min(c[i], c[j])
-                        if m > 0:
-                            c[i] -= m; c[j] -= m
-            for i in range(NUM_TILES):
-                c[i] %= 2
-            return torch.tensor([1.0 if v > 0 else 0.0 for v in c], dtype=torch.float32)
-
-        planes.append(self._broadcast_row(_surplus_mask(hand_clamped.tolist(), True)))   # 34 surplus1
-        planes.append(self._broadcast_row(_surplus_mask(hand_clamped.tolist(), False)))  # 35 surplus2
+        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), True)))   # 34 surplus1
+        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), False)))  # 35 surplus2
 
         sh = Shanten()
         hand_list = [int(x) for x in hand_clamped.tolist()]
