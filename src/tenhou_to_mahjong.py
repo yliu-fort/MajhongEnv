@@ -417,6 +417,7 @@ class TenhouRoundTracker:
             dora_indicators=list(self.dora_inds_t34),
             aka5m=self.seen_red["m"], aka5p=self.seen_red["p"], aka5s=self.seen_red["s"],
             legal_discards_mask=legal,
+            last_draw_136=self.hands_136[who][-1],
             last_discarded_tile_136=self.last_discarded_tile_136
         )
         return state

@@ -148,6 +148,7 @@ class RiichiState:
     legal_discards_mask: Optional[Sequence[int]] = None  # len 34, 0/1
 
     # Last droped tiles (for naki)
+    last_draw_136: int = -1
     last_discarded_tile_136: int = -1
 
     # Hooks / extra calculators
@@ -423,15 +424,16 @@ class RiichiResNetFeatures(torch.nn.Module):
         ukeire = 0
         base_sh = sh_normal
         hand_temp = hand_list[:]
-        # TODO: Discard a tile first, need a 'last draw' feature.
-        #hand_temp[0]-=1
-        #for t in range(NUM_TILES):
-        #    if remaining_counts[t] <= 0:
-        #        continue
-        #    hand_temp[t] += 1
-        #    if sh.calculate_shanten(hand_temp) < base_sh:
-        #        ukeire += remaining_counts[t]
-        #    hand_temp[t] -= 1
+        # Discard a tile first, need a 'last draw' feature.
+        last_draw = state.last_draw_136//4
+        hand_temp[last_draw]-=1
+        for t in range(NUM_TILES):
+            if remaining_counts[t] <= 0:
+                continue
+            hand_temp[t] += 1
+            if sh.calculate_shanten(hand_temp) < base_sh:
+                ukeire += remaining_counts[t]
+            hand_temp[t] -= 1
         planes.append(self._const_plane(min(ukeire, 60) / 60.0))                 # 39 ukeire count
 
         for opp in opps:
@@ -469,17 +471,17 @@ class RiichiResNetFeatures(torch.nn.Module):
 
         furiten = 0
         # Need to choose a tile to discard first
-        #my_river_counts = state.river_self_counts or self._counts_from_river(state.river_self)
-        #if sum(my_river_counts) > 0:
-        #    for t in range(NUM_TILES):
-        #        if my_river_counts[t] == 0:
-        #            continue
-        #        hand_temp[t] += 1
-        #        if sh.calculate_shanten(hand_temp) == -1:
-        #            furiten = 1
-        #            hand_temp[t] -= 1
-        #            break
-        #        hand_temp[t] -= 1
+        my_river_counts = state.river_self_counts or self._counts_from_river(state.river_self)
+        if sum(my_river_counts) > 0:
+            for t in range(NUM_TILES):
+                if my_river_counts[t] == 0:
+                    continue
+                hand_temp[t] += 1
+                if sh.calculate_shanten(hand_temp) == -1:
+                    furiten = 1
+                    hand_temp[t] -= 1
+                    break
+                hand_temp[t] -= 1
         planes.append(self._const_plane(float(furiten)))                         # 51 furiten self
 
         for opp in opps:
