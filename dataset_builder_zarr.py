@@ -10,7 +10,7 @@ import sqlite3
 import json, math
 import zarr
 from zarr.codecs import BloscCodec, BloscCname, BloscShuffle  # v3 codecs
-from mahjong_features import RiichiResNetFeatures
+from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES
 from tenhou_to_mahjong import (
     iter_discard_states,
     iter_chi_states,
@@ -410,11 +410,11 @@ def main() -> None:
     
     # Gen Training dataset
     n_training = int(total_logs*0.99)
-    dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training")
-    dataset2 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_chi")
-    dataset3 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_pon")
-    dataset4 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_kan")
-    dataset5 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_riichi")
+    dataset = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/training")
+    dataset2 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/training_chi")
+    dataset3 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/training_pon")
+    dataset4 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/training_kan")
+    dataset5 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/training_riichi")
 
     sql_batch_size = 256
     cursor = {'discard':0,'chi':0,'pon':0,'kan':0,'riichi':0}
@@ -458,11 +458,11 @@ def main() -> None:
     dataset5.close()
 
     # Gen Test dataset (mirror training: discard/chi/pon/kan/riichi)
-    dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test")
-    dataset2 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_chi")
-    dataset3 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_pon")
-    dataset4 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_kan")
-    dataset5 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_riichi")
+    dataset = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/test")
+    dataset2 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/test_chi")
+    dataset3 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/test_pon")
+    dataset4 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/test_kan")
+    dataset5 = RiichiZarrDatasetBuilder((NUM_FEATURES, NUM_TILES), out_dir="output/test_riichi")
 
     sql_batch_size = 256
     cursor = {'discard':0,'chi':0,'pon':0,'kan':0,'riichi':0}
