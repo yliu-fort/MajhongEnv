@@ -11,7 +11,13 @@ import json, math
 import zarr
 from zarr.codecs import BloscCodec, BloscCname, BloscShuffle  # v3 codecs
 from mahjong_features import RiichiResNetFeatures
-from tenhou_to_mahjong import iter_discard_states
+from tenhou_to_mahjong import (
+    iter_discard_states,
+    iter_chi_states,
+    iter_pon_states,
+    iter_kan_states,
+    iter_riichi_states,
+)
 
 from concurrent.futures import ProcessPoolExecutor
 
@@ -154,36 +160,11 @@ def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
 
     return images, labels, masks
 
-def read_xmls_serial(xmls: List[TagLike]):
-    """Read a list of xml strings/paths and return stacked numpy arrays."""
-    imageset: List[np.ndarray] = []
-    labelset: List[int] = []
-    maskset: List[np.ndarray] = []
-
-    extractor = RiichiResNetFeatures()
-    
-    for xml in xmls:
-        images, labels, masks = collect_discard_samples(xml, extractor)
-        imageset.extend(images)
-        labelset.extend(labels)
-        maskset.extend(masks)
-
-    if imageset:
-        images_arr = np.stack(imageset)
-        labels_arr = np.asarray(labelset)
-        masks_arr = np.stack(maskset)
-    else:
-        images_arr = np.empty((0,), dtype=np.uint8)
-        labels_arr = np.empty((0,), dtype=np.uint8)
-        masks_arr = np.empty((0,), dtype=np.uint8)
-
-    return images_arr, labels_arr, masks_arr
-
 # Implementation of read_xmls for multi-CPU cores execution.
 def _worker_fn(xml):
     return collect_discard_samples(xml, RiichiResNetFeatures())
     
-def read_xmls(xmls: List[TagLike]):
+def read_xmls_for_discards(xmls: List[TagLike]):
     """并行读取一组 xml 并返回堆叠后的 numpy 数组."""
     imageset, labelset, maskset = [], [], []
 
@@ -211,6 +192,128 @@ def read_xmls(xmls: List[TagLike]):
         return (np.empty((0,), dtype=np.uint8),
                 np.empty((0,), dtype=np.uint8),
                 np.empty((0,), dtype=np.uint8))
+
+def collect_chi_samples(xml: TagLike, extractor: RiichiResNetFeatures):
+    images = []
+    labels = []
+    masks = []
+
+    for st, who, called_t34, meta in iter_chi_states(xml):
+        with torch.no_grad():
+            out = extractor(st)
+        x = out["x"][..., 0].cpu().numpy().astype(np.uint8)
+        y = called_t34
+        m = np.zeros((x.shape[-1],), dtype=np.uint8)
+        if 0 <= y < m.shape[0]:
+            m[y] = 1
+        images.append(x)
+        labels.append(y)
+        masks.append(m)
+
+    return images, labels, masks
+
+def collect_pon_samples(xml: TagLike, extractor: RiichiResNetFeatures):
+    images = []
+    labels = []
+    masks = []
+
+    for st, who, called_t34, meta in iter_pon_states(xml):
+        with torch.no_grad():
+            out = extractor(st)
+        x = out["x"][..., 0].cpu().numpy().astype(np.uint8)
+        y = called_t34
+        m = np.zeros((x.shape[-1],), dtype=np.uint8)
+        if 0 <= y < m.shape[0]:
+            m[y] = 1
+        images.append(x)
+        labels.append(y)
+        masks.append(m)
+
+    return images, labels, masks
+
+def collect_kan_samples(xml: TagLike, extractor: RiichiResNetFeatures):
+    images = []
+    labels = []
+    masks = []
+
+    for st, who, base_t34, meta in iter_kan_states(xml):
+        with torch.no_grad():
+            out = extractor(st)
+        x = out["x"][..., 0].cpu().numpy().astype(np.uint8)
+        y = base_t34
+        m = np.zeros((x.shape[-1],), dtype=np.uint8)
+        if 0 <= y < m.shape[0]:
+            m[y] = 1
+        images.append(x)
+        labels.append(y)
+        masks.append(m)
+
+    return images, labels, masks
+
+def collect_riichi_samples(xml: TagLike, extractor: RiichiResNetFeatures):
+    images = []
+    labels = []
+    masks = []
+
+    for st, who, discard_t34, meta in iter_riichi_states(xml):
+        with torch.no_grad():
+            out = extractor(st)
+        x = out["x"][..., 0].cpu().numpy().astype(np.uint8)
+        y = discard_t34
+        legal_mask = out["legal_mask"].cpu().numpy().astype(np.uint8)
+        images.append(x)
+        labels.append(y)
+        masks.append(legal_mask)
+
+    return images, labels, masks
+
+def _worker_fn_chi(xml):
+    return collect_chi_samples(xml, RiichiResNetFeatures())
+
+def _worker_fn_pon(xml):
+    return collect_pon_samples(xml, RiichiResNetFeatures())
+
+def _worker_fn_kan(xml):
+    return collect_kan_samples(xml, RiichiResNetFeatures())
+
+def _worker_fn_riichi(xml):
+    return collect_riichi_samples(xml, RiichiResNetFeatures())
+
+def _parallel_collect(xmls: List[TagLike], worker):
+    imageset, labelset, maskset = [], [], []
+
+    cpu_count = psutil.cpu_count(logical=False) or 1
+    workers = max(1, cpu_count - 1)
+    workers = min(workers, len(xmls))
+
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(worker, xmls))
+
+    for images, labels, masks in results:
+        imageset.extend(images)
+        labelset.extend(labels)
+        maskset.extend(masks)
+
+    if imageset:
+        return (np.stack(imageset), np.asarray(labelset), np.stack(maskset))
+    else:
+        return (
+            np.empty((0,), dtype=np.uint8),
+            np.empty((0,), dtype=np.uint8),
+            np.empty((0,), dtype=np.uint8),
+        )
+
+def read_xmls_for_chi(xmls: List[TagLike]):
+    return _parallel_collect(xmls, _worker_fn_chi)
+
+def read_xmls_for_pon(xmls: List[TagLike]):
+    return _parallel_collect(xmls, _worker_fn_pon)
+
+def read_xmls_for_kan(xmls: List[TagLike]):
+    return _parallel_collect(xmls, _worker_fn_kan)
+
+def read_xmls_for_riichi(xmls: List[TagLike]):
+    return _parallel_collect(xmls, _worker_fn_riichi)
 
 # Count logs in sqlite database /logs
 # with entries: log_id, date, is_tonpusen, is_sanma, is_speed, is_processed, was_error, log_content
@@ -303,33 +406,99 @@ def main() -> None:
     # Gen Training dataset
     n_training = int(total_logs*0.99)
     dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training")
+    dataset2 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_chi")
+    dataset3 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_pon")
+    dataset4 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_kan")
+    dataset5 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/training_riichi")
 
     sql_batch_size = 256
-    cursor = 0
+    cursor = {'discard':0,'chi':0,'pon':0,'kan':0,'riichi':0}
     for start in tqdm(range(0, n_training, sql_batch_size)):
         xmls = fetch_xmls_from_database(db, start=start, num_examples=sql_batch_size)
         if not xmls:
             break
-        images, labels, masks = read_xmls(xmls)
-        written = dataset.write_data(images, labels, masks, start=cursor)
-        cursor += written
+        # Discard samples
+        images, labels, masks = read_xmls_for_discards(xmls)
+        written = dataset.write_data(images, labels, masks, start=cursor['discard'])
+        cursor['discard'] += written
+
+        # Chi samples
+        images, labels, masks = read_xmls_for_chi(xmls)
+        if images.size:
+            written = dataset2.write_data(images, labels, masks, start=cursor['chi'])
+            cursor['chi'] += written
+
+        # Pon samples
+        images, labels, masks = read_xmls_for_pon(xmls)
+        if images.size:
+            written = dataset3.write_data(images, labels, masks, start=cursor['pon'])
+            cursor['pon'] += written
+
+        # Kan samples
+        images, labels, masks = read_xmls_for_kan(xmls)
+        if images.size:
+            written = dataset4.write_data(images, labels, masks, start=cursor['kan'])
+            cursor['kan'] += written
+
+        # Riichi samples
+        images, labels, masks = read_xmls_for_riichi(xmls)
+        if images.size:
+            written = dataset5.write_data(images, labels, masks, start=cursor['riichi'])
+            cursor['riichi'] += written
 
     dataset.close()
+    dataset2.close()
+    dataset3.close()
+    dataset4.close()
+    dataset5.close()
 
-    # Gen Test dataset
+    # Gen Test dataset (mirror training: discard/chi/pon/kan/riichi)
     dataset = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test")
+    dataset2 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_chi")
+    dataset3 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_pon")
+    dataset4 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_kan")
+    dataset5 = RiichiZarrDatasetBuilder((29, 34), out_dir="output/test_riichi")
 
     sql_batch_size = 256
-    cursor = 0
+    cursor = {'discard':0,'chi':0,'pon':0,'kan':0,'riichi':0}
     for start in tqdm(range(n_training, total_logs, sql_batch_size)):
         xmls = fetch_xmls_from_database(db, start=start, num_examples=sql_batch_size)
         if not xmls:
             break
-        images, labels, masks = read_xmls(xmls)
-        written = dataset.write_data(images, labels, masks, start=cursor)
-        cursor += written
+        # Discard samples
+        images, labels, masks = read_xmls_for_discards(xmls)
+        written = dataset.write_data(images, labels, masks, start=cursor['discard'])
+        cursor['discard'] += written
+
+        # Chi samples
+        images, labels, masks = read_xmls_for_chi(xmls)
+        if images.size:
+            written = dataset2.write_data(images, labels, masks, start=cursor['chi'])
+            cursor['chi'] += written
+
+        # Pon samples
+        images, labels, masks = read_xmls_for_pon(xmls)
+        if images.size:
+            written = dataset3.write_data(images, labels, masks, start=cursor['pon'])
+            cursor['pon'] += written
+
+        # Kan samples
+        images, labels, masks = read_xmls_for_kan(xmls)
+        if images.size:
+            written = dataset4.write_data(images, labels, masks, start=cursor['kan'])
+            cursor['kan'] += written
+
+        # Riichi samples
+        images, labels, masks = read_xmls_for_riichi(xmls)
+        if images.size:
+            written = dataset5.write_data(images, labels, masks, start=cursor['riichi'])
+            cursor['riichi'] += written
 
     dataset.close()
+    dataset2.close()
+    dataset3.close()
+    dataset4.close()
+    dataset5.close()
 
 
 if __name__ == "__main__":

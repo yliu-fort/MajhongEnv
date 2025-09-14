@@ -495,6 +495,238 @@ def iter_discard_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, 
             # ignore other tags
             pass
 
+def iter_chi_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, Dict[str, int]], None, None]:
+    """Yield `(state, who, called_t34, meta)` for every Chi (chii) call.
+
+    - `who`: caller 0..3
+    - `called_t34`: 34-idx of the tile claimed from the previous discard
+    - `meta`: {round_index, oya, honba, riichi_sticks, action_idx}
+    """
+    root = _open_xml(xml)
+    tracker = TenhouRoundTracker()
+    action_idx = 0
+
+    for el in root:
+        raw = el.tag
+        if raw == "INIT":
+            attr = el.attrib
+            seed = list(map(int, attr["seed"].split(",")))
+            oya = int(attr["oya"])
+            hands: Dict[int, List[int]] = {}
+            for p in range(4):
+                key = f"hai{p}"
+                if key in attr:
+                    hands[p] = list(map(int, attr[key].split(",")))
+            tracker.start_init(seed, oya, hands)
+        elif raw and raw[0] in "TUVW" and raw[1:].isdigit():
+            who = "TUVW".index(raw[0])
+            tracker.draw(who, int(raw[1:]))
+        elif raw and raw[0] in "DEFG" and raw[1:].isdigit():
+            who = "DEFG".index(raw[0])
+            tracker.discard(who, int(raw[1:]))
+        elif raw == "N":
+            who = int(el.attrib["who"])
+            m_val = int(el.attrib["m"])
+            m = TenhouMeld(who, m_val)
+            # Apply all melds to keep state consistent
+            tracker.apply_meld(who, m_val)
+            if m.type == "chi" and m.base_t34 is not None and m.called_index is not None:
+                called_t34 = m.base_t34 + m.called_index
+                state = tracker.snapshot_before_discard(who)
+                meta = {
+                    "round_index": tracker.round_index,
+                    "oya": tracker.oya,
+                    "honba": tracker.honba,
+                    "riichi_sticks": tracker.riichi_sticks,
+                    "action_idx": action_idx,
+                }
+                yield (state, who, called_t34, meta)
+                action_idx += 1
+        elif raw == "REACH":
+            who = int(el.attrib["who"])
+            step = int(el.attrib.get("step", "0"))
+            tracker.reach(who, step)
+        elif raw == "DORA":
+            tracker.add_dora(int(el.attrib["hai"]))
+        # Other end-of-hand/ignored tags are skipped
+
+
+def iter_pon_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, Dict[str, int]], None, None]:
+    """Yield `(state, who, base_t34, meta)` for every Pon (pon) call.
+
+    - `who`: caller 0..3
+    - `base_t34`: 34-idx of the pon tile (claimed tile's type)
+    - `meta`: {round_index, oya, honba, riichi_sticks, action_idx}
+    """
+    root = _open_xml(xml)
+    tracker = TenhouRoundTracker()
+    action_idx = 0
+
+    for el in root:
+        raw = el.tag
+        if raw == "INIT":
+            attr = el.attrib
+            seed = list(map(int, attr["seed"].split(",")))
+            oya = int(attr["oya"])
+            hands: Dict[int, List[int]] = {}
+            for p in range(4):
+                key = f"hai{p}"
+                if key in attr:
+                    hands[p] = list(map(int, attr[key].split(",")))
+            tracker.start_init(seed, oya, hands)
+        elif raw and raw[0] in "TUVW" and raw[1:].isdigit():
+            who = "TUVW".index(raw[0])
+            tracker.draw(who, int(raw[1:]))
+        elif raw and raw[0] in "DEFG" and raw[1:].isdigit():
+            who = "DEFG".index(raw[0])
+            tracker.discard(who, int(raw[1:]))
+        elif raw == "N":
+            who = int(el.attrib["who"])
+            m_val = int(el.attrib["m"])
+            m = TenhouMeld(who, m_val)
+            tracker.apply_meld(who, m_val)
+            if m.type == "pon" and m.base_t34 is not None:
+                base_t34 = m.base_t34
+                state = tracker.snapshot_before_discard(who)
+                meta = {
+                    "round_index": tracker.round_index,
+                    "oya": tracker.oya,
+                    "honba": tracker.honba,
+                    "riichi_sticks": tracker.riichi_sticks,
+                    "action_idx": action_idx,
+                }
+                yield (state, who, base_t34, meta)
+                action_idx += 1
+        elif raw == "REACH":
+            who = int(el.attrib["who"])
+            step = int(el.attrib.get("step", "0"))
+            tracker.reach(who, step)
+        elif raw == "DORA":
+            tracker.add_dora(int(el.attrib["hai"]))
+
+
+def iter_kan_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, Dict[str, int]], None, None]:
+    """Yield `(state, who, base_t34, meta)` for every Kan/Chakan call.
+
+    - `who`: caller 0..3
+    - `base_t34`: 34-idx of the kan tile (claimed/added tile's type)
+    - `meta`: {round_index, oya, honba, riichi_sticks, action_idx}
+    """
+    root = _open_xml(xml)
+    tracker = TenhouRoundTracker()
+    action_idx = 0
+
+    for el in root:
+        raw = el.tag
+        if raw == "INIT":
+            attr = el.attrib
+            seed = list(map(int, attr["seed"].split(",")))
+            oya = int(attr["oya"])
+            hands: Dict[int, List[int]] = {}
+            for p in range(4):
+                key = f"hai{p}"
+                if key in attr:
+                    hands[p] = list(map(int, attr[key].split(",")))
+            tracker.start_init(seed, oya, hands)
+        elif raw and raw[0] in "TUVW" and raw[1:].isdigit():
+            who = "TUVW".index(raw[0])
+            tracker.draw(who, int(raw[1:]))
+        elif raw and raw[0] in "DEFG" and raw[1:].isdigit():
+            who = "DEFG".index(raw[0])
+            tracker.discard(who, int(raw[1:]))
+        elif raw == "N":
+            who = int(el.attrib["who"])
+            m_val = int(el.attrib["m"])
+            m = TenhouMeld(who, m_val)
+            tracker.apply_meld(who, m_val)
+            if (m.type == "kan" or m.type == "chakan") and m.base_t34 is not None:
+                base_t34 = m.base_t34
+                state = tracker.snapshot_before_discard(who)
+                meta = {
+                    "round_index": tracker.round_index,
+                    "oya": tracker.oya,
+                    "honba": tracker.honba,
+                    "riichi_sticks": tracker.riichi_sticks,
+                    "action_idx": action_idx,
+                }
+                yield (state, who, base_t34, meta)
+                action_idx += 1
+        elif raw == "REACH":
+            who = int(el.attrib["who"])
+            step = int(el.attrib.get("step", "0"))
+            tracker.reach(who, step)
+        elif raw == "DORA":
+            tracker.add_dora(int(el.attrib["hai"]))
+
+def iter_riichi_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, Dict[str, int]], None, None]:
+    """Yield `(state, who, discard_t34, meta)` for every Riichi declaration.
+
+    Notes:
+    - Tenhou logs emit REACH twice: step=1 (declare with the discard), step=2 (confirm/pay).
+      We want the snapshot just BEFORE the riichi discard, so we capture the
+      pre-discard state at each discard, and only yield it when we observe the
+      matching `REACH step=1` for that player.
+    - `who`: 0..3 (Tenhou seat order)
+    - `discard_t34`: 0..33 (34-tile index of the riichi discard)
+    - `meta`: {round_index, oya, honba, riichi_sticks, action_idx}
+    """
+    root = _open_xml(xml)
+    tracker = TenhouRoundTracker()
+    action_idx = 0
+
+    # Store latest pre-discard snapshot per player to match with REACH step=1
+    pending: Dict[int, Tuple[RiichiState, int, int, Dict[str, int]]] = {}
+
+    for el in root:
+        raw = el.tag
+        if raw == "INIT":
+            attr = el.attrib
+            seed = list(map(int, attr["seed"].split(",")))
+            oya = int(attr["oya"])
+            hands: Dict[int, List[int]] = {}
+            for p in range(4):
+                key = f"hai{p}"
+                if key in attr:
+                    hands[p] = list(map(int, attr[key].split(",")))
+            tracker.start_init(seed, oya, hands)
+            pending.clear()
+        elif raw and raw[0] in "TUVW" and raw[1:].isdigit():
+            who = "TUVW".index(raw[0])
+            tracker.draw(who, int(raw[1:]))
+        elif raw and raw[0] in "DEFG" and raw[1:].isdigit():
+            # Capture snapshot BEFORE the discard; defer yielding until REACH step=1
+            who = "DEFG".index(raw[0])
+            tid = int(raw[1:])
+            state = tracker.snapshot_before_discard(who)
+            discard_t34 = tid136_to_t34(tid)
+            meta = {
+                "round_index": tracker.round_index,
+                "oya": tracker.oya,
+                "honba": tracker.honba,
+                "riichi_sticks": tracker.riichi_sticks,
+                # action_idx assigned upon REACH yield
+            }
+            pending[who] = (state, who, discard_t34, meta)
+            tracker.discard(who, tid)
+        elif raw == "N":
+            who = int(el.attrib["who"])
+            m_val = int(el.attrib["m"])
+            tracker.apply_meld(who, m_val)
+        elif raw == "REACH":
+            who = int(el.attrib["who"])
+            step = int(el.attrib.get("step", "0"))
+            # Yield only on declaration (step=1), using the pre-discard snapshot captured above.
+            if step == 1 and who in pending:
+                st, w, disc_t34, meta = pending.pop(who)
+                meta = dict(meta)
+                meta["action_idx"] = action_idx
+                yield (st, w, disc_t34, meta)
+                action_idx += 1
+            tracker.reach(who, step)
+        elif raw == "DORA":
+            tracker.add_dora(int(el.attrib["hai"]))
+        # Ignore AGARI/RYUUKYOKU and other tags for this iterator
+
 
 # ----------------------------
 # Convenience: collect all samples
