@@ -214,7 +214,7 @@ class TenhouMeld:
 
     def encode(self):
         base = self.base_t34
-        offset = self._get_distance(self.from_who, self.who)
+        offset = self._get_distance(self.who, self.from_who)
         match self.type:
             case "chi":
                 called = self.called_index
