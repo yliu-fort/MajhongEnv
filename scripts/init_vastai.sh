@@ -5,7 +5,7 @@ set -euo pipefail
 PY_VER="3.10"
 ENV_NAME="riichi_data_builder"
 REPO_URL="https://github.com/yliu-fort/MajhongEnv.git"
-REPO_DIR="/workspace/MajhongEnv"
+REPO_DIR="/data/MajhongEnv"
 
 echo "[*] Updating packages..."
 sudo apt-get update -y
