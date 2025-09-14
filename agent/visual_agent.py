@@ -49,17 +49,24 @@ class VisualAgent:
  
     def load_model(self, path="resnet18"):
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
-        self.model.load_state_dict(ckpt["model"], strict=True)
- 
+        if ckpt["ema"]: 
+            ema_weights = {
+            k: v.clone().detach()
+            for k, v in ckpt["ema"]["shadow"].items()
+            }
+            self.model.load_state_dict(ema_weights, strict=False)
+        else:
+            self.model.load_state_dict(ckpt["model"], strict=True)
+
+    
     def predict(self, observation):
         # 如果当前状态是和牌状态，直接返回和牌动作
         if self.env and (self.env.phase == "tsumo" or self.env.phase == "ron"):
             return (0, True)
         
         # No options yet
-        confirm = False
         if self.env and (self.env.phase == "riichi"):
-            confirm = True
+            return self._alt_model.predict(observation)[0], True
 
         if self.env and (self.env.phase == "discard"):
             # 推理时获取动作
@@ -74,7 +81,7 @@ class VisualAgent:
             action_masks = self.env.action_masks() # 0 - 13 position in hand
             for i, x in enumerate(self.env.hands[observation[1]['who']]):
                 if tid136_to_t34(x) == pred and action_masks[i] == True:
-                    return (i, confirm)
+                    return (i, False)
 
         # if preds not in action_masks, return a random choice from action_masks.
-        return self._alt_model.predict(observation)[0], True
+        return self._alt_model.predict(observation)[0], False
