@@ -172,6 +172,27 @@ class RiichiResNetFeatures(torch.nn.Module):
         28 aka5 flags for m/p/s
         29 legal_discard_mask (if provided, else derived from hand_count>0)
 
+        --- intermediate features ---
+        30 is_in_any_tuitsu?  (>=2 same tile)
+        31 is_in_any_triplet? (>=3 same tile)
+        32 is_in_any_taatsu?  (1, 2)
+        33 is_in_any_shuntsu? (1, 2 ,3)
+        34 is_surplus1? (remove all melds and taatsu, ascending order)
+        35 is_surplus2? (remove all melds and taatsu, descending order)
+        36 shanten_normal (global, /8)
+        37 shanten_chiitoitsu (global, /6)
+        38 shanten_kokushi (global, /13)
+        39 ukeire_count (global, /60)
+        40-42 genbutsu_to_{L,C,R} (per-tile)
+        43 tile_4visible_flag (per-tile)
+        44 tile_3visible_flag (per-tile)
+        45 tile_2visible_flag (per-tile)
+        46 dora_count_hand (global, /5) # in both hand and melds
+        47-49 visible_dora_hand_{L,C,R} (global, /5) # in melds only
+        50 visible_dora_total (global, /10)
+        51 furiten_self (global, {0/1})
+        52-54 riichi_turn_{L,C,R} (global, /24)
+
     Total: 29 channels
 
     Notes:
@@ -306,28 +327,6 @@ class RiichiResNetFeatures(torch.nn.Module):
                 "spec": "baseline+extras-31ch",
             },
         }
-
-
-# ----------------------------
-# Loss utility (masked CE)
-# ----------------------------
-class MaskedCrossEntropy(torch.nn.Module):
-    """Cross-entropy with a (34,) mask where 0-weight classes are ignored.
-    Assumes logits shape (B, 34) and targets shape (B,).
-    """
-    def __init__(self, eps: float = 1e-9):
-        super().__init__()
-        self.eps = eps
-
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        # logits: (B,34); mask: (B,34) or (34,)
-        if mask.dim() == 1:
-            mask = mask.unsqueeze(0).expand(logits.size(0), -1)
-        # set very negative logits on illegal classes so softmax prob ~0
-        neg_inf = -1e9
-        masked_logits = logits.clone()
-        masked_logits[mask <= 0.0] = neg_inf
-        return torch.nn.functional.cross_entropy(masked_logits, targets)
 
 
 # ----------------------------

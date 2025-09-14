@@ -134,6 +134,10 @@ class TenhouMeld:
         self.opened: bool = True
         self._decode()
 
+    def _get_distance(self, current_player, other_player, num_players=4):
+        """计算当前玩家到其他玩家的距离（逆时针）。"""
+        return (other_player - current_player) % num_players
+    
     def _decode(self):
         data = self.m
         self.from_who = data & 0x3
@@ -200,10 +204,17 @@ class TenhouMeld:
             f"tiles_t34={self.tiles_t34}, tiles_t136={self.tiles_t136}, "
             f"opened={self.opened})"
         )
+    
+    def to_dict(self):
+        return {"type":self.type, 
+                "fromwho":self.from_who, "offset":self._get_distance(self.from_who, self.who),
+                "m": sorted([t for t in self.tiles_t136]), 
+                "claimed_tile": self.base_t136,
+                "opened": self.opened}
 
     def encode(self):
         base = self.base_t34
-        offset = (self.from_who - self.who) % 4
+        offset = self._get_distance(self.from_who, self.who)
         match self.type:
             case "chi":
                 called = self.called_index
@@ -531,3 +542,4 @@ if __name__ == "__main__":  # pragma: no cover
     for m in ms:
         print(m, TenhouMeld(who=who, m=m).encode())
         print(TenhouMeld(who=who, m=m))
+        print(TenhouMeld(who=who, m=m).to_dict())
