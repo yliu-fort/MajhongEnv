@@ -301,15 +301,23 @@ class RiichiResNetFeatures(torch.nn.Module):
         return torch.tensor([1.0 if v > 0 else 0.0 for v in c], dtype=torch.float32)
         
     # ---------- core ----------
-    # TODO: try to optimise this function to improve its throughput
     def forward(self, state: RiichiState) -> Dict[str, torch.Tensor]:
+        """Construct feature planes for a given :class:`RiichiState`.
+
+        This implementation aims to be reasonably fast as feature extraction is
+        executed for every step in self-play or dataset generation.  The focus
+        here is to keep the operations vectorised and avoid Python level loops
+        where possible.
+        """
+
         planes: List[torch.Tensor] = []
 
         # 1) Self hand
         hand = self._to_tensor_1d(state.hand_counts)
         hand_clamped = hand.clamp(min=0, max=4)
+        hand_mask = (hand_clamped > 0).float()
         planes.append(self._broadcast_row(hand_clamped / 4.0))                  # 1 hand_count
-        planes.append(self._broadcast_row((hand_clamped > 0).float()))          # 2 hand_mask
+        planes.append(self._broadcast_row(hand_mask))                           # 2 hand_mask
 
         meld_self = self._to_tensor_1d(state.meld_counts_self or [0]*NUM_TILES)
         planes.append(self._broadcast_row(meld_self.clamp(0, 4) / 4.0))         # 3 meld_self
@@ -372,7 +380,7 @@ class RiichiResNetFeatures(torch.nn.Module):
         if state.legal_discards_mask is not None:
             legal = self._to_tensor_1d(state.legal_discards_mask)
         else:
-            legal = (hand_clamped > 0).float()
+            legal = hand_mask
         planes.append(self._broadcast_row(legal))                                # 29 legal mask
 
         # --- Intermediate features ---
@@ -390,23 +398,33 @@ class RiichiResNetFeatures(torch.nn.Module):
         planes.append(self._broadcast_row((hand_clamped >= 2).float()))          # 30 tuitsu
         planes.append(self._broadcast_row((hand_clamped >= 3).float()))          # 31 triplet
 
+        # Vectorised taatsu (open-ended shapes) detection per suit
         taatsu = torch.zeros(NUM_TILES, dtype=torch.float32)
-        for t in range(NUM_TILES):
-            if hand_clamped[t] <= 0 or suit_of(t) is None:
-                continue
-            for d in (1, 2):
-                t2 = t + d
-                if t2 < NUM_TILES and suit_of(t2) == suit_of(t) and hand_clamped[t2] > 0:
-                    taatsu[t] = 1.0
-                    taatsu[t2] = 1.0
-        planes.append(self._broadcast_row(taatsu))                               # 32 taatsu
-
         shuntsu = torch.zeros(NUM_TILES, dtype=torch.float32)
-        for t in range(NUM_TILES):
-            if suit_of(t) is None or t % 9 > 6:
+        for base in (0, 9, 18):  # m, p, s suits
+            h = hand_mask[base:base+9]
+            if h.sum() == 0:
                 continue
-            if hand_clamped[t] > 0 and hand_clamped[t+1] > 0 and hand_clamped[t+2] > 0:
-                shuntsu[t] = shuntsu[t+1] = shuntsu[t+2] = 1.0
+
+            # Taatsu: pairs with gap 1 or 2
+            mask = torch.zeros(9, dtype=torch.float32)
+            pair1 = h[:-1] * h[1:]
+            pair2 = h[:-2] * h[2:]
+            mask[:-1] += pair1
+            mask[1:] += pair1
+            mask[:-2] += pair2
+            mask[2:] += pair2
+            taatsu[base:base+9] = (mask > 0).float()
+
+            # Shuntsu: straight sequences
+            sh_mask = torch.zeros(9, dtype=torch.float32)
+            triplet = h[:-2] * h[1:-1] * h[2:]
+            sh_mask[:-2] += triplet
+            sh_mask[1:-1] += triplet
+            sh_mask[2:] += triplet
+            shuntsu[base:base+9] = (sh_mask > 0).float()
+
+        planes.append(self._broadcast_row(taatsu))                               # 32 taatsu
         planes.append(self._broadcast_row(shuntsu))                              # 33 shuntsu
 
         planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), True)))   # 34 surplus1
