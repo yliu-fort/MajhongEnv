@@ -301,6 +301,7 @@ class RiichiResNetFeatures(torch.nn.Module):
         return torch.tensor([1.0 if v > 0 else 0.0 for v in c], dtype=torch.float32)
         
     # ---------- core ----------
+    # TODO: try to optimise this function to improve its throughput
     def forward(self, state: RiichiState) -> Dict[str, torch.Tensor]:
         planes: List[torch.Tensor] = []
 
