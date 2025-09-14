@@ -38,7 +38,7 @@ def make_holdout_split(labels, test_size=0.2, val_size=0.1, seed=42):
 # 示例：
 # splits = make_holdout_split(labels)
 # json.dump({k: list(map(int,v)) for k,v in splits.items()}, open("splits.json","w"))
-
+MULTITHREADING = True
 
 class RiichiZarrDatasetBuilder:
     def __init__(
@@ -284,8 +284,12 @@ def _parallel_collect(xmls: List[TagLike], worker):
     workers = max(1, cpu_count - 1)
     workers = min(workers, len(xmls))
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(worker, xmls))
+    if MULTITHREADING and workers > 1:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            results = list(executor.map(worker, xmls))
+    else:
+        # Sequential fallback to avoid process overhead for small workloads
+        results = [worker(x) for x in xmls]
 
     for images, labels, masks in results:
         imageset.extend(images)
