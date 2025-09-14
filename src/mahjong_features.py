@@ -144,7 +144,7 @@ class RiichiState:
     legal_discards_mask: Optional[Sequence[int]] = None  # len 34, 0/1
 
     # Last droped tiles (for naki)
-    last_discarded_tile_136: int = 0
+    last_discarded_tile_136: int = -1
 
     # Hooks / extra calculators
     extra: ExtraCalcs = field(default_factory=ExtraCalcs)
