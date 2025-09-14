@@ -299,7 +299,7 @@ class TenhouRoundTracker:
     # events
     def draw(self, who: int, tid: int):
         self.hands_136[who].append(tid)
-        print(who, "draw: ", tid)
+        #print(who, "draw: ", tid)
         #assert len(self.hands_136[who]) in [2, 5, 8, 11, 14], "TenhouRoundTracker: Num tiles in hand are not any of 2, 5, 8, 11, 14!"
         self._mark_red(tid)
 
