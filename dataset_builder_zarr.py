@@ -397,7 +397,7 @@ def main() -> None:
 
     print(f"物理核心数: {psutil.cpu_count(logical=False)}, 逻辑核心数: {psutil.cpu_count(logical=True)}")
 
-    db = "data/2018.db"
+    db = "/data/2018.db"
     if not os.path.exists(db):
         print(f"Database '{db}' not found; skipping dataset build")
         return
