@@ -133,9 +133,6 @@ class RiichiZarrDatasetBuilder:
         # Close self.root Zarr connection
         pass
 
-
-
-
 def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
     """Return a list of **lightweight dicts** for easy JSON/pickle dumping.
     (If you want full dataclasses, iterate `iter_discard_states` directly.)
@@ -160,11 +157,8 @@ def collect_discard_samples(xml: TagLike, extractor: RiichiResNetFeatures):
 
     return images, labels, masks
 
-# Implementation of read_xmls for multi-CPU cores execution.
-def _worker_fn(xml):
-    return collect_discard_samples(xml, RiichiResNetFeatures())
-    
-def read_xmls_for_discards(xmls: List[TagLike]):
+# @deprecated    
+def _read_xmls_for_discards(xmls: List[TagLike]):
     """并行读取一组 xml 并返回堆叠后的 numpy 数组."""
     imageset, labelset, maskset = [], [], []
 
@@ -267,6 +261,10 @@ def collect_riichi_samples(xml: TagLike, extractor: RiichiResNetFeatures):
 
     return images, labels, masks
 
+# Implementation of read_xmls for multi-CPU cores execution.
+def _worker_fn(xml):
+    return collect_discard_samples(xml, RiichiResNetFeatures())
+
 def _worker_fn_chi(xml):
     return collect_chi_samples(xml, RiichiResNetFeatures())
 
@@ -302,6 +300,9 @@ def _parallel_collect(xmls: List[TagLike], worker):
             np.empty((0,), dtype=np.uint8),
             np.empty((0,), dtype=np.uint8),
         )
+
+def read_xmls_for_discards(xmls: List[TagLike]):
+    return _parallel_collect(xmls, _worker_fn)
 
 def read_xmls_for_chi(xmls: List[TagLike]):
     return _parallel_collect(xmls, _worker_fn_chi)
