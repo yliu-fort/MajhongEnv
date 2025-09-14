@@ -140,7 +140,7 @@ class TenhouMeld:
     
     def _decode(self):
         data = self.m
-        self.from_who = data & 0x3
+        self.from_who = (self.who + (data & 0x3)) % 4 # Convert offset (data & 0x3) to from_who
         if data & 0x4:  # CHI
             self.type = "chi"
             t0 = (data >> 3) & 0x3
@@ -299,6 +299,8 @@ class TenhouRoundTracker:
     # events
     def draw(self, who: int, tid: int):
         self.hands_136[who].append(tid)
+        print(who, "draw: ", tid)
+        #assert len(self.hands_136[who]) in [2, 5, 8, 11, 14], "TenhouRoundTracker: Num tiles in hand are not any of 2, 5, 8, 11, 14!"
         self._mark_red(tid)
 
     def discard(self, who: int, tid: int):
@@ -315,9 +317,11 @@ class TenhouRoundTracker:
         self._unmark_red(tid)
         self.discards_total += 1
         self.last_discarded_tile_136 = tid
+        #print(who, "discard: ", tid)
 
     def apply_meld(self, who: int, m_val: int):
         m = TenhouMeld(who, m_val)
+        #print(who, m_val, m.to_dict())
         base = m.base_t34
         if m.type is None or base is None:
             return
@@ -343,7 +347,7 @@ class TenhouRoundTracker:
             self.meld_counts[who][base] += 3
         elif m.type == "kan":
             # open or closed
-            need = 4 if m.from_who is None else 3
+            need = 4 if m.from_who == m.who else 3
             removed = 0
             for i in range(len(self.hands_136[who]) - 1, -1, -1):
                 if tid136_to_t34(self.hands_136[who][i]) == base:
@@ -351,6 +355,7 @@ class TenhouRoundTracker:
                     removed += 1
                     if removed == need:
                         break
+            #assert removed == need
             self.meld_counts[who][base] += 4
         elif m.type == "chakan":
             for i in range(len(self.hands_136[who]) - 1, -1, -1):
@@ -793,3 +798,4 @@ if __name__ == "__main__":  # pragma: no cover
         print(m, TenhouMeld(who=who, m=m).encode())
         print(TenhouMeld(who=who, m=m))
         print(TenhouMeld(who=who, m=m).to_dict())
+    print(TenhouMeld(who=1, m=32768).to_dict())
