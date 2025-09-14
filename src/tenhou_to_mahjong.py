@@ -207,14 +207,14 @@ class TenhouMeld:
     
     def to_dict(self):
         return {"type":self.type, 
-                "fromwho":self.from_who, "offset":self._get_distance(self.from_who, self.who),
+                "fromwho":self.from_who, "offset":self._get_distance(self.who, self.from_who),
                 "m": sorted([t for t in self.tiles_t136]), 
                 "claimed_tile": self.base_t136,
                 "opened": self.opened}
 
     def encode(self):
         base = self.base_t34
-        offset = self._get_distance(self.from_who, self.who)
+        offset = self._get_distance(self.who, self.from_who)
         match self.type:
             case "chi":
                 called = self.called_index
