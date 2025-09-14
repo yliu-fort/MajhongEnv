@@ -2,10 +2,7 @@
 import os, json, numpy as np, torch, zarr
 from torch.utils.data import Dataset, get_worker_info
 from torch.utils.data import DataLoader
-
-
-NUM_TILES = 34 
-NUM_FEATURES = 29
+from mahjong_features import NUM_FEATURES, NUM_TILES
 
 # Dataset class
 class RiichiDatasetZarr(Dataset):

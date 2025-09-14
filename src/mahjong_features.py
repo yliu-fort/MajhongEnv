@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Sequence, Tuple
 import math
 import torch
+from mahjong.shanten import Shanten
 
 # ----------------------------
 # Tile system helpers (34-tile)
@@ -30,7 +31,7 @@ import torch
 # 27..33: winds+dragons [East,South,West,North,White,Green,Red]
 
 NUM_TILES = 34
-NUM_FEATURES = 29
+NUM_FEATURES = 54
 
 # Red fives are tracked via flags, not separate indices.
 
@@ -97,6 +98,7 @@ class PlayerPublic:
     river_counts: Optional[Sequence[int]] = None   # length 34 (optional; built if None)
     meld_counts: Optional[Sequence[int]] = None    # length 34 (exposed tiles from chi/pon/kan)
     riichi: bool = False
+    riichi_turn: int = 0  # turn number when riichi declared (if any)
 
 
 @dataclass
@@ -118,6 +120,8 @@ class RiichiState:
     hand_counts: Sequence[int]                 # length 34, 0..4
     meld_counts_self: Optional[Sequence[int]] = None  # exposed tiles only (chi/pon/kan)
     riichi: bool = False
+    river_self: List[int] = field(default_factory=list)
+    river_self_counts: Optional[Sequence[int]] = None
 
     # Opponents (relative seats: Left, Across/Center, Right)
     left: PlayerPublic = field(default_factory=PlayerPublic)
@@ -196,7 +200,7 @@ class RiichiResNetFeatures(torch.nn.Module):
         51 furiten_self (global, {0/1})
         52-54 riichi_turn_{L,C,R} (global, /24)
 
-    Total: 29 channels
+    Total: 54 channels
 
     Notes:
       - Rivers can be provided as ordered lists; if `river_counts` is None
@@ -246,6 +250,55 @@ class RiichiResNetFeatures(torch.nn.Module):
             counts[t] += 1
         return counts
 
+    @staticmethod
+    def _default_visible_counts(state: RiichiState) -> List[int]:
+        counts = [0] * NUM_TILES
+        for i, c in enumerate(state.hand_counts):
+            counts[i] += int(c)
+        if state.meld_counts_self is not None:
+            for i, c in enumerate(state.meld_counts_self):
+                counts[i] += int(c)
+        rc_self = state.river_self_counts if state.river_self_counts is not None else RiichiResNetFeatures._counts_from_river(state.river_self)
+        for i, c in enumerate(rc_self):
+            counts[i] += int(c)
+        for opp in [state.left, state.across, state.right]:
+            rc = opp.river_counts if opp.river_counts is not None else RiichiResNetFeatures._counts_from_river(opp.river)
+            mc = opp.meld_counts or [0]*NUM_TILES
+            for i, c in enumerate(rc):
+                counts[i] += int(c)
+            for i, c in enumerate(mc):
+                counts[i] += int(c)
+        for ind in state.dora_indicators:
+            if 0 <= ind < NUM_TILES:
+                counts[ind] += 1
+        return [min(4, c) for c in counts]
+
+    @staticmethod
+    def _surplus_mask(counts: Sequence[int], ascending: bool) -> torch.Tensor:
+        c = [int(x) for x in counts]
+        for i in range(NUM_TILES):
+            c[i] %= 3
+        rng = range(NUM_TILES-2) if ascending else range(NUM_TILES-3, -1, -1)
+        for i in rng:
+            if suit_of(i) is None or i % 9 > 6:
+                continue
+            m = min(c[i], c[i+1], c[i+2])
+            if m > 0:
+                c[i] -= m; c[i+1] -= m; c[i+2] -= m
+        rng2 = range(NUM_TILES) if ascending else range(NUM_TILES-1, -1, -1)
+        for i in rng2:
+            if suit_of(i) is None:
+                continue
+            for d in (1, 2):
+                j = i + d if ascending else i - d
+                if 0 <= j < NUM_TILES and suit_of(j) == suit_of(i):
+                    m = min(c[i], c[j])
+                    if m > 0:
+                        c[i] -= m; c[j] -= m
+        for i in range(NUM_TILES):
+            c[i] %= 2
+        return torch.tensor([1.0 if v > 0 else 0.0 for v in c], dtype=torch.float32)
+        
     # ---------- core ----------
     def forward(self, state: RiichiState) -> Dict[str, torch.Tensor]:
         planes: List[torch.Tensor] = []
@@ -320,6 +373,116 @@ class RiichiResNetFeatures(torch.nn.Module):
             legal = (hand_clamped > 0).float()
         planes.append(self._broadcast_row(legal))                                # 29 legal mask
 
+        # --- Intermediate features ---
+        if state.extra.visible_count_hook:
+            visible_counts = state.extra.visible_count_hook(state)
+        else:
+            visible_counts = self._default_visible_counts(state)
+        if state.extra.remaining_count_hook:
+            remaining_counts = state.extra.remaining_count_hook(state)
+        else:
+            remaining_counts = [max(0, 4 - v) for v in visible_counts]
+        visible_tensor = torch.as_tensor(visible_counts, dtype=torch.float32)
+        remaining_tensor = torch.as_tensor(remaining_counts, dtype=torch.float32)
+
+        planes.append(self._broadcast_row((hand_clamped >= 2).float()))          # 30 tuitsu
+        planes.append(self._broadcast_row((hand_clamped >= 3).float()))          # 31 triplet
+
+        taatsu = torch.zeros(NUM_TILES, dtype=torch.float32)
+        for t in range(NUM_TILES):
+            if hand_clamped[t] <= 0 or suit_of(t) is None:
+                continue
+            for d in (1, 2):
+                t2 = t + d
+                if t2 < NUM_TILES and suit_of(t2) == suit_of(t) and hand_clamped[t2] > 0:
+                    taatsu[t] = 1.0
+                    taatsu[t2] = 1.0
+        planes.append(self._broadcast_row(taatsu))                               # 32 taatsu
+
+        shuntsu = torch.zeros(NUM_TILES, dtype=torch.float32)
+        for t in range(NUM_TILES):
+            if suit_of(t) is None or t % 9 > 6:
+                continue
+            if hand_clamped[t] > 0 and hand_clamped[t+1] > 0 and hand_clamped[t+2] > 0:
+                shuntsu[t] = shuntsu[t+1] = shuntsu[t+2] = 1.0
+        planes.append(self._broadcast_row(shuntsu))                              # 33 shuntsu
+
+        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), True)))   # 34 surplus1
+        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), False)))  # 35 surplus2
+
+        sh = Shanten()
+        hand_list = [int(x) for x in hand_clamped.tolist()]
+        sh_normal = sh.calculate_shanten(hand_list)
+        sh_chiitoi = sh.calculate_shanten_for_chiitoitsu_hand(hand_list)
+        sh_kokushi = sh.calculate_shanten_for_kokushi_hand(hand_list)
+        planes.append(self._const_plane(max(sh_normal, 0) / 8.0))                # 36 shanten normal
+        planes.append(self._const_plane(max(sh_chiitoi, 0) / 6.0))               # 37 shanten chiitoi
+        planes.append(self._const_plane(max(sh_kokushi, 0) / 13.0))              # 38 shanten kokushi
+
+        ukeire = 0
+        base_sh = sh_normal
+        hand_temp = hand_list[:]
+        for t in range(NUM_TILES):
+            if remaining_counts[t] <= 0:
+                continue
+            hand_temp[t] += 1
+            if sh.calculate_shanten(hand_temp) < base_sh:
+                ukeire += remaining_counts[t]
+            hand_temp[t] -= 1
+        planes.append(self._const_plane(min(ukeire, 60) / 60.0))                 # 39 ukeire count
+
+        for opp in opps:
+            rc = opp.river_counts if opp.river_counts is not None else self._counts_from_river(opp.river)
+            gen = torch.tensor([1.0 if c > 0 else 0.0 for c in rc], dtype=torch.float32)
+            planes.append(self._broadcast_row(gen))                              # 40-42 genbutsu
+
+        planes.append(self._broadcast_row((visible_tensor >= 4).float()))        # 43 4 visible
+        planes.append(self._broadcast_row((visible_tensor >= 3).float()))        # 44 3 visible
+        planes.append(self._broadcast_row((visible_tensor >= 2).float()))        # 45 2 visible
+
+        total_hand_meld = hand_clamped + meld_self
+        dora_count = float((total_hand_meld * is_dora).sum().item())
+        if state.aka5m and is_dora[4] == 0:
+            dora_count += 1
+        if state.aka5p and is_dora[13] == 0:
+            dora_count += 1
+        if state.aka5s and is_dora[22] == 0:
+            dora_count += 1
+        planes.append(self._const_plane(min(dora_count, 5) / 5.0))               # 46 dora count hand
+
+        for opp in opps:
+            meld = self._to_tensor_1d(opp.meld_counts or [0]*NUM_TILES)
+            count = float((meld * is_dora).sum().item())
+            planes.append(self._const_plane(min(count, 5) / 5.0))                # 47-49 visible dora in melds
+
+        total_dora_visible = float((visible_tensor * is_dora).sum().item())
+        if state.aka5m and is_dora[4] == 0:
+            total_dora_visible += 1
+        if state.aka5p and is_dora[13] == 0:
+            total_dora_visible += 1
+        if state.aka5s and is_dora[22] == 0:
+            total_dora_visible += 1
+        planes.append(self._const_plane(min(total_dora_visible, 10) / 10.0))      # 50 visible dora total
+
+        furiten = 0
+        my_river_counts = state.river_self_counts or self._counts_from_river(state.river_self)
+        if sum(my_river_counts) > 0:
+            for t in range(NUM_TILES):
+                if my_river_counts[t] == 0:
+                    continue
+                hand_temp[t] += 1
+                if sh.calculate_shanten(hand_temp) == -1:
+                    furiten = 1
+                    hand_temp[t] -= 1
+                    break
+                hand_temp[t] -= 1
+        planes.append(self._const_plane(float(furiten)))                         # 51 furiten self
+
+        for opp in opps:
+            rt = opp.riichi_turn if opp.riichi_turn >= 0 else 0
+            rt = max(0, min(rt, self.max_turns))
+            planes.append(self._const_plane(rt / float(self.max_turns)))         # 52-54 riichi turn
+
         x = torch.stack(planes, dim=0)  # (C,34,34)
 
         return {
@@ -327,7 +490,7 @@ class RiichiResNetFeatures(torch.nn.Module):
             "legal_mask": legal,                 # (34,)
             "meta": {
                 "num_channels": x.shape[0],
-                "spec": "baseline+extras-31ch",
+                "spec": "baseline+intermediate-54ch",
             },
         }
 

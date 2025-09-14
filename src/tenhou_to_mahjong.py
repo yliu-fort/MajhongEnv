@@ -258,6 +258,7 @@ class TenhouRoundTracker:
         self.rivers_t34: List[List[int]] = [[], [], [], []]
         self.meld_counts: List[List[int]] = [[0]*NUM_TILES for _ in range(4)]
         self.riichi_flag: List[bool] = [False, False, False, False]
+        self.riichi_turn: List[int] = [0, 0, 0, 0]
         self.discards_total = 0
         self.last_discarded_tile_136 = -1
 
@@ -271,6 +272,14 @@ class TenhouRoundTracker:
             self.seen_red["p"] = True
         elif tid == 88:
             self.seen_red["s"] = True
+
+    def _unmark_red(self, tid: int):
+        if tid == 16:
+            self.seen_red["m"] = False
+        elif tid == 52:
+            self.seen_red["p"] = False
+        elif tid == 88:
+            self.seen_red["s"] = False
 
     # INIT
     def start_init(self, seed_list: List[int], oya: int, hands: Dict[int, List[int]]):
@@ -303,6 +312,7 @@ class TenhouRoundTracker:
                     self.hands_136[who].pop(i)
                     break
         self.rivers_t34[who].append(tid136_to_t34(tid))
+        self._unmark_red(tid)
         self.discards_total += 1
         self.last_discarded_tile_136 = tid
 
@@ -354,6 +364,7 @@ class TenhouRoundTracker:
         if step == 2:
             self.riichi_flag[who] = True
             self.riichi_sticks += 1
+            self.riichi_turn[who] = self.discards_total // 4
 
     def add_dora(self, tid: int):
         self.dora_inds_t34.append(tid136_to_t34(tid))
@@ -375,18 +386,22 @@ class TenhouRoundTracker:
 
         pp_left = PlayerPublic(river=list(self.rivers_t34[left]),
                                meld_counts=list(self.meld_counts[left]),
-                               riichi=self.riichi_flag[left])
+                               riichi=self.riichi_flag[left],
+                               riichi_turn=self.riichi_turn[left])
         pp_across = PlayerPublic(river=list(self.rivers_t34[across]),
                                  meld_counts=list(self.meld_counts[across]),
-                                 riichi=self.riichi_flag[across])
+                                 riichi=self.riichi_flag[across],
+                                 riichi_turn=self.riichi_turn[across])
         pp_right = PlayerPublic(river=list(self.rivers_t34[right]),
                                 meld_counts=list(self.meld_counts[right]),
-                                riichi=self.riichi_flag[right])
+                                riichi=self.riichi_flag[right],
+                                riichi_turn=self.riichi_turn[right])
 
         state = RiichiState(
             hand_counts=counts,
             meld_counts_self=list(self.meld_counts[who]),
             riichi=self.riichi_flag[who],
+            river_self=list(self.rivers_t34[who]),
             left=pp_left, across=pp_across, right=pp_right,
             round_wind=round_wind,
             seat_wind_self=seat_wind_self,
