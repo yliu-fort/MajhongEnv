@@ -450,7 +450,7 @@ def compute_ukeire_advanced(hand, last_draw34, remaining):
     ukeire = sum(cnt for _, cnt in tiles_list)
     mode = "normal" if base_sh_global == normal_sh else ("chiitoi" if base_sh_global == chiitoi_sh else "kokushi")
     return {
-        "shanten": base_sh_global,
+        "shanten": base_sh_global - (((14 - sum(hand))//3)*2),
         "ukeire": ukeire,
         "tiles": tiles_list,
         "explain": {"best_mode": mode, 
