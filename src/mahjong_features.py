@@ -32,7 +32,7 @@ from shanten_dp import compute_ukeire_advanced
 # 27..33: winds+dragons [East,South,West,North,White,Green,Red]
 
 NUM_TILES = 34
-NUM_FEATURES = 54
+NUM_FEATURES = 56
 
 # Red fives are tracked via flags, not separate indices.
 
@@ -202,6 +202,9 @@ class RiichiResNetFeatures(torch.nn.Module):
         51 furiten_self (global, {0/1})
         52-54 riichi_turn_{L,C,R} (global, /24)
 
+        # 55 possible discards & its shantens
+        # 56 possible discards & its ukeires
+
     Total: 54 channels
 
     Notes:
@@ -300,7 +303,26 @@ class RiichiResNetFeatures(torch.nn.Module):
         for i in range(NUM_TILES):
             c[i] %= 2
         return torch.tensor([1.0 if v > 0 else 0.0 for v in c], dtype=torch.float32)
-        
+
+    @staticmethod
+    def _get_possible_moves(hand_34, remaining):
+        # Return list of discards that drop shanten and maximize ukeire.
+        # If none can lower shanten further than others, return those with max ukeire.
+        shantens = [8]*NUM_TILES
+        ukeires = [0]*NUM_TILES
+
+        for i, cnt in enumerate(hand_34):
+            if cnt <= 0:
+                continue
+            out = compute_ukeire_advanced(hand_34, i, remaining)
+            s = out.get("shanten", 1_000_000)
+            u = out.get("ukeire", -1)
+
+            shantens[i] = s
+            ukeires[i] = u
+
+        return RiichiResNetFeatures._to_tensor_1d(shantens), RiichiResNetFeatures._to_tensor_1d(ukeires)
+
     # ---------- core ----------
     def forward(self, state: RiichiState) -> Dict[str, torch.Tensor]:
         """Construct feature planes for a given :class:`RiichiState`.
@@ -493,6 +515,15 @@ class RiichiResNetFeatures(torch.nn.Module):
             rt = max(0, min(rt, self.max_turns))
             planes.append(self._const_plane(rt / float(self.max_turns)))         # 52-54 riichi turn
 
+        # --- Advanced features ---
+        hand_mask = (hand_clamped > 0).float()
+        shantens, ukeires = RiichiResNetFeatures._get_possible_moves(hand_list, remaining_counts)
+        shantens = shantens.clamp(min=0, max=8)
+        ukeires = ukeires.clamp(min=0, max=60)
+        planes.append(self._broadcast_row(shantens / 8.0)) # 55 possible discards & its shantens
+        planes.append(self._broadcast_row(ukeires / 60.0)) # 56 possible discards & its ukeires
+
+        # --- Features end ---
         x = torch.stack(planes, dim=0)  # (C,34,34)
 
         return {
