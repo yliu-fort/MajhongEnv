@@ -48,6 +48,7 @@ import io
 import os
 import sys
 import pickle
+import numpy as np
 
 # ----------------------------
 # Import schema from feature module if available
@@ -94,6 +95,7 @@ except Exception:
         legal_discards_mask: Optional[Sequence[int]] = None
 '''
 from mahjong_features import RiichiState, PlayerPublic, NUM_TILES
+from shanten_dp import compute_ukeire_advanced
 
 # ----------------------------
 # Tenhou basics
@@ -401,6 +403,52 @@ class TenhouRoundTracker:
                                 meld_counts=list(self.meld_counts[right]),
                                 riichi=self.riichi_flag[right],
                                 riichi_turn=self.riichi_turn[right])
+        
+        # Compute per-tile visible counts (hand + all melds + all rivers + dora indicators), clipped to 0..4
+        vc = np.zeros(NUM_TILES, dtype=np.int32)
+        # self hand
+        hc = counts
+        if hc is not None:
+            vc += np.asarray(hc, dtype=np.int32)
+        # self melds
+        mc_self = list(self.meld_counts[who])
+        if mc_self is not None:
+            vc += np.asarray(mc_self, dtype=np.int32)
+        # self river
+        rc_self = list(self.rivers_t34[who])
+        if rc_self is not None:
+            vc += np.asarray(rc_self, dtype=np.int32)
+        # opponents rivers + melds
+        for opp in [pp_left, pp_across, pp_right]:
+            rc = opp.get("river_counts")
+            if rc is not None:
+                vc += np.asarray(rc, dtype=np.int32)
+            else:
+                r = opp.get("river", []) or []
+                if r:
+                    vc += np.bincount(np.asarray(r, dtype=np.int16), minlength=NUM_TILES)[:NUM_TILES].astype(np.int32)
+            mc = opp.get("meld_counts")
+            if mc is not None:
+                vc += np.asarray(mc, dtype=np.int32)
+        # dora indicators are also visible
+        for ind in self.dora_inds_t34 or []:
+            if 0 <= int(ind) < NUM_TILES:
+                vc[int(ind)] += 1
+        np.clip(vc, 0, 4, out=vc)
+        remaining = 4 - vc
+        np.maximum(remaining, 0, out=remaining)
+        visible_counts = vc.astype(np.uint8).tolist()
+        remaining_counts = remaining.astype(np.uint8).tolist()
+
+        shantens = [8] * NUM_TILES
+        ukeires = [0] * NUM_TILES
+        for tile, cnt in enumerate(counts):
+            if cnt <= 0:
+                continue
+            out = compute_ukeire_advanced(counts, tile, remaining_counts)
+            shantens[tile] = int(out.get("shanten", shantens[tile]))
+            ukeires[tile] = int(out.get("ukeire", ukeires[tile]))
+
 
         state = RiichiState(
             hand_counts=counts,
@@ -418,7 +466,11 @@ class TenhouRoundTracker:
             aka5m=self.seen_red["m"], aka5p=self.seen_red["p"], aka5s=self.seen_red["s"],
             legal_discards_mask=legal,
             last_draw_136=self.hands_136[who][-1],
-            last_discarded_tile_136=self.last_discarded_tile_136
+            last_discarded_tile_136=self.last_discarded_tile_136,
+            visible_counts=visible_counts,
+            remaining_counts=remaining_counts,
+            shantens=shantens,
+            ukeires=ukeires
         )
         return state
 

@@ -33,6 +33,9 @@ from shanten_dp import compute_ukeire_advanced
 
 NUM_TILES = 34
 NUM_FEATURES = 56
+RIVER_LEN = 24
+HAND_LEN = 14
+DORA_MAX = 5
 
 # Red fives are tracked via flags, not separate indices.
 
@@ -151,6 +154,12 @@ class RiichiState:
     # Last droped tiles (for naki)
     last_draw_136: int = -1
     last_discarded_tile_136: int = -1
+
+    # Computed features
+    visible_counts: Sequence[int] = None
+    remaining_counts: Sequence[int] = None
+    shantens: Sequence[int] = None
+    ukeires: Sequence[int] = None
 
     # Hooks / extra calculators
     extra: ExtraCalcs = field(default_factory=ExtraCalcs)
