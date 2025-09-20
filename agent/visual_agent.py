@@ -37,7 +37,7 @@ class VisualClassifier(nn.Module):
 class VisualAgent:
     def __init__(self, env: gym.Env, backbone: str = "resnet18"):
         self.env = env
-        self.model = VisualClassifier(backbone, in_chans = 29, num_classes = 34, pretrained = False)
+        self.model = VisualClassifier(backbone, in_chans = 54, num_classes = 34, pretrained = False)
         self.extractor = RiichiResNetFeatures()
         self._alt_model = RandomDiscardAgent(env)
  

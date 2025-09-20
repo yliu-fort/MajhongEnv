@@ -1,19 +1,21 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
 
 import gymnasium as gym
 import numpy as np
 from mahjong_env import MahjongEnv
 from agent.random_discard_agent import RandomDiscardAgent
+from agent.hai_efficiency_agent import HaiEfficiencyAgent
 from agent.visual_agent import VisualAgent
 
-def evaluate_model(episodes=10):
+def evaluate_model(episodes=100):
     # 创建环境
     env = MahjongEnv(num_players=4)
-    agent = VisualAgent(env, backbone="resnet18")
+    agent = HaiEfficiencyAgent(env, backbone="resnet50")
     
     # 加载训练好的模型
-    agent.load_model("model_weights/resnet18.pt")
+    agent.load_model("model_weights/resnet50.pt")
  
     total_dscores = np.zeros(4, dtype=np.int32)
     for ep in range(episodes):
@@ -27,20 +29,20 @@ def evaluate_model(episodes=10):
         total_dscores += np.array(info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])
         print(info["msg"])
-        with open(f'./output/paipu/evaluate_log_{ep}.mjlog', "w") as f:
+        with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
             f.write(info["log"])
  
 
-def evaluate_model_multi(model_paths=[], model_classes=[], episodes=100, num_players=4):
+def evaluate_model_multi(model_paths = {}, models=[], model_classes=[], episodes=100, num_players=4):
     # 创建环境
     env = MahjongEnv(num_players=num_players)
     agents = []
     
     # 加载训练好的模型
-    assert len(model_paths) == num_players
-    for model_path, model_class in zip(model_paths, model_classes):
-        agent = model_class(env)
-        agent.load_model("model_weights/"+model_path)
+    assert len(models) == num_players
+    for model, model_class in zip(models, model_classes):
+        agent = model_class(env, backbone=model)
+        agent.load_model(model_paths.get(model, ''))
         agents.append(agent)
         del agent
 
@@ -57,9 +59,12 @@ def evaluate_model_multi(model_paths=[], model_classes=[], episodes=100, num_pla
         total_dscores += np.array(info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])
         print(info["msg"])
+        with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
+            f.write(info["log"])
 
 if __name__ == "__main__":
     evaluate_model()
-    #model_files = [f for f in os.listdir("model_weights/") if f.startswith("resnet_")]
-    #evaluate_model_multi(["","","",model_files[-1]],
-    #                     [RandomDiscardAgent, RandomDiscardAgent, RandomDiscardAgent, MaskablePPOAgent])
+    #model_files = {"resnet18": "model_weights/""resnet18.pt","resnet50": "model_weights/""resnet50.pt"}
+    #print(model_files)
+    #evaluate_model_multi(model_files, ["","","",""],
+    #                     [HaiEfficiencyAgent, RandomDiscardAgent, RandomDiscardAgent, RandomDiscardAgent])
