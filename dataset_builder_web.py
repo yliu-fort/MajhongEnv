@@ -1,11 +1,24 @@
+import json
 import os, struct, numpy as np
+import psutil
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
 import torch
 import webdataset as wds
-from typing import Dict, List, Sequence
+from dataclasses import asdict, is_dataclass
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from tqdm import tqdm
+
 from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
+from dataset_builder_zarr import count_xmls_in_database, fetch_xmls_from_database
+from tenhou_to_mahjong import (
+    iter_discard_states,
+    iter_chi_states,
+    iter_pon_states,
+    iter_kan_states,
+    iter_riichi_states,
+)
 
 # 固定长度常量
 RECORD_SIZE = 400  # 近似值，不需要精确；只用于预分配/统计（实际解码按切片）
@@ -231,3 +244,170 @@ def make_loader(pattern, batch_size, num_workers=8, shard_shuffle=True, seed=123
 # loader = make_loader("/data/riichi/riichi-{000000..004095}.tar", batch_size=1024, num_workers=12)
 # for batch in loader:
 #     ...
+
+
+DEFAULT_DB_PATH = "/workspace/2018.db"
+DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
+DEFAULT_SAMPLES_PER_SHARD = 16000
+DEFAULT_SQL_BATCH = 256
+
+
+def _state_to_dict(state: Any) -> Dict[str, Any]:
+    """Convert a :class:`RiichiState` (or similar) to a serializable mapping."""
+
+    if isinstance(state, dict):
+        return state
+    if is_dataclass(state):
+        data = asdict(state)
+        data.pop("extra", None)
+        return data
+    raise TypeError(f"Unsupported state type: {type(state)!r}")
+
+
+def _legal_mask_from_state(state: Dict[str, Any]) -> List[int]:
+    mask = state.get("legal_discards_mask")
+    if mask is not None:
+        return list(mask)
+    hand = state.get("hand_counts") or []
+    return [1 if int(v) > 0 else 0 for v in hand[:NUM_TILES]]
+
+
+def _one_hot_mask(index: int) -> List[int]:
+    mask = [0] * NUM_TILES
+    if 0 <= int(index) < NUM_TILES:
+        mask[int(index)] = 1
+    return mask
+
+
+def _mask_bytes(mask: Iterable[int]) -> bytes:
+    return np.asarray(list(mask), dtype=np.uint8).tobytes()
+
+
+class WebDatasetShardWriter:
+    def __init__(self, out_dir: str, prefix: str = "riichi", samples_per_shard: int = DEFAULT_SAMPLES_PER_SHARD):
+        os.makedirs(out_dir, exist_ok=True)
+        pattern = os.path.join(out_dir, f"{prefix}-%06d.tar")
+        self._writer = wds.ShardWriter(pattern, maxcount=samples_per_shard)
+        self._count = 0
+
+    def write(self, state: Dict[str, Any], label: int, mask: Optional[Iterable[int]], meta: Dict[str, Any]) -> bool:
+        if not (0 <= int(label) < NUM_TILES):
+            return False
+
+        sample = {
+            "__key__": f"{self._count:012d}",
+            "bin": encode_record(state),
+            "cls": np.asarray([int(label)], dtype=np.uint8).tobytes(),
+            "meta.json": json.dumps(meta, ensure_ascii=False).encode("utf-8"),
+        }
+        if mask is not None:
+            sample["mask"] = _mask_bytes(mask)
+
+        self._writer.write(sample)
+        self._count += 1
+        return True
+
+    def close(self) -> None:
+        self._writer.close()
+
+
+def _iter_action_samples(xmls: Sequence[str], iterator) -> Iterable[Tuple[Dict[str, Any], int, int, Dict[str, Any]]]:
+    for xml in xmls:
+        for state, who, label, meta in iterator(xml):
+            state_dict = _state_to_dict(state)
+            payload = {k: int(v) for k, v in meta.items()}
+            payload.update({"who": int(who), "label": int(label)})
+            yield state_dict, int(label), int(who), payload
+
+
+def main() -> None:
+    """Entry point mirroring :mod:`dataset_builder_zarr` behaviour for WebDataset output."""
+
+    print(f"物理核心数: {psutil.cpu_count(logical=False)}, 逻辑核心数: {psutil.cpu_count(logical=True)}")
+
+    db_path = os.environ.get("TENHOU_DB", DEFAULT_DB_PATH)
+    if not os.path.exists(db_path):
+        print(f"Database '{db_path}' not found; skipping dataset build")
+        return
+
+    total_logs = count_xmls_in_database(db_path)
+    if total_logs <= 0:
+        print("No logs available in database; nothing to do")
+        return
+
+    n_training = int(total_logs * 0.99)
+    base_out = os.environ.get("RIICHI_WEB_OUT", DEFAULT_OUTPUT_DIR)
+    samples_per_shard = int(os.environ.get("RIICHI_WEB_SAMPLES_PER_SHARD", DEFAULT_SAMPLES_PER_SHARD))
+    sql_batch_size = int(os.environ.get("TENHOU_SQL_BATCH", DEFAULT_SQL_BATCH))
+
+    action_configs = {
+        "discard": {
+            "iterator": iter_discard_states,
+            "mask_fn": lambda state, _: _legal_mask_from_state(state),
+            "out_subdir": "discard",
+        },
+        "chi": {
+            "iterator": iter_chi_states,
+            "mask_fn": lambda _state, label: _one_hot_mask(label),
+            "out_subdir": "chi",
+        },
+        "pon": {
+            "iterator": iter_pon_states,
+            "mask_fn": lambda _state, label: _one_hot_mask(label),
+            "out_subdir": "pon",
+        },
+        "kan": {
+            "iterator": iter_kan_states,
+            "mask_fn": lambda _state, label: _one_hot_mask(label),
+            "out_subdir": "kan",
+        },
+        "riichi": {
+            "iterator": iter_riichi_states,
+            "mask_fn": lambda state, _: _legal_mask_from_state(state),
+            "out_subdir": "riichi",
+        },
+    }
+
+    def run_split(split_name: str, start: int, end: int) -> None:
+        if start >= end:
+            print(f"Split '{split_name}' has no logs; skipping")
+            return
+
+        writers = {
+            action: WebDatasetShardWriter(
+                os.path.join(base_out, split_name, cfg["out_subdir"]),
+                samples_per_shard=samples_per_shard,
+            )
+            for action, cfg in action_configs.items()
+        }
+        stats = {action: 0 for action in action_configs}
+
+        try:
+            for offset in tqdm(range(start, end, sql_batch_size), desc=f"{split_name} logs"):
+                num_examples = min(sql_batch_size, end - offset)
+                xmls = fetch_xmls_from_database(db_path, start=offset, num_examples=num_examples)
+                if not xmls:
+                    break
+
+                for action, cfg in action_configs.items():
+                    iterator = cfg["iterator"]
+                    mask_fn = cfg["mask_fn"]
+                    for state_dict, label, who, meta in _iter_action_samples(xmls, iterator):
+                        sample_meta = dict(meta)
+                        sample_meta.update({"split": split_name, "action": action, "who": who})
+                        mask = mask_fn(state_dict, label)
+                        if writers[action].write(state_dict, label, mask, sample_meta):
+                            stats[action] += 1
+        finally:
+            for writer in writers.values():
+                writer.close()
+
+        summary = ", ".join(f"{action}: {count}" for action, count in stats.items())
+        print(f"Finished split '{split_name}' → {summary}")
+
+    run_split("train", 0, n_training)
+    run_split("test", n_training, total_logs)
+
+
+if __name__ == "__main__":
+    main()
