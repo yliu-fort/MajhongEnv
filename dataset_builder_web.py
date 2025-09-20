@@ -223,6 +223,48 @@ def decode_record(raw: bytes)->RiichiState:
 
     return state
 
+def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
+    mask = getattr(state, "legal_discards_mask", None)
+    if mask is None:
+        hand = getattr(state, "hand_counts", None) or []
+        mask = [1 if int(v) > 0 else 0 for v in list(hand)[:NUM_TILES]]
+    mask_list = list(mask)
+    if len(mask_list) < NUM_TILES:
+        mask_list.extend([0] * (NUM_TILES - len(mask_list)))
+    return torch.tensor(mask_list[:NUM_TILES], dtype=torch.bool)
+
+
+def _decode_sample(sample: Dict[str, Any]) -> Tuple[RiichiState, torch.Tensor, torch.Tensor]:
+    state = decode_record(sample["bin"])
+
+    label_arr = np.frombuffer(sample["cls"], dtype=np.uint8)
+    if label_arr.size != 1:
+        raise ValueError(f"Expected a single class index, got shape {label_arr.shape}")
+    label = torch.tensor(int(label_arr[0]), dtype=torch.long)
+
+    mask_bytes = sample.get("mask")
+    if mask_bytes is not None:
+        mask_arr = np.frombuffer(mask_bytes, dtype=np.uint8)
+        mask = torch.tensor(mask_arr[:NUM_TILES], dtype=torch.bool)
+    else:
+        mask = _mask_tensor_from_state(state)
+
+    if mask.numel() < NUM_TILES:
+        pad = torch.zeros(NUM_TILES - mask.numel(), dtype=torch.bool)
+        mask = torch.cat([mask, pad], dim=0)
+    elif mask.numel() > NUM_TILES:
+        mask = mask[:NUM_TILES]
+
+    return state, label, mask
+
+
+def _collate_batch(batch: Sequence[Tuple[RiichiState, torch.Tensor, torch.Tensor]]):
+    states, labels, masks = zip(*batch)
+    labels_tensor = torch.stack(list(labels))
+    masks_tensor = torch.stack(list(masks))
+    return list(states), labels_tensor, masks_tensor
+
+
 def make_loader(pattern, batch_size, num_workers=8, shard_shuffle=True, seed=1234):
     # ResampledShards 实现“分片级随机复用”，适合无限迭代式训练
     urls = wds.ResampledShards(pattern, seed=seed) if shard_shuffle else pattern
@@ -230,10 +272,10 @@ def make_loader(pattern, batch_size, num_workers=8, shard_shuffle=True, seed=123
         wds.WebDataset(urls, resampled=shard_shuffle)
         .shuffle(2000)  # 轻度预热，先打散样本键
         .decode()       # 我们自己解码，不用自动解码器
-        .to_tuple("bin")  # 只取二进制字段
-        .map(lambda x: decode_record(x[0]))
+        .map(_decode_sample)
         .shuffle(100000)  # 片内大缓冲区乱序（关键！）
         .batched(batch_size, partial=False)
+        .map(_collate_batch)
     )
     loader = torch.utils.data.DataLoader(
         ds, batch_size=None, num_workers=num_workers, pin_memory=True, prefetch_factor=4
