@@ -405,31 +405,33 @@ class TenhouRoundTracker:
                                 riichi_turn=self.riichi_turn[right])
         
         # Compute per-tile visible counts (hand + all melds + all rivers + dora indicators), clipped to 0..4
-        vc = np.zeros(NUM_TILES, dtype=np.int32)
+        vc = np.zeros(NUM_TILES, dtype=np.int16)
         # self hand
         hc = counts
         if hc is not None:
-            vc += np.asarray(hc, dtype=np.int32)
+            vc += np.asarray(hc, dtype=np.int16)
         # self melds
         mc_self = list(self.meld_counts[who])
         if mc_self is not None:
-            vc += np.asarray(mc_self, dtype=np.int32)
+            vc += np.asarray(mc_self, dtype=np.int16)
         # self river
-        rc_self = list(self.rivers_t34[who])
+        rc_self = [0]*NUM_TILES
+        for tid in self.rivers_t34[who]:
+            rc_self[tid136_to_t34(tid)] += 1
         if rc_self is not None:
-            vc += np.asarray(rc_self, dtype=np.int32)
+            vc += np.asarray(rc_self, dtype=np.int16)
         # opponents rivers + melds
         for opp in [pp_left, pp_across, pp_right]:
-            rc = opp.get("river_counts")
+            rc = opp.river_counts
             if rc is not None:
-                vc += np.asarray(rc, dtype=np.int32)
+                vc += np.asarray(rc, dtype=np.int16)
             else:
-                r = opp.get("river", []) or []
+                r = opp.river or []
                 if r:
-                    vc += np.bincount(np.asarray(r, dtype=np.int16), minlength=NUM_TILES)[:NUM_TILES].astype(np.int32)
-            mc = opp.get("meld_counts")
+                    vc += np.bincount(np.asarray(r, dtype=np.int16), minlength=NUM_TILES)[:NUM_TILES].astype(np.int16)
+            mc = opp.meld_counts
             if mc is not None:
-                vc += np.asarray(mc, dtype=np.int32)
+                vc += np.asarray(mc, dtype=np.int16)
         # dora indicators are also visible
         for ind in self.dora_inds_t34 or []:
             if 0 <= int(ind) < NUM_TILES:
