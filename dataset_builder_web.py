@@ -2,6 +2,7 @@ import json
 import os, struct, numpy as np
 import psutil
 import sys
+from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
 import torch
@@ -10,7 +11,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from tqdm import tqdm
 
-from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
+from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
 from dataset_builder_zarr import count_xmls_in_database, fetch_xmls_from_database
 from tenhou_to_mahjong import (
     iter_discard_states,
@@ -234,7 +235,7 @@ def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
     return torch.tensor(mask_list[:NUM_TILES], dtype=torch.bool)
 
 
-def _decode_sample(sample: Dict[str, Any]) -> Tuple[RiichiState, torch.Tensor, torch.Tensor]:
+def _decode_sample(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     state = decode_record(sample["bin"])
 
     label_arr = np.frombuffer(sample["cls"], dtype=np.uint8)
@@ -255,17 +256,21 @@ def _decode_sample(sample: Dict[str, Any]) -> Tuple[RiichiState, torch.Tensor, t
     elif mask.numel() > NUM_TILES:
         mask = mask[:NUM_TILES]
 
-    return state, label, mask
+    with torch.no_grad():
+        out = RiichiResNetFeatures()(state)
+
+    return out, label, mask
 
 
-def _collate_batch(batch: Sequence[Tuple[RiichiState, torch.Tensor, torch.Tensor]]):
+def _collate_batch(batch: Sequence[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
     states, labels, masks = zip(*batch)
+    states_tensor = torch.stack(list(states))
     labels_tensor = torch.stack(list(labels))
     masks_tensor = torch.stack(list(masks))
-    return list(states), labels_tensor, masks_tensor
+    return states_tensor, labels_tensor, masks_tensor
 
 
-def make_loader(pattern, batch_size, num_workers=8, shard_shuffle=True, seed=1234):
+def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42):
     # ResampledShards 实现“分片级随机复用”，适合无限迭代式训练
     urls = wds.ResampledShards(pattern, seed=seed) if shard_shuffle else pattern
     ds = (
@@ -289,6 +294,7 @@ def make_loader(pattern, batch_size, num_workers=8, shard_shuffle=True, seed=123
 
 
 DEFAULT_DB_PATH = "/workspace/2018.db"
+DEFAULT_DB_PATH = "data/2016.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 DEFAULT_SAMPLES_PER_SHARD = 16000
 DEFAULT_SQL_BATCH = 256
@@ -352,14 +358,34 @@ class WebDatasetShardWriter:
     def close(self) -> None:
         self._writer.close()
 
+def _iter_action_samples(
+    xmls: Sequence[str], iterator
+) -> Iterable[Tuple[Dict[str, Any], int, int, Dict[str, Any]]]:
+    """Yield action samples using a thread pool to parallelize XML processing."""
 
-def _iter_action_samples(xmls: Sequence[str], iterator) -> Iterable[Tuple[Dict[str, Any], int, int, Dict[str, Any]]]:
-    for xml in xmls:
+    def _process_single(xml: str) -> List[Tuple[Dict[str, Any], int, int, Dict[str, Any]]]:
+        samples: List[Tuple[Dict[str, Any], int, int, Dict[str, Any]]] = []
         for state, who, label, meta in iterator(xml):
-            state_dict = _state_to_dict(state)
+            who_i = int(who)
+            label_i = int(label)
             payload = {k: int(v) for k, v in meta.items()}
-            payload.update({"who": int(who), "label": int(label)})
-            yield state_dict, int(label), int(who), payload
+            payload.update({"who": who_i, "label": label_i})
+            samples.append((_state_to_dict(state), label_i, who_i, payload))
+        return samples
+
+    cpu_count = psutil.cpu_count(logical=False) or 1
+    max_workers = max(1, min(len(xmls), cpu_count - 1 if cpu_count > 1 else 1))
+
+    if max_workers <= 1:
+        for xml in xmls:
+            for sample in _process_single(xml):
+                yield sample
+        return
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for samples in executor.map(_process_single, xmls):
+            for sample in samples:
+                yield sample
 
 
 def main() -> None:
@@ -425,7 +451,8 @@ def main() -> None:
         stats = {action: 0 for action in action_configs}
 
         try:
-            for offset in tqdm(range(start, end, sql_batch_size), desc=f"{split_name} logs"):
+            #for offset in tqdm(range(start, end, sql_batch_size), desc=f"{split_name} logs"):
+            for offset in range(start, end, sql_batch_size):
                 num_examples = min(sql_batch_size, end - offset)
                 xmls = fetch_xmls_from_database(db_path, start=offset, num_examples=num_examples)
                 if not xmls:
@@ -434,7 +461,7 @@ def main() -> None:
                 for action, cfg in action_configs.items():
                     iterator = cfg["iterator"]
                     mask_fn = cfg["mask_fn"]
-                    for state_dict, label, who, meta in _iter_action_samples(xmls, iterator):
+                    for state_dict, label, who, meta in tqdm(_iter_action_samples(xmls, iterator)):
                         sample_meta = dict(meta)
                         sample_meta.update({"split": split_name, "action": action, "who": who})
                         mask = mask_fn(state_dict, label)
