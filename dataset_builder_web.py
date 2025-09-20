@@ -408,7 +408,7 @@ def main() -> None:
     samples_per_shard = int(os.environ.get("RIICHI_WEB_SAMPLES_PER_SHARD", DEFAULT_SAMPLES_PER_SHARD))
     sql_batch_size = int(os.environ.get("TENHOU_SQL_BATCH", DEFAULT_SQL_BATCH))
 
-    action_configs = {
+    _action_configs = {
         "discard": {
             "iterator": iter_discard_states,
             "mask_fn": lambda state, _: _legal_mask_from_state(state),
@@ -436,6 +436,14 @@ def main() -> None:
         },
     }
 
+   action_configs = {
+        "discard": {
+            "iterator": iter_discard_states,
+            "mask_fn": lambda state, _: _legal_mask_from_state(state),
+            "out_subdir": "discard",
+        }
+    }
+
     def run_split(split_name: str, start: int, end: int) -> None:
         if start >= end:
             print(f"Split '{split_name}' has no logs; skipping")
@@ -451,8 +459,8 @@ def main() -> None:
         stats = {action: 0 for action in action_configs}
 
         try:
-            #for offset in tqdm(range(start, end, sql_batch_size), desc=f"{split_name} logs"):
-            for offset in range(start, end, sql_batch_size):
+            for offset in tqdm(range(start, end, sql_batch_size), desc=f"{split_name} logs"):
+            #for offset in range(start, end, sql_batch_size):
                 num_examples = min(sql_batch_size, end - offset)
                 xmls = fetch_xmls_from_database(db_path, start=offset, num_examples=num_examples)
                 if not xmls:
@@ -461,7 +469,7 @@ def main() -> None:
                 for action, cfg in action_configs.items():
                     iterator = cfg["iterator"]
                     mask_fn = cfg["mask_fn"]
-                    for state_dict, label, who, meta in tqdm(_iter_action_samples(xmls, iterator)):
+                    for state_dict, label, who, meta in _iter_action_samples(xmls, iterator):
                         sample_meta = dict(meta)
                         sample_meta.update({"split": split_name, "action": action, "who": who})
                         mask = mask_fn(state_dict, label)
