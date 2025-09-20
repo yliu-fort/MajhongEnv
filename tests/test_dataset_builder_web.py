@@ -122,7 +122,7 @@ def _build_sample_state_dict():
 class TestWebDatasetEncoderDecoder(unittest.TestCase):
     def test_encode_decode_roundtrip_basic(self):
         s = _build_sample_state_dict()
-        raw = encode_record(s)
+        raw = encode_record(s,14,[])
 
         # Decode variant 1 (tensor dict)
         d1 = _decode_record(raw)
@@ -167,7 +167,7 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert d1["ukeires"].tolist() == s["ukeires"], "ukeires mismatch"
 
         # Decode variant 2 (RiichiState dataclass)
-        d2 = decode_record(raw)
+        d2, label = decode_record(raw)
         assert d2.riichi is True and d2.dealer_self is True
         assert d2.hand_counts == s["hand_counts"], "d2 hand_counts mismatch"
         assert d2.meld_counts_self == s["meld_counts_self"], "d2 meld_self mismatch"
@@ -190,3 +190,4 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert d2.remaining_counts == s["remaining_counts"], "d2 remaining_counts mismatch"
         assert d2.shantens == s["shantens"], "d2 shantens mismatch"
         assert d2.ukeires == s["ukeires"], "d2 ukeires mismatch"
+        assert label == 14

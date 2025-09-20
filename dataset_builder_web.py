@@ -2,7 +2,7 @@ import json
 import os, struct, numpy as np
 import psutil
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
 import torch
@@ -48,7 +48,7 @@ def pad_arr_u8(arr, length, pad=255):
 def pack_uint16_offset(v):  # -1 or 0..135 -> uint16 (0..136)
     return np.uint16(0 if v < 0 else (v + 1))
     
-def encode_record(s: "RiichiState-like-dict")->bytes:
+def encode_record(s: "RiichiState-like-dict", label, mask)->bytes:
     # 将你的 dict/对象转成定长块
     b = bytearray()
 
@@ -103,23 +103,16 @@ def encode_record(s: "RiichiState-like-dict")->bytes:
     u8arr(s.get("shantens"), NUM_TILES)
     u8arr(s.get("ukeires"), NUM_TILES)
 
-    return bytes(b)
+    # label
+    b.extend(np.asarray([int(label)], dtype=np.uint8).tobytes())
 
-def write_shards(states_iter, out_dir, samples_per_shard=16000):
-    os.makedirs(out_dir, exist_ok=True)
-    sink = wds.ShardWriter(os.path.join(out_dir, "riichi-%06d.tar"), maxcount=samples_per_shard)
-    for i, s in enumerate(states_iter):
-        raw = encode_record(s)
-        # 用 .bin 扩展名；给每条一个唯一 key
-        sample = {"__key__": f"{i:012d}", "bin": raw}
-        sink.write(sample)
-    sink.close()
+    return bytes(b)
 
 # states_iter 需要你提供一个迭代器/生成器，产生 dict 形式的 RiichiState（或直接改成你的对象字段）
 # 写完后，用 webdataset 的 make_index 生成 .idx 文件（命令行或 python 调用均可）
 
 # The second decode function
-def decode_record(raw: bytes)->RiichiState:
+def decode_record(raw: bytes)->Tuple[RiichiState, int]:
     import numpy as np
     v = np.frombuffer(raw, dtype=np.uint8)
     off = 0
@@ -195,6 +188,8 @@ def decode_record(raw: bytes)->RiichiState:
     shantens = take(NUM_TILES).tolist()
     ukeires = take(NUM_TILES).tolist()
 
+    label = int(take(1)[0])
+
     state = RiichiState(
         hand_counts=hand.astype(int).tolist(),
         meld_counts_self=meld_self.astype(int).tolist(),
@@ -222,7 +217,7 @@ def decode_record(raw: bytes)->RiichiState:
         ukeires=ukeires,
     )
 
-    return state
+    return state, label
 
 def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
     mask = getattr(state, "legal_discards_mask", None)
@@ -235,39 +230,20 @@ def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
     return torch.tensor(mask_list[:NUM_TILES], dtype=torch.bool)
 
 
-def _decode_sample(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    state = decode_record(sample["bin"])
-
-    label_arr = np.frombuffer(sample["cls"], dtype=np.uint8)
-    if label_arr.size != 1:
-        raise ValueError(f"Expected a single class index, got shape {label_arr.shape}")
-    label = torch.tensor(int(label_arr[0]), dtype=torch.long)
-
-    mask_bytes = sample.get("mask")
-    if mask_bytes is not None:
-        mask_arr = np.frombuffer(mask_bytes, dtype=np.uint8)
-        mask = torch.tensor(mask_arr[:NUM_TILES], dtype=torch.bool)
-    else:
-        mask = _mask_tensor_from_state(state)
-
-    if mask.numel() < NUM_TILES:
-        pad = torch.zeros(NUM_TILES - mask.numel(), dtype=torch.bool)
-        mask = torch.cat([mask, pad], dim=0)
-    elif mask.numel() > NUM_TILES:
-        mask = mask[:NUM_TILES]
+def _decode_sample(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+    state, label = decode_record(sample["bin"])
 
     with torch.no_grad():
         out = RiichiResNetFeatures()(state)
 
-    return out, label, mask
+    return out, label
 
 
-def _collate_batch(batch: Sequence[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
+def _collate_batch(batch: Sequence[Tuple[torch.Tensor, torch.Tensor]]):
     states, labels, masks = zip(*batch)
     states_tensor = torch.stack(list(states))
     labels_tensor = torch.stack(list(labels))
-    masks_tensor = torch.stack(list(masks))
-    return states_tensor, labels_tensor, masks_tensor
+    return states_tensor, labels_tensor
 
 
 def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42):
@@ -338,18 +314,18 @@ class WebDatasetShardWriter:
         self._writer = wds.ShardWriter(pattern, maxcount=samples_per_shard)
         self._count = 0
 
-    def write(self, state: Dict[str, Any], label: int, mask: Optional[Iterable[int]], meta: Dict[str, Any]) -> bool:
+    def write(self, state: Dict[str, Any], label: int, mask: Optional[Iterable[int]]=None, meta: Optional[Dict[str, Any]]=None) -> bool:
         if not (0 <= int(label) < NUM_TILES):
             return False
 
         sample = {
             "__key__": f"{self._count:012d}",
-            "bin": encode_record(state),
-            "cls": np.asarray([int(label)], dtype=np.uint8).tobytes(),
-            "meta.json": json.dumps(meta, ensure_ascii=False).encode("utf-8"),
+            "bin": encode_record(state, label, mask),
+            #"cls": np.asarray([int(label)], dtype=np.uint8).tobytes(),
+            #"meta.json": json.dumps(meta, ensure_ascii=False).encode("utf-8"),
         }
-        if mask is not None:
-            sample["mask"] = _mask_bytes(mask)
+        #if mask is not None:
+        #    sample["mask"] = _mask_bytes(mask)
 
         self._writer.write(sample)
         self._count += 1
@@ -358,20 +334,19 @@ class WebDatasetShardWriter:
     def close(self) -> None:
         self._writer.close()
 
+
+def _process_single(xml: str) -> List[Tuple[Dict[str, Any], int]]:
+    samples: List[Tuple[Dict[str, Any], int]] = []
+    for state, who, label, meta in iter_discard_states(xml):
+        who_i = int(who)
+        label_i = int(label)
+        samples.append((_state_to_dict(state), label_i))
+    return samples
+    
 def _iter_action_samples(
     xmls: Sequence[str], iterator
-) -> Iterable[Tuple[Dict[str, Any], int, int, Dict[str, Any]]]:
+) -> Iterable[Tuple[Dict[str, Any], int]]:
     """Yield action samples using a thread pool to parallelize XML processing."""
-
-    def _process_single(xml: str) -> List[Tuple[Dict[str, Any], int, int, Dict[str, Any]]]:
-        samples: List[Tuple[Dict[str, Any], int, int, Dict[str, Any]]] = []
-        for state, who, label, meta in iterator(xml):
-            who_i = int(who)
-            label_i = int(label)
-            payload = {k: int(v) for k, v in meta.items()}
-            payload.update({"who": who_i, "label": label_i})
-            samples.append((_state_to_dict(state), label_i, who_i, payload))
-        return samples
 
     cpu_count = psutil.cpu_count(logical=False) or 1
     max_workers = max(1, min(len(xmls), cpu_count - 1 if cpu_count > 1 else 1))
@@ -382,8 +357,8 @@ def _iter_action_samples(
                 yield sample
         return
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for samples in executor.map(_process_single, xmls):
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for samples in list(executor.map(_process_single, xmls)):
             for sample in samples:
                 yield sample
 
@@ -436,7 +411,7 @@ def main() -> None:
         },
     }
 
-   action_configs = {
+    action_configs = {
         "discard": {
             "iterator": iter_discard_states,
             "mask_fn": lambda state, _: _legal_mask_from_state(state),
@@ -469,11 +444,8 @@ def main() -> None:
                 for action, cfg in action_configs.items():
                     iterator = cfg["iterator"]
                     mask_fn = cfg["mask_fn"]
-                    for state_dict, label, who, meta in _iter_action_samples(xmls, iterator):
-                        sample_meta = dict(meta)
-                        sample_meta.update({"split": split_name, "action": action, "who": who})
-                        mask = mask_fn(state_dict, label)
-                        if writers[action].write(state_dict, label, mask, sample_meta):
+                    for state_dict, label in _iter_action_samples(xmls, iterator):
+                        if writers[action].write(state_dict, label):
                             stats[action] += 1
         finally:
             for writer in writers.values():
