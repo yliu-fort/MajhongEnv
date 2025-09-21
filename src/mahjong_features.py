@@ -430,12 +430,12 @@ class RiichiResNetFeatures(torch.nn.Module):
         planes.append(self._broadcast_row(legal))                                # 101 legal mask
 
         # --- Intermediate features ---
-        if state.extra.visible_count_hook:
-            visible_counts = state.extra.visible_count_hook(state)
+        if state.visible_counts:
+            visible_counts = state.visible_counts
         else:
             visible_counts = self._default_visible_counts(state)
-        if state.extra.remaining_count_hook:
-            remaining_counts = state.extra.remaining_count_hook(state)
+        if state.remaining_counts:
+            remaining_counts = state.remaining_counts
         else:
             remaining_counts = [max(0, 4 - v) for v in visible_counts]
         visible_tensor = torch.as_tensor(visible_counts, dtype=torch.float32)
