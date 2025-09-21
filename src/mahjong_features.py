@@ -32,7 +32,7 @@ from shanten_dp import compute_ukeire_advanced
 # 27..33: winds+dragons [East,South,West,North,White,Green,Red]
 
 NUM_TILES = 34
-NUM_FEATURES = 56
+NUM_FEATURES = 128
 RIVER_LEN = 24
 HAND_LEN = 14
 DORA_MAX = 5
@@ -265,6 +265,12 @@ class RiichiResNetFeatures(torch.nn.Module):
         return counts
 
     @staticmethod
+    def _one_hot_tile(t_34: int) -> List[int]:
+        counts = [0]*NUM_TILES
+        counts[t_34] += 1
+        return counts
+    
+    @staticmethod
     def _default_visible_counts(state: RiichiState) -> List[int]:
         counts = [0] * NUM_TILES
         for i, c in enumerate(state.hand_counts):
@@ -362,27 +368,35 @@ class RiichiResNetFeatures(torch.nn.Module):
                 river_counts = self._counts_from_river(opp.river)
             river = self._to_tensor_1d(river_counts)
             planes.append(self._broadcast_row(river.clamp(0, 4) / 4.0))          # 5-7 river_count
+        
+            # Add river 24C x 3 opps
+            for irc in range(RIVER_LEN):
+                if irc < len(opp.river):
+                    planes.append(self._broadcast_row(self._to_tensor_1d(self._one_hot_tile(opp.river[irc]))))
+                else:
+                    planes.append(self._const_plane(0.0))                        # 8-80 rivers
+
 
         for opp in opps:
             meld_counts = opp.meld_counts or [0]*NUM_TILES
             meld = self._to_tensor_1d(meld_counts)
-            planes.append(self._broadcast_row(meld.clamp(0, 4) / 4.0))           # 8-10 meld_{L,C,R}
+            planes.append(self._broadcast_row(meld.clamp(0, 4) / 4.0))           # 81-83 meld_{L,C,R}
 
         for opp in opps:
-            planes.append(self._const_plane(1.0 if opp.riichi else 0.0))         # 11-13 riichi flags
+            planes.append(self._const_plane(1.0 if opp.riichi else 0.0))         # 83-85 riichi flags
 
         # 3) Round/seat
-        planes.extend(list(self._one_hot_plane(state.round_wind, 4)))            # 14-17 round wind OH
-        planes.extend(list(self._one_hot_plane(state.seat_wind_self, 4)))        # 18-21 seat wind OH
-        planes.append(self._const_plane(1.0 if state.dealer_self else 0.0))      # 22 dealer flag
+        planes.extend(list(self._one_hot_plane(state.round_wind, 4)))            # 86-89 round wind OH
+        planes.extend(list(self._one_hot_plane(state.seat_wind_self, 4)))        # 90-93 seat wind OH
+        planes.append(self._const_plane(1.0 if state.dealer_self else 0.0))      # 94 dealer flag
 
         # 4) Progress & sticks (normalized and clipped)
         tn = min(max(int(state.turn_number), 0), self.max_turns)
-        planes.append(self._const_plane(tn / float(self.max_turns)))             # 23 turn_number
+        planes.append(self._const_plane(tn / float(self.max_turns)))             # 95 turn_number
         hb = min(max(int(state.honba), 0), self.max_sticks)
         rs = min(max(int(state.riichi_sticks), 0), self.max_sticks)
-        planes.append(self._const_plane(hb / float(self.max_sticks)))            # 24 honba
-        planes.append(self._const_plane(rs / float(self.max_sticks)))            # 25 riichi_sticks
+        planes.append(self._const_plane(hb / float(self.max_sticks)))            # 96 honba
+        planes.append(self._const_plane(rs / float(self.max_sticks)))            # 97 riichi_sticks
 
         # 5) Dora related
         is_dora = torch.zeros(NUM_TILES, dtype=torch.float32)
@@ -394,8 +408,8 @@ class RiichiResNetFeatures(torch.nn.Module):
                 ind_mark[ind] = 1.0
             except Exception:
                 continue
-        planes.append(self._broadcast_row(is_dora))                              # 26 dora flag
-        planes.append(self._broadcast_row(ind_mark))                             # 27 indicator mark
+        planes.append(self._broadcast_row(is_dora))                              # 98 dora flag
+        planes.append(self._broadcast_row(ind_mark))                             # 99 indicator mark
 
         # 6) Aka5 flags (optional)
         aka = torch.zeros(NUM_TILES, dtype=torch.float32)
@@ -405,14 +419,14 @@ class RiichiResNetFeatures(torch.nn.Module):
             aka[13] = 1.0  # p5 index = 9+ (5-1) = 13
         if state.aka5s:
             aka[22] = 1.0  # s5 index = 18+ (5-1) = 22
-        planes.append(self._broadcast_row(aka))                                  # 28 (packed as one plane)
+        planes.append(self._broadcast_row(aka))                                  # 100 (packed as one plane)
 
         # 7) Legal discard mask (hand>0 by default)
         if state.legal_discards_mask is not None:
             legal = self._to_tensor_1d(state.legal_discards_mask)
         else:
             legal = hand_mask
-        planes.append(self._broadcast_row(legal))                                # 29 legal mask
+        planes.append(self._broadcast_row(legal))                                # 101 legal mask
 
         # --- Intermediate features ---
         if state.extra.visible_count_hook:
@@ -426,8 +440,8 @@ class RiichiResNetFeatures(torch.nn.Module):
         visible_tensor = torch.as_tensor(visible_counts, dtype=torch.float32)
         remaining_tensor = torch.as_tensor(remaining_counts, dtype=torch.float32)
 
-        planes.append(self._broadcast_row((hand_clamped >= 2).float()))          # 30 tuitsu
-        planes.append(self._broadcast_row((hand_clamped >= 3).float()))          # 31 triplet
+        planes.append(self._broadcast_row((hand_clamped >= 2).float()))          # 102 tuitsu
+        planes.append(self._broadcast_row((hand_clamped >= 3).float()))          # 103 triplet
 
         # Vectorised taatsu (open-ended shapes) detection per suit
         taatsu = torch.zeros(NUM_TILES, dtype=torch.float32)
@@ -455,11 +469,11 @@ class RiichiResNetFeatures(torch.nn.Module):
             sh_mask[2:] += triplet
             shuntsu[base:base+9] = (sh_mask > 0).float()
 
-        planes.append(self._broadcast_row(taatsu))                               # 32 taatsu
-        planes.append(self._broadcast_row(shuntsu))                              # 33 shuntsu
+        planes.append(self._broadcast_row(taatsu))                               # 104 taatsu
+        planes.append(self._broadcast_row(shuntsu))                              # 105 shuntsu
 
-        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), True)))   # 34 surplus1
-        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), False)))  # 35 surplus2
+        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), True)))   # 106 surplus1
+        planes.append(self._broadcast_row(self._surplus_mask(hand_clamped.tolist(), False)))  # 107 surplus2
 
         # convert hand_clamped (tile counts) to a flat list of tile indices [0..33]
         hand_list = hand_clamped.to(torch.int64).tolist()
@@ -468,25 +482,25 @@ class RiichiResNetFeatures(torch.nn.Module):
         sh_normal = res["explain"]["shanten_regular"]
         sh_chiitoi = res["explain"]["shanten_chiitoi"]
         sh_kokushi = res["explain"]["shanten_kokushi"]
-        planes.append(self._const_plane(max(sh_normal, 0) / 8.0))                # 36 shanten normal
-        planes.append(self._const_plane(max(sh_chiitoi, 0) / 6.0))               # 37 shanten chiitoi
-        planes.append(self._const_plane(max(sh_kokushi, 0) / 13.0))              # 38 shanten kokushi
+        planes.append(self._const_plane(max(sh_normal, 0) / 8.0))                # 108 shanten normal
+        planes.append(self._const_plane(max(sh_chiitoi, 0) / 6.0))               # 109 shanten chiitoi
+        planes.append(self._const_plane(max(sh_kokushi, 0) / 13.0))              # 110 shanten kokushi
 
         ukeire = res['ukeire']
         ukeire_counts = [0] * NUM_TILES
         for t, cnt in res['tiles']:
             ukeire_counts[t] = cnt
         ukeire_counts = self._to_tensor_1d(ukeire_counts)
-        planes.append(self._const_plane(min(ukeire, 60) / 60.0))                 # 39 ukeire count
+        planes.append(self._const_plane(min(ukeire, 60) / 60.0))                 # 111 ukeire count
 
         for opp in opps:
             rc = opp.river_counts if opp.river_counts is not None else self._counts_from_river(opp.river)
             gen = torch.tensor([1.0 if c > 0 else 0.0 for c in rc], dtype=torch.float32)
-            planes.append(self._broadcast_row(gen))                              # 40-42 genbutsu
+            planes.append(self._broadcast_row(gen))                              # 112-114 genbutsu
 
-        planes.append(self._broadcast_row((visible_tensor >= 4).float()))        # 43 4 visible
-        planes.append(self._broadcast_row((visible_tensor >= 3).float()))        # 44 3 visible
-        planes.append(self._broadcast_row((visible_tensor >= 2).float()))        # 45 2 visible
+        planes.append(self._broadcast_row((visible_tensor >= 4).float()))        # 115 4 visible
+        planes.append(self._broadcast_row((visible_tensor >= 3).float()))        # 116 3 visible
+        planes.append(self._broadcast_row((visible_tensor >= 2).float()))        # 117 2 visible
 
         total_hand_meld = hand_clamped + meld_self
         dora_count = float((total_hand_meld * is_dora).sum().item())
@@ -496,12 +510,12 @@ class RiichiResNetFeatures(torch.nn.Module):
             dora_count += 1
         if state.aka5s and is_dora[22] == 0:
             dora_count += 1
-        planes.append(self._const_plane(min(dora_count, 5) / 5.0))               # 46 dora count hand
+        planes.append(self._const_plane(min(dora_count, 5) / 5.0))               # 118 dora count hand
 
         for opp in opps:
             meld = self._to_tensor_1d(opp.meld_counts or [0]*NUM_TILES)
             count = float((meld * is_dora).sum().item())
-            planes.append(self._const_plane(min(count, 5) / 5.0))                # 47-49 visible dora in melds
+            planes.append(self._const_plane(min(count, 5) / 5.0))                # 119-121 visible dora in melds
 
         total_dora_visible = float((visible_tensor * is_dora).sum().item())
         if state.aka5m and is_dora[4] == 0:
@@ -510,27 +524,31 @@ class RiichiResNetFeatures(torch.nn.Module):
             total_dora_visible += 1
         if state.aka5s and is_dora[22] == 0:
             total_dora_visible += 1
-        planes.append(self._const_plane(min(total_dora_visible, 10) / 10.0))      # 50 visible dora total
+        planes.append(self._const_plane(min(total_dora_visible, 10) / 10.0))      # 122 visible dora total
 
         furiten = 0
         # Need to choose a tile to discard first
         my_river_counts = self._to_tensor_1d(state.river_self_counts or self._counts_from_river(state.river_self))
         if torch.sum(ukeire_counts * my_river_counts).item() > 0:
             furiten = 1
-        planes.append(self._const_plane(float(furiten)))                         # 51 furiten self
+        planes.append(self._const_plane(float(furiten)))                         # 123 furiten self
 
         for opp in opps:
             rt = opp.riichi_turn if opp.riichi_turn >= 0 else 0
             rt = max(0, min(rt, self.max_turns))
-            planes.append(self._const_plane(rt / float(self.max_turns)))         # 52-54 riichi turn
+            planes.append(self._const_plane(rt / float(self.max_turns)))         # 124-126 riichi turn
 
         # --- Advanced features ---
-        hand_mask = (hand_clamped > 0).float()
-        shantens, ukeires = RiichiResNetFeatures._get_possible_moves(hand_list, remaining_counts)
-        shantens = shantens.clamp(min=0, max=8)
-        ukeires = ukeires.clamp(min=0, max=60)
-        planes.append(self._broadcast_row(shantens / 8.0)) # 55 possible discards & its shantens
-        planes.append(self._broadcast_row(ukeires / 60.0)) # 56 possible discards & its ukeires
+        if state.shantens:
+            shantens = self._to_tensor_1d(state.shantens).clamp(min=0, max=8)
+            ukeires = self._to_tensor_1d(state.ukeires).clamp(min=0, max=60)
+        else:
+            hand_mask = (hand_clamped > 0).float()
+            shantens, ukeires = RiichiResNetFeatures._get_possible_moves(hand_list, remaining_counts)
+            shantens = shantens.clamp(min=0, max=8)
+            ukeires = ukeires.clamp(min=0, max=60)
+        planes.append(self._broadcast_row(shantens / 8.0)) # 127 possible discards & its shantens
+        planes.append(self._broadcast_row(ukeires / 60.0)) # 128 possible discards & its ukeires
 
         # --- Features end ---
         x = torch.stack(planes, dim=0)  # (C,34,34)
