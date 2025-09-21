@@ -31,4 +31,4 @@ echo "To start working:"
 echo "cd $REPO_DIR"
 
 cd $REPO_DIR
-nohup python dataset_builder_zarr.py > log.out 2>&1 &
+nohup python dataset_builder_web.py > log.out 2>&1 &

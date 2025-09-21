@@ -315,13 +315,15 @@ def _iter_action_samples(
     if max_workers <= 1:
         for xml in xmls:
             for sample in _process_single(xml):
-                yield sample
+                if not sample[0]['riichi']:
+                    yield sample
         return
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         for samples in list(executor.map(_process_single, xmls)):
             for sample in samples:
-                yield sample
+                if not sample[0]['riichi']:
+                    yield sample
 
 
 def main() -> None:
@@ -404,7 +406,6 @@ def main() -> None:
 
                 for action, cfg in action_configs.items():
                     iterator = cfg["iterator"]
-                    #mask_fn = cfg["mask_fn"]
                     for state_dict, label in _iter_action_samples(xmls, iterator):
                         if writers[action].write(state_dict, label):
                             stats[action] += 1
