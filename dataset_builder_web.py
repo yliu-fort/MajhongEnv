@@ -230,26 +230,6 @@ def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
         mask_list.extend([0] * (NUM_TILES - len(mask_list)))
     return torch.tensor(mask_list[:NUM_TILES], dtype=torch.bool)
 
-class DecodeHelper:
-    _extractor = RiichiResNetFeatures()
-    _transform = transforms.Compose([transforms.Resize(224)])
-    _target_transform = None
-
-    @staticmethod
-    def apply(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-        state, label = decode_record(sample["bin"])
-
-        with torch.no_grad():
-            x = DecodeHelper._extractor(state)["x"]
-        y = torch.asarray(label, dtype=torch.long)
-
-        if DecodeHelper._transform:
-            x = DecodeHelper._transform(x)
-        if DecodeHelper._target_transform:
-            y = DecodeHelper._target_transform(y)
-
-        return x, y
-
 
 DEFAULT_DB_PATH = "/workspace/2018.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
@@ -439,40 +419,5 @@ def main() -> None:
     run_split("test", n_training, total_logs)
 
 
-
-def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42):
-    # 在旧版 webdataset 兼容接口下，ResampledShards 需要通过 resampled=True 打开，否则会因类型断言失败
-    webdataset_kwargs = {"seed": seed}
-    if shard_shuffle:
-        webdataset_kwargs["resampled"] = True
-    else:
-        webdataset_kwargs["shardshuffle"] = False
-    ds = (
-        wds.WebDataset(pattern, **webdataset_kwargs)
-        .shuffle(2000)  # 轻度预热，先打散样本键
-        .decode()       # 我们自己解码，不用自动解码器
-        .map(DecodeHelper.apply)
-        .shuffle(100000)  # 片内大缓冲区乱序（关键！）
-        .batched(batch_size, partial=False)
-    )
-    loader = torch.utils.data.DataLoader(
-        ds, batch_size=None, num_workers=num_workers, pin_memory=True, prefetch_factor=2
-    )
-    return loader
-
-# 用法：
-# loader = make_loader("/data/riichi/riichi-{000000..004095}.tar", batch_size=1024, num_workers=12)
-# for batch in loader:
-#     ...
-
 if __name__ == "__main__":
     main()
-    #loader = make_loader(
-    #    "output/webdataset/train/discard/riichi-{000000..000007}.tar",
-    #    batch_size=4,
-    #    num_workers=4,
-    #    shard_shuffle=True,
-    #)
-    #for batch in loader:
-    #    x, y = batch
-    #    print(x.shape, y.shape)
