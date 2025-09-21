@@ -240,10 +240,14 @@ def _decode_sample(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
     return out, y
 
 def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42):
-    # ResampledShards 实现“分片级随机复用”，适合无限迭代式训练
-    urls = wds.ResampledShards(pattern, seed=seed) if shard_shuffle else pattern
+    # 在旧版 webdataset 兼容接口下，ResampledShards 需要通过 resampled=True 打开，否则会因类型断言失败
+    webdataset_kwargs = {"seed": seed}
+    if shard_shuffle:
+        webdataset_kwargs["resampled"] = True
+    else:
+        webdataset_kwargs["shardshuffle"] = False
     ds = (
-        wds.WebDataset(urls, resampled=shard_shuffle)
+        wds.WebDataset(pattern, **webdataset_kwargs)
         .shuffle(2000)  # 轻度预热，先打散样本键
         .decode()       # 我们自己解码，不用自动解码器
         .map(_decode_sample)
@@ -260,9 +264,7 @@ def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42)
 # for batch in loader:
 #     ...
 
-
 DEFAULT_DB_PATH = "/workspace/2018.db"
-#DEFAULT_DB_PATH = "data/2016.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 DEFAULT_SAMPLES_PER_SHARD = 16000
 DEFAULT_SQL_BATCH = 256
@@ -452,8 +454,12 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    #loader = make_loader("output/webdataset/train/discard/riichi-{000000..000007}.tar", batch_size=64, num_workers=4)
+    #loader = make_loader(
+    #    "output/webdataset/train/discard/riichi-{000000..000007}.tar",
+    #    batch_size=64,
+    #    num_workers=4,
+    #    shard_shuffle=True,
+    #)
     #for batch in loader:
     #    x, y = batch
     #    print(x.shape, y.shape)
-    #    print(y)
