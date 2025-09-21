@@ -234,17 +234,10 @@ def _decode_sample(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
     state, label = decode_record(sample["bin"])
 
     with torch.no_grad():
-        out = RiichiResNetFeatures()(state)
+        out = RiichiResNetFeatures()(state)["x"]
+    y = torch.asarray(label, dtype=torch.long)
 
-    return out, label
-
-
-def _collate_batch(batch: Sequence[Tuple[torch.Tensor, torch.Tensor]]):
-    states, labels, masks = zip(*batch)
-    states_tensor = torch.stack(list(states))
-    labels_tensor = torch.stack(list(labels))
-    return states_tensor, labels_tensor
-
+    return out, y
 
 def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42):
     # ResampledShards 实现“分片级随机复用”，适合无限迭代式训练
@@ -256,10 +249,9 @@ def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42)
         .map(_decode_sample)
         .shuffle(100000)  # 片内大缓冲区乱序（关键！）
         .batched(batch_size, partial=False)
-        .map(_collate_batch)
     )
     loader = torch.utils.data.DataLoader(
-        ds, batch_size=None, num_workers=num_workers, pin_memory=True, prefetch_factor=4
+        ds, batch_size=None, num_workers=num_workers, pin_memory=True, prefetch_factor=2
     )
     return loader
 
@@ -270,7 +262,7 @@ def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42)
 
 
 DEFAULT_DB_PATH = "/workspace/2018.db"
-#DEFAULT_DB_PATH = "data/2016.db"
+DEFAULT_DB_PATH = "data/2016.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 DEFAULT_SAMPLES_PER_SHARD = 16000
 DEFAULT_SQL_BATCH = 256
@@ -443,7 +435,7 @@ def main() -> None:
 
                 for action, cfg in action_configs.items():
                     iterator = cfg["iterator"]
-                    mask_fn = cfg["mask_fn"]
+                    #mask_fn = cfg["mask_fn"]
                     for state_dict, label in _iter_action_samples(xmls, iterator):
                         if writers[action].write(state_dict, label):
                             stats[action] += 1
@@ -460,3 +452,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    #loader = make_loader("output/webdataset/train/discard/riichi-{000000..000007}.tar", batch_size=64, num_workers=4)
+    #for batch in loader:
+    #    x, y = batch
+    #    print(x.shape, y.shape)
+    #    print(y)
