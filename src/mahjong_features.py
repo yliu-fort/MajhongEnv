@@ -177,44 +177,45 @@ class RiichiResNetFeatures(torch.nn.Module):
         3  meld_self (/4)
         4  riichi_self (always 0; provided for symmetry/extension)
         5-7   river_count_{L,C,R} (/4)
-        8-10  meld_{L,C,R} (/4)
-        11-13 riichi_{L,C,R}
-        14-17 round_wind one-hot (4ch)
-        18-21 seat_wind_self one-hot (4ch)
-        22 dealer_flag
-        23 turn_number (/24)
-        24 honba (/5)
-        25 riichi_sticks (/5)
-        26 dora_flag (any tile that is current dora)
-        27 dora_indicator_mark
-        28 aka5 flags for m/p/s
-        29 legal_discard_mask (if provided, else derived from hand_count>0)
+        8-79 river sequences
+        80-82  meld_{L,C,R} (/4)
+        83-85 riichi_{L,C,R}
+        86-89 round_wind one-hot (4ch)
+        90-93 seat_wind_self one-hot (4ch)
+        94 dealer_flag
+        95 turn_number (/24)
+        96 honba (/5)
+        97 riichi_sticks (/5)
+        98 dora_flag (any tile that is current dora)
+        99 dora_indicator_mark
+        100 aka5 flags for m/p/s
+        101 legal_discard_mask (if provided, else derived from hand_count>0)
 
         --- intermediate features ---
-        30 is_in_any_tuitsu?  (>=2 same tile)
-        31 is_in_any_triplet? (>=3 same tile)
-        32 is_in_any_taatsu?  (1, 2)
-        33 is_in_any_shuntsu? (1, 2 ,3)
-        34 is_surplus1? (remove all melds and taatsu, ascending order)
-        35 is_surplus2? (remove all melds and taatsu, descending order)
-        36 shanten_normal (global, /8)
-        37 shanten_chiitoitsu (global, /6)
-        38 shanten_kokushi (global, /13)
-        39 ukeire_count (global, /60)
-        40-42 genbutsu_to_{L,C,R} (per-tile)
-        43 tile_4visible_flag (per-tile)
-        44 tile_3visible_flag (per-tile)
-        45 tile_2visible_flag (per-tile)
-        46 dora_count_hand (global, /5) # in both hand and melds
-        47-49 visible_dora_hand_{L,C,R} (global, /5) # in melds only
-        50 visible_dora_total (global, /10)
-        51 furiten_self (global, {0/1})
-        52-54 riichi_turn_{L,C,R} (global, /24)
+        102 is_in_any_tuitsu?  (>=2 same tile)
+        103 is_in_any_triplet? (>=3 same tile)
+        104 is_in_any_taatsu?  (1, 2)
+        105 is_in_any_shuntsu? (1, 2 ,3)
+        106 is_surplus1? (remove all melds and taatsu, ascending order)
+        107 is_surplus2? (remove all melds and taatsu, descending order)
+        108 shanten_normal (global, /8)
+        109 shanten_chiitoitsu (global, /6)
+        110 shanten_kokushi (global, /13)
+        111 ukeire_count (global, /60)
+        112-114 genbutsu_to_{L,C,R} (per-tile)
+        115 tile_4visible_flag (per-tile)
+        116 tile_3visible_flag (per-tile)
+        117 tile_2visible_flag (per-tile)
+        118 dora_count_hand (global, /5) # in both hand and melds
+        119-121 visible_dora_hand_{L,C,R} (global, /5) # in melds only
+        122 visible_dora_total (global, /10)
+        123 furiten_self (global, {0/1})
+        124-126 riichi_turn_{L,C,R} (global, /24)
 
-        # 55 possible discards & its shantens
-        # 56 possible discards & its ukeires
+        # 127 possible discards & its shantens
+        # 128 possible discards & its ukeires
 
-    Total: 54 channels
+    Total: 128 channels
 
     Notes:
       - Rivers can be provided as ordered lists; if `river_counts` is None
@@ -374,13 +375,13 @@ class RiichiResNetFeatures(torch.nn.Module):
                 if irc < len(opp.river):
                     planes.append(self._broadcast_row(self._to_tensor_1d(self._one_hot_tile(opp.river[irc]))))
                 else:
-                    planes.append(self._const_plane(0.0))                        # 8-80 rivers
+                    planes.append(self._const_plane(0.0))                        # 8-79 rivers
 
 
         for opp in opps:
             meld_counts = opp.meld_counts or [0]*NUM_TILES
             meld = self._to_tensor_1d(meld_counts)
-            planes.append(self._broadcast_row(meld.clamp(0, 4) / 4.0))           # 81-83 meld_{L,C,R}
+            planes.append(self._broadcast_row(meld.clamp(0, 4) / 4.0))           # 80-82 meld_{L,C,R}
 
         for opp in opps:
             planes.append(self._const_plane(1.0 if opp.riichi else 0.0))         # 83-85 riichi flags
