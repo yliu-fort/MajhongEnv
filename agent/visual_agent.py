@@ -14,7 +14,7 @@ try:
 except ImportError:
     timm = None
 
-from mahjong_features import RiichiResNetFeatures
+from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES
 from .random_discard_agent import RandomDiscardAgent
 
 def tid136_to_t34(tid: int) -> int:
@@ -37,7 +37,7 @@ class VisualClassifier(nn.Module):
 class VisualAgent:
     def __init__(self, env: gym.Env, backbone: str = "resnet18"):
         self.env = env
-        self.model = VisualClassifier(backbone, in_chans = 54, num_classes = 34, pretrained = False)
+        self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_TILES, pretrained = False)
         self.extractor = RiichiResNetFeatures()
         self._alt_model = RandomDiscardAgent(env)
  

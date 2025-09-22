@@ -62,19 +62,31 @@ class HaiEfficiencyAgent:
         
         # No options yet
         if self.env and (self.env.phase == "riichi"):
-            return self._alt_model.predict(observation)[0], True
+            return self._alt_model.predict(observation)[0], True if self.env.num_riichi < 3 else False
 
         
         if self.env and (self.env.phase == "discard"):
             # 推理时获取动作
             state = observation[0]
-            remaining = RiichiResNetFeatures._default_visible_counts(state)
-            out = good_moves(state.hand_counts, remaining)[0]
-            pred = out[0]
-            #print(out[1]['shanten'])
+            shantens = state.shantens
+            ukeires = state.ukeires
+            #print(state.shantens)
+
+            best_shanten = 255
+            best_ukeire = -1
 
             # Check if pred falls in valid action_masks
             action_masks = self.env.action_masks() # 0 - 13 position in hand
+            for i, x in enumerate(self.env.hands[observation[1]['who']]):
+                if action_masks[i] == True:
+                    t_34 = tid136_to_t34(x)
+                    sh = shantens[t_34]
+                    uke = ukeires[t_34]
+                    if sh < best_shanten or (sh == best_shanten and uke >= best_ukeire):
+                        best_shanten = sh
+                        best_ukeire = uke
+                        pred = t_34
+
             for i, x in enumerate(self.env.hands[observation[1]['who']]):
                 if tid136_to_t34(x) == pred and action_masks[i] == True:
                     return (i, False)
