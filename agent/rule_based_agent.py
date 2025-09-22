@@ -7,7 +7,7 @@ import numpy as np
 
 from shanten_dp import compute_ukeire_advanced
 from random_discard_agent import RandomDiscardAgent
-from mahjong_features import RiichiResNetFeatures
+from mahjong_features import RiichiResNetFeatures, NUM_TILES
 from mahjong.tile import TilesConverter
 from mahjong_tiles_print_style import tile_printout
 
@@ -40,10 +40,11 @@ def good_moves(hand_34, remaining):
     return best_discards
 
 
-class HaiEfficiencyAgent:
+class RuleBasedAgent:
     def __init__(self, env: gym.Env, backbone: str = ""):
         self.env = env
         self._alt_model = RandomDiscardAgent(env)
+        self.extractor = RiichiResNetFeatures()
  
     def train(self, total_timesteps=100000):
         pass
@@ -68,28 +69,94 @@ class HaiEfficiencyAgent:
         if self.env and (self.env.phase == "discard"):
             # 推理时获取动作
             state = observation[0]
+            who = observation[1]['who']
             shantens = state.shantens
             ukeires = state.ukeires
-            #print(state.shantens)
+            out = self.extractor(observation[0])
+            x = out["x"][:,:,0].numpy()
+            m = out["legal_mask"].numpy()
+            hands_34 = (np.array(self.env.hands[who]) // 4).tolist()
 
-            best_shanten = 255
-            best_ukeire = -1
+            discard_priority_attack = sorted(list(range(NUM_TILES)), key=lambda i: (-m[i], shantens[i], -ukeires[i], i))
+            if m[discard_priority_attack[0]] == 1:
+                return (hands_34.index(discard_priority_attack[0]), False)
 
-            # Check if pred falls in valid action_masks
+        # if preds not in action_masks, return a random choice from action_masks.
+        if self.env and (self.env.phase in ["pon", "kan"]):
+            state = observation[0]
+            
+            remaining = RiichiResNetFeatures._default_visible_counts(state)
+            claim = self.env.claims[0] # e.g., {"type": "pon", "fromwho": player, "who": other_player, "tile": tile})
+            hand_counts = state.hand_counts[:] # should be 4, 7, 10, 13
+            
+            base_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
+            # get valid moves
+            if self.env.phase == "pon":
+                hand_counts[claim["tile"]//4]-=2
+            elif self.env.phase == "kan":
+                hand_counts[claim["tile"]//4]-=3
+
+            new_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
+            turn_number = state.turn_number
+            should_call = ( new_sh < base_sh ) & (turn_number >= 6) & (base_sh > 2)
+
+            return self._alt_model.predict(observation)[0], should_call
+
+        return self._alt_model.predict(observation)[0], False
+
+
+class RuleBasedAgent2:
+    def __init__(self, env: gym.Env, backbone: str = ""):
+        self.env = env
+        self._alt_model = RandomDiscardAgent(env)
+        self.extractor = RiichiResNetFeatures()
+ 
+    def train(self, total_timesteps=100000):
+        pass
+ 
+    def save_model(self, path=""):
+        pass
+ 
+    def load_model(self, path=""):
+        pass
+
+    
+    def predict(self, observation):
+        # 如果当前状态是和牌状态，直接返回和牌动作
+        if self.env and (self.env.phase == "tsumo" or self.env.phase == "ron"):
+            return (0, True)
+        
+        # No options yet
+        if self.env and (self.env.phase == "riichi"):
+            return self._alt_model.predict(observation)[0], True if self.env.num_riichi < 3 else False
+
+        
+        if self.env and (self.env.phase == "discard"):
+            # 推理时获取动作
+            state = observation[0]
+            who = observation[1]['who']
             action_masks = self.env.action_masks() # 0 - 13 position in hand
-            for i, x in enumerate(self.env.hands[observation[1]['who']]):
-                if action_masks[i] == True:
-                    t_34 = tid136_to_t34(x)
-                    sh = shantens[t_34]
-                    uke = ukeires[t_34]
-                    if sh < best_shanten or (sh == best_shanten and uke >= best_ukeire):
-                        best_shanten = sh
-                        best_ukeire = uke
-                        pred = t_34
+            shantens = state.shantens
+            ukeires = state.ukeires
+            hands_34 = (np.array(self.env.hands[who]) // 4).tolist()
 
-            for i, x in enumerate(self.env.hands[observation[1]['who']]):
-                if tid136_to_t34(x) == pred and action_masks[i] == True:
-                    return (i, False)
+            out = self.extractor(observation[0])
+            x = out["x"][:,:,0].numpy()
+            m = out["legal_mask"].numpy()
+            genbutsu = x[111:114,:]
+            riichi=x[82:85,0]
+            genbutsu_counts = np.zeros((NUM_TILES,))
+            for opp in range(3):
+                if riichi[opp] == 1:
+                    genbutsu_counts += genbutsu[opp] * m
+            # Sort range(34) based on: key 1: genbutsu_counts, key 2: shantens, key 3: ukeires
+            discard_priority_defend = sorted(list(range(NUM_TILES)), key=lambda i: (-m[i], -genbutsu_counts[i], shantens[i], -ukeires[i], i))
+            if genbutsu_counts[discard_priority_defend[0]] > 0 and m[discard_priority_defend[0]] == 1:
+                return (hands_34.index(discard_priority_defend[0]), False)
+
+            discard_priority_attack = sorted(list(range(NUM_TILES)), key=lambda i: (-m[i], shantens[i], -ukeires[i], i))
+            if m[discard_priority_attack[0]] == 1:
+                return (hands_34.index(discard_priority_attack[0]), False)
 
         # if preds not in action_masks, return a random choice from action_masks.
         if self.env and (self.env.phase in ["pon", "kan"]):
@@ -112,7 +179,7 @@ class HaiEfficiencyAgent:
             return self._alt_model.predict(observation)[0], should_call
 
         return self._alt_model.predict(observation)[0], False
-
+    
 
 if __name__ == "__main__":
     def display_good_moves(tile):

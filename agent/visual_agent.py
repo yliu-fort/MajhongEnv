@@ -40,6 +40,7 @@ class VisualAgent:
         self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_TILES, pretrained = False)
         self.extractor = RiichiResNetFeatures()
         self._alt_model = RandomDiscardAgent(env)
+        self._ema = True
  
     def train(self, total_timesteps=100000):
         pass
@@ -49,7 +50,7 @@ class VisualAgent:
  
     def load_model(self, path="resnet18"):
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
-        if ckpt["ema"]: 
+        if self._ema and ckpt["ema"]: 
             ema_weights = {
             k: v.clone().detach()
             for k, v in ckpt["ema"]["shadow"].items()

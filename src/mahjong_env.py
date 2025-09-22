@@ -1331,8 +1331,8 @@ class MahjongEnv(MahjongEnvBase):
     """
     一个简化的麻将环境示例。
     """
-    def __init__(self, num_players=4):
-        super(MahjongEnv, self).__init__(num_players=num_players)
+    def __init__(self, num_players=4, num_rounds=4):
+        super(MahjongEnv, self).__init__(num_players=num_players, num_rounds=num_rounds)
 
         # 定义动作空间
         # 维度1: 0 ~ 13: 切出14张手牌中的哪一张
