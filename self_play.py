@@ -6,13 +6,13 @@ import gymnasium as gym
 import numpy as np
 from mahjong_env import MahjongEnv
 from agent.random_discard_agent import RandomDiscardAgent
-from agent.hai_efficiency_agent import HaiEfficiencyAgent
+from agent.rule_based_agent import RuleBasedAgent, RuleBasedAgent2
 from agent.visual_agent import VisualAgent
 
 def evaluate_model(episodes=100):
     # 创建环境
     env = MahjongEnv(num_players=4)
-    agent = HaiEfficiencyAgent(env, backbone="resnet50")
+    agent = VisualAgent(env, backbone="resnet50")
     
     # 加载训练好的模型
     agent.load_model("model_weights/resnet50.pt")
@@ -33,9 +33,9 @@ def evaluate_model(episodes=100):
             f.write(info["log"])
  
 
-def evaluate_model_multi(model_paths = {}, models=[], model_classes=[], episodes=100, num_players=4):
+def evaluate_model_multi(model_paths={}, models=[], model_classes=[], episodes=100, num_players=4):
     # 创建环境
-    env = MahjongEnv(num_players=num_players)
+    env = MahjongEnv(num_players=num_players, num_rounds=8)
     agents = []
     
     # 加载训练好的模型
@@ -64,7 +64,6 @@ def evaluate_model_multi(model_paths = {}, models=[], model_classes=[], episodes
 
 if __name__ == "__main__":
     evaluate_model()
-    #model_files = {"resnet18": "model_weights/""resnet18.pt","resnet50": "model_weights/""resnet50.pt"}
-    #print(model_files)
-    #evaluate_model_multi(model_files, ["","","",""],
-    #                     [HaiEfficiencyAgent, RandomDiscardAgent, RandomDiscardAgent, RandomDiscardAgent])
+    #model_files = {"resnet50": "model_weights/""resnet50.pt"}
+    #evaluate_model_multi(model_files, ["resnet50","","resnet50",""],
+    #                 [VisualAgent, RuleBasedAgent, VisualAgent, RuleBasedAgent])
