@@ -20,6 +20,9 @@ from .random_discard_agent import RandomDiscardAgent
 def tid136_to_t34(tid: int) -> int:
     return tid // 4
 
+def _resize_batch(x, size=224):                     # [B,C,H,W]
+    return torch.nn.functional.interpolate(x, (size, 65), mode="nearest")
+
 class VisualClassifier(nn.Module):
     def __init__(self, backbone: str = "resnet18", in_chans: int = 3, num_classes: int = 10, pretrained: bool = True):
         super().__init__()
@@ -34,13 +37,15 @@ class VisualClassifier(nn.Module):
         return self.model(x)
 
 
+#TODO: add GPU computation support
 class VisualAgent:
-    def __init__(self, env: gym.Env, backbone: str = "resnet18"):
+    def __init__(self, env: gym.Env, backbone: str = "resnet18", device = 'cpu'):
         self.env = env
         self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_TILES, pretrained = False)
         self.extractor = RiichiResNetFeatures()
         self._alt_model = RandomDiscardAgent(env)
         self._ema = True
+        self._device = device
  
     def train(self, total_timesteps=100000):
         pass
@@ -67,22 +72,24 @@ class VisualAgent:
         
         # No options yet
         if self.env and (self.env.phase == "riichi"):
-            return self._alt_model.predict(observation)[0], True
+            return self._alt_model.predict(observation)[0], True if self.env.num_riichi < 3 else False
 
         if self.env and (self.env.phase == "discard"):
             # 推理时获取动作
-            out = self.extractor(observation[0])
-            x = out["x"][None,:,:,:]
-            self.model.eval()
-            logits = self.model(x).detach().numpy().squeeze()
-            logits += -1e9*(1-np.array(out["legal_mask"])) # mask to valid logits
-            pred = int(logits.argmax()) # tile-34
+            with torch.no_grad():
+                out = self.extractor(observation[0])
+                x = out["x"][None,:,:,0]
+                x = _resize_batch(x)
+                self.model.eval()
+                logits = self.model(x).detach().numpy().squeeze()
+                logits += -1e9*(1-np.array(out["legal_mask"])) # mask to valid logits
+                pred = int(logits.argmax()) # tile-34
 
-            # Check if pred falls in valid action_masks
-            action_masks = self.env.action_masks() # 0 - 13 position in hand
-            for i, x in enumerate(self.env.hands[observation[1]['who']]):
-                if tid136_to_t34(x) == pred and action_masks[i] == True:
-                    return (i, False)
+                # Check if pred falls in valid action_masks
+                action_masks = self.env.action_masks() # 0 - 13 position in hand
+                for i, x in enumerate(self.env.hands[observation[1]['who']]):
+                    if tid136_to_t34(x) == pred and action_masks[i] == True:
+                        return (i, False)
 
         # if preds not in action_masks, return a random choice from action_masks.
         return self._alt_model.predict(observation)[0], False
