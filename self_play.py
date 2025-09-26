@@ -6,7 +6,7 @@ import gymnasium as gym
 import numpy as np
 from mahjong_env import MahjongEnv
 from agent.random_discard_agent import RandomDiscardAgent
-from agent.rule_based_agent import RuleBasedAgent, RuleBasedAgent2
+from agent.rule_based_agent import RuleBasedAgent
 from agent.visual_agent import VisualAgent
 
 def evaluate_model(episodes=100):
@@ -15,7 +15,7 @@ def evaluate_model(episodes=100):
     agent = VisualAgent(env, backbone="resnet50")
     
     # 加载训练好的模型
-    agent.load_model("model_weights/resnet50.pt")
+    agent.load_model("model_weights/latest.pt")
  
     total_dscores = np.zeros(4, dtype=np.int32)
     for ep in range(episodes):
@@ -33,16 +33,16 @@ def evaluate_model(episodes=100):
             f.write(info["log"])
  
 
-def evaluate_model_multi(model_paths={}, models=[], model_classes=[], episodes=100, num_players=4):
+def evaluate_model_multi(model_paths=[], models=[], model_classes=[], episodes=500, num_players=4):
     # 创建环境
     env = MahjongEnv(num_players=num_players, num_rounds=8)
     agents = []
     
     # 加载训练好的模型
     assert len(models) == num_players
-    for model, model_class in zip(models, model_classes):
+    for i, (model, model_class) in enumerate(zip(models, model_classes)):
         agent = model_class(env, backbone=model)
-        agent.load_model(model_paths.get(model, ''))
+        agent.load_model(model_paths[i])
         agents.append(agent)
         del agent
 
@@ -64,6 +64,11 @@ def evaluate_model_multi(model_paths={}, models=[], model_classes=[], episodes=1
 
 if __name__ == "__main__":
     evaluate_model()
-    #model_files = {"resnet50": "model_weights/""resnet50.pt"}
-    #evaluate_model_multi(model_files, ["resnet50","","resnet50",""],
-    #                 [VisualAgent, RuleBasedAgent, VisualAgent, RuleBasedAgent])
+    '''
+    model_files = ["model_weights/step_20000.pt", 
+                   "model_weights/step_25000.pt",
+                   "model_weights/step_30000.pt", 
+                   "model_weights/step_15000.pt"]
+    evaluate_model_multi(model_files, ["resnet50","resnet50","resnet50","resnet50"],
+                     [VisualAgent, VisualAgent, VisualAgent, VisualAgent])
+    '''
