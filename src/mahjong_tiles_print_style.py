@@ -45,7 +45,89 @@ def tiles_printout(tile_ids: list, sort=True):
             MahjongTileStyle.get_tiles_printout(tile_ids)
 
 
+def print_all_actions():
+    pouts = ""
+    counts = 0
+
+    # discard
+    for i in range(34):
+        pouts+="打"+tile_printout(i*4+1)
+        pouts+="\n"
+        counts+=1
+
+    # riichi
+    for i in range(34):
+        pouts+="打"+tile_printout(i*4+1)+"立直"
+        pouts+="\n"
+        counts+=1
+
+
+    # chi
+    for r in range(3):
+        for i in range(8):
+            s = [4*(r*9+i)+1, 4*(r*9+i+1)+1]
+            pouts+="吃"+tiles_printout(s)
+            pouts+="\n"
+            counts+=1
+        for i in range(7):
+            s = [4*(r*9+i)+1, 4*(r*9+i+2)+1]
+            pouts+="吃"+tiles_printout(s)
+            pouts+="\n"
+            counts+=1
+
+    # pong
+    for i in range(34):
+        k = [i*4+1, i*4+1]
+        pouts+="碰"+tiles_printout(k)
+        pouts+="\n"
+        counts+=1
+
+
+    # kan
+    for i in range(34):
+        k = [i*4+1, i*4+1]
+        pouts+="杠"+tiles_printout(k)
+        pouts+="\n"
+        counts+=1
+
+    for i in range(34):
+        k = [i*4+1, i*4+1]
+        pouts+="加杠"+tiles_printout(k)
+        pouts+="\n"
+        counts+=1
+
+    for i in range(34):
+        k = [i*4+1, i*4+1]
+        pouts+="暗杠"+tiles_printout(k)
+        pouts+="\n"
+        counts+=1
+
+    # ryuukyoku
+    pouts+=("流局")
+    pouts+="\n"
+    counts+=1
+
+    # agari
+    pouts+=("荣和")
+    pouts+="\n"
+    counts+=1
+
+    pouts+=("自摸")
+    pouts+="\n"
+    counts+=1
+
+    pouts+=("取消")
+    pouts+="\n"
+    counts+=1
+
+    print(pouts)
+    print(counts)
+
+    
 if __name__ == "__main__":
     [print((emoji), end=" ") for emoji in MahjongTileStyle._style_emoji]
     print('--------------------------------')
     print(MahjongTileStyle.get_tiles_printout(range(136)))
+    print('--------------------------------')
+    print_all_actions()
+    
