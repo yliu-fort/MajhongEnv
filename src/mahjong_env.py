@@ -547,6 +547,24 @@ class MahjongEnvBase(gym.Env):
                             # 更新顺位
                             rank = sorted(list(range(self.num_players)), key=lambda x: self.scores[x])
 
+                            # 若还有剩余点棒和供托则加给第一名
+                            if self.scores[rank[0]]>self.scores[rank[1]]:
+                                self.scores[rank[0]] += (self.num_riichi + self.num_kyoutaku) * 10
+                            elif self.scores[rank[1]]>self.scores[rank[2]]:
+                                self.scores[rank[0]] += (self.num_riichi + self.num_kyoutaku) * 5
+                                self.scores[rank[1]] += (self.num_riichi + self.num_kyoutaku) * 5
+                            elif self.scores[rank[2]]>self.scores[rank[3]]:
+                                self.scores[rank[0]] += (self.num_riichi + self.num_kyoutaku) * 4
+                                self.scores[rank[1]] += (self.num_riichi + self.num_kyoutaku) * 3
+                                self.scores[rank[2]] += (self.num_riichi + self.num_kyoutaku) * 3
+                            else:
+                                self.scores[rank[0]] += (self.num_riichi + self.num_kyoutaku) * 3
+                                self.scores[rank[1]] += (self.num_riichi + self.num_kyoutaku) * 3
+                                self.scores[rank[2]] += (self.num_riichi + self.num_kyoutaku) * 2
+                                self.scores[rank[3]] += (self.num_riichi + self.num_kyoutaku) * 2
+                            self.num_riichi = 0
+                            self.num_kyoutaku = 0
+
                             # 顺位马
                             rank_bonus = [50, 14, -26, -38]
                             for p in range(self.num_players):
