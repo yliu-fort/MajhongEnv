@@ -7,11 +7,13 @@ import torch
 from torchvision import transforms
 import webdataset as wds
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, List
+#from probe import probe_map
 
 from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
 
 
+NUM_FEATURES = 128
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 
 
@@ -19,8 +21,7 @@ DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 # 写完后，用 webdataset 的 make_index 生成 .idx 文件（命令行或 python 调用均可）
 
 # The second decode function
-def decode_record(raw: bytes)->Tuple[RiichiState, int]:
-    import numpy as np
+def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
     v = np.frombuffer(raw, dtype=np.uint8)
     off = 0
 
@@ -64,11 +65,17 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
     bits = int.from_bytes(legal_bytes, "little")
     legal_mask = [(bits >> i) & 1 for i in range(NUM_TILES)]
 
+    # Legal actions mask: 32 bytes (253 little-endian bits)
+    legal_actions_bytes = take(32)
+    legal_actions_mask_bits = np.unpackbits(legal_actions_bytes, bitorder="little")
+    legal_actions_mask = legal_actions_mask_bits[:253].astype(int).tolist()
+
     # Last tiles (uint16 little-endian with -1 offset)
-    u16 = v[off:off+4].view(dtype="<u2")
+    u16 = v[off:off+6].view(dtype="<u2")
     last_draw = int(u16[0]) - 1
     last_disc = int(u16[1]) - 1
-    off += 4
+    last_disr = int(u16[2]) - 1
+    off += 6
 
     # Build RiichiState
     left = PlayerPublic(
@@ -116,27 +123,31 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
         aka5p=bool(aka_flags & 0x2),
         aka5s=bool(aka_flags & 0x4),
         legal_discards_mask=legal_mask,
+        legal_actions_mask=legal_actions_mask,
         last_draw_136=last_draw,
         last_discarded_tile_136=last_disc,
+        last_discarder=last_disr,
         visible_counts=visible_counts,
         remaining_counts=remaining_counts,
         shantens=shantens,
         ukeires=ukeires,
     )
 
-    return state, label
+    return state, label, legal_actions_mask
+
+
 
 class DecodeHelper:
     _extractor = RiichiResNetFeatures()
-    _transform = transforms.Compose([transforms.Resize(224)])
+    _transform = None
     _target_transform = None
 
     @staticmethod
     def apply(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-        state, label = decode_record(sample["bin"])
+        state, label, _ = decode_record(sample["bin"])
 
         with torch.no_grad():
-            x = DecodeHelper._extractor(state)["x"]
+            x = DecodeHelper._extractor(state)["x"].detach()[...,:1]
         y = torch.asarray(label, dtype=torch.long)
 
         if DecodeHelper._transform:
@@ -146,33 +157,97 @@ class DecodeHelper:
 
         return x, y
 
-def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, seed=42):
+    @staticmethod
+    def apply_with_mask(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        state, label, mask = decode_record(sample["bin"])
+
+        with torch.no_grad():
+            x = DecodeHelper._extractor(state)["x"].detach()[...,:1]
+        y = torch.asarray(label, dtype=torch.long)
+        m = torch.asarray(mask, dtype=torch.long)
+
+        if DecodeHelper._transform:
+            x = DecodeHelper._transform(x)
+        if DecodeHelper._target_transform:
+            y = DecodeHelper._target_transform(y)
+
+        return x, y, m
+    
+    @staticmethod
+    def resize_batch(batch, size=224):
+        xs, ys, *rest = batch                        # [B,C,H,W]
+        x = torch.nn.functional.interpolate(xs, (size, 65), mode="nearest")
+        if rest:
+            return x, ys, *rest
+        return x, ys
+    
+def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, class_conditional=True, prefetch_factor=1, seed=42):
     # 在旧版 webdataset 兼容接口下，ResampledShards 需要通过 resampled=True 打开，否则会因类型断言失败
     webdataset_kwargs = {"seed": seed}
     if shard_shuffle:
         webdataset_kwargs["resampled"] = True
     else:
         webdataset_kwargs["shardshuffle"] = False
+    # NOTE:
+    #   The feature tensor for each sample is roughly 24.6 MB in float32.
+    #   Using a massive shuffle buffer (100k) as before balloons memory
+    #   usage to tens of GB per worker, which leads to the dataloader
+    #   workers being OOM-killed.  Keep a reasonably large buffer for
+    #   stochasticity, but cap it to something that scales with the
+    #   batch size.
+    sample_shuffle = min(65536, max(512, int(batch_size) * 32))
+
     ds = (
         wds.WebDataset(pattern, **webdataset_kwargs)
-        .shuffle(2000)  # 轻度预热，先打散样本键
+        .shuffle(2000)  # 轻度预热，先打散样本键, 单条样本非常便宜
         .decode()       # 我们自己解码，不用自动解码器
-        .map(DecodeHelper.apply)
-        .shuffle(100000)  # 片内大缓冲区乱序（关键！）
+        .map(DecodeHelper.apply_with_mask if class_conditional else DecodeHelper.apply)
+        #.map(probe_map)                    # ← 在这里测“单样本解码后”的体积～0.017 MB
+        .shuffle(sample_shuffle)  # 片内大缓冲区乱序（关键！）
         .batched(batch_size, partial=False)
+        .map(DecodeHelper.resize_batch)# ← 在这里测“单样本解码后”的体积～24.6 MB，主要因为有一个resize
     )
     loader = torch.utils.data.DataLoader(
-        ds, batch_size=None, num_workers=num_workers, pin_memory=True, prefetch_factor=2
+        ds, batch_size=None, num_workers=num_workers, pin_memory=True, prefetch_factor=prefetch_factor
     )
     return loader
 
+def build_riichi_dataloader(
+    root: str,
+    batch_size: int,
+    num_workers: int,
+    download: bool,
+    class_conditional: bool,
+    img_size: int,
+    cf_guidance_p: float,
+):
+    ds = make_loader(
+        os.path.join(root, "webdataset/train/discard/riichi-{000000..004035}.tar"),
+        batch_size=batch_size,
+        num_workers=num_workers,
+        shard_shuffle=False,
+        class_conditional = class_conditional,
+        prefetch_factor=4
+    )
+    ds_tst = make_loader(
+        os.path.join(root, "webdataset/test/discard/riichi-{000000..000004}.tar"),
+        batch_size=batch_size,
+        num_workers=1,
+        shard_shuffle=False,
+        class_conditional = class_conditional,
+        prefetch_factor=1
+    )
+    return ds, ds_tst
+
 if __name__ == "__main__":
     loader = make_loader(
-        "output/webdataset/train/discard/riichi-{000000..000007}.tar",
-        batch_size=4,
-        num_workers=4,
+        "../MajhongEnv/output/webdataset/train/discard/riichi-{000000..000007}.tar",
+        batch_size=16,
+        num_workers=1,
         shard_shuffle=True,
+        class_conditional = True,
+        prefetch_factor=2
     )
-    for batch in loader:
-        x, y = batch
-        print(x.shape, y.shape)
+    for i, batch in enumerate(loader):
+        x, y, m = batch
+        print(i, x.shape, y.shape, m.shape)

@@ -124,7 +124,6 @@ def encode_record(s: "RiichiState-like-dict", label)->bytes:
 
 # The second decode function
 def decode_record(raw: bytes)->Tuple[RiichiState, int]:
-    import numpy as np
     v = np.frombuffer(raw, dtype=np.uint8)
     off = 0
 
