@@ -250,7 +250,6 @@ def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
 
 
 DEFAULT_DB_PATH = "/workspace/2018.db"
-DEFAULT_DB_PATH = "data/2016.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 DEFAULT_SAMPLES_PER_SHARD = 16000
 DEFAULT_SQL_BATCH = 256
@@ -266,25 +265,6 @@ def _state_to_dict(state: Any) -> Dict[str, Any]:
         data.pop("extra", None)
         return data
     raise TypeError(f"Unsupported state type: {type(state)!r}")
-
-
-def _legal_mask_from_state(state: Dict[str, Any]) -> List[int]:
-    mask = state.get("legal_discards_mask")
-    if mask is not None:
-        return list(mask)
-    hand = state.get("hand_counts") or []
-    return [1 if int(v) > 0 else 0 for v in hand[:NUM_TILES]]
-
-
-def _one_hot_mask(index: int) -> List[int]:
-    mask = [0] * NUM_TILES
-    if 0 <= int(index) < NUM_TILES:
-        mask[int(index)] = 1
-    return mask
-
-
-def _mask_bytes(mask: Iterable[int]) -> bytes:
-    return np.asarray(list(mask), dtype=np.uint8).tobytes()
 
 
 class WebDatasetShardWriter:
@@ -330,15 +310,13 @@ def _iter_action_samples(
     if max_workers <= 1:
         for xml in xmls:
             for sample in _process_single(xml):
-                if not sample[0]['riichi']:
-                    yield sample
+                yield sample
         return
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         for samples in list(executor.map(_process_single, xmls)):
             for sample in samples:
-                if not sample[0]['riichi']:
-                    yield sample
+                yield sample
 
 
 def main() -> None:
