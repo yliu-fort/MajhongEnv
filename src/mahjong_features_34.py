@@ -32,7 +32,6 @@ from shanten_dp import compute_ukeire_advanced
 # 27..33: winds+dragons [East,South,West,North,White,Green,Red]
 
 NUM_TILES = 34
-WIDTH = 1
 NUM_FEATURES = 128
 RIVER_LEN = 24
 HAND_LEN = 14
@@ -246,11 +245,11 @@ class RiichiResNetFeatures(torch.nn.Module):
     @staticmethod
     def _broadcast_row(v: torch.Tensor) -> torch.Tensor:
         # v: (34,)
-        return v.view(NUM_TILES, 1).expand(NUM_TILES, WIDTH)
+        return v.view(NUM_TILES, 1).expand(NUM_TILES, NUM_TILES)
 
     @staticmethod
     def _const_plane(val: float) -> torch.Tensor:
-        return torch.full((NUM_TILES, WIDTH), float(val))
+        return torch.full((NUM_TILES, NUM_TILES), float(val))
 
     @staticmethod
     def _one_hot_plane(index: int, num: int) -> torch.Tensor:
@@ -556,14 +555,12 @@ class RiichiResNetFeatures(torch.nn.Module):
         # --- Features end ---
         x = torch.stack(planes, dim=0)  # (C,34,34)
 
-        legal_actions = torch.as_tensor(state.legal_actions_mask)
-
         return {
             "x": x,                              # model input
-            "legal_mask": legal_actions,                 # (34,)
+            "legal_mask": legal,                 # (34,)
             "meta": {
                 "num_channels": x.shape[0],
-                "spec": "baseline-128ch-253ac",
+                "spec": "baseline+intermediate-54ch",
             },
         }
 
@@ -647,11 +644,9 @@ if __name__ == "__main__":
     state.hand_counts[4] = 2  # m5
     state.hand_counts[27] = 1 # East
     state.legal_discards_mask = [1 if c>0 else 0 for c in state.hand_counts]
-    state.legal_actions_mask = [1 if c<34 else 0 for c in range(253)]
 
     extractor = RiichiResNetFeatures()
     out = extractor(state)
     x = out["x"]
-    legal = out["legal_mask"]
     print("Feature tensor:", x.shape, "channels=", x.shape[0])
-    print("Legal mask", legal.shape, " sum:", out["legal_mask"].sum().item())
+    print("Legal mask sum:", out["legal_mask"].sum().item())
