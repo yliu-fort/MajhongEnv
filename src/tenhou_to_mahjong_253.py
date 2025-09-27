@@ -536,6 +536,8 @@ class TenhouRoundTracker:
                             continue
                         chi_idx = get_action_index((base, called), "chi")
                         legal_actions[chi_idx] = True
+                pass_idx = get_action_index(None, "pass")
+                legal_actions[pass_idx] = True
 
         # end of implementation for calculation for legal actions
 
