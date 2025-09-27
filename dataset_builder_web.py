@@ -239,7 +239,6 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
 
 
 DEFAULT_DB_PATH = "/workspace/2018.db"
-DEFAULT_DB_PATH = "data/2016.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 DEFAULT_SAMPLES_PER_SHARD = 16000
 DEFAULT_SQL_BATCH = 256
