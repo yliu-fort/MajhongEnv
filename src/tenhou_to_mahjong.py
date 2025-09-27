@@ -828,7 +828,7 @@ _DEF_PREVIEW = 5
 def _main(argv: Sequence[str]) -> int:
     import argparse
     p = argparse.ArgumentParser(description="Tenhou → RiichiState converter")
-    p.add_argument("xml", help="Path to Tenhou mjlog XML")
+    p.add_argument("--xml", type=str, default="data/2018012919gm-00e1-0000-335c92d6.xml", help="Path to Tenhou mjlog XML")
     p.add_argument("--preview", type=int, default=_DEF_PREVIEW, help="Print first N samples")
     p.add_argument("--dump", type=str, default=None, help="Path to dump pickle of lightweight dicts")
     args = p.parse_args(argv[1:])
@@ -846,7 +846,7 @@ def _main(argv: Sequence[str]) -> int:
 
 
 if __name__ == "__main__":  # pragma: no cover
-    #raise SystemExit(_main(sys.argv))
+    raise SystemExit(_main(sys.argv))
     ms = [52703,60615,35847]
     who = 0
     for m in ms:
