@@ -594,23 +594,21 @@ def get_action_index(t_34, type):
 
     if action_type == "pon":
         base, called = t_34
-        base, called = int(base), int(called)
+        base = int(base)
         return 113 + base
 
     if action_type == "kan":
         base, called = t_34
-        base, called = int(base), int(called)
-        return 147 + base
+        base = int(base)
+        if called:
+            return 147 + base
+        else:
+            return 215 + base
 
     if action_type == "chakan":
         base, called = t_34
-        base, called = int(base), int(called)
+        base = int(base)
         return 181 + base
-
-    if action_type == "ankan":
-        base, called = t_34
-        base, called = int(base), int(called)
-        return 215 + base
 
     if action_type == "ryuukyoku":
         return 249

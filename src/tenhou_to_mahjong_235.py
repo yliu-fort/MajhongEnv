@@ -194,7 +194,7 @@ class TenhouMeld:
                 self.from_who = self.who
                 self.base_t34 = base
                 self.base_t136 = base * 4
-                self.type = "ankan"
+                self.type = "kan"
                 self.tiles_t34 = [base, base, base, base]
                 self.tiles_t136 = [base * 4 + i for i in range(4)]
                 self.opened = False
@@ -488,7 +488,7 @@ class TenhouRoundTracker:
                 if cnt >= 4:
                     #open_kan_idx = get_action_index((tile, 0), "kan") # No implementation for 大明杠
                     #legal_actions[open_kan_idx] = True
-                    closed_kan_idx = get_action_index((tile, 0), "ankan")
+                    closed_kan_idx = get_action_index((tile, None), "kan")
                     legal_actions[closed_kan_idx] = True
 
                 if meld_counts_self_arr[tile] >= 3:
@@ -583,7 +583,7 @@ def _open_xml(xml: TagLike) -> ET.Element:
     return ET.parse(str(xml)).getroot()
 
 
-def iter_discard_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, Dict[str, int]], None, None]:
+def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool = False) -> Generator[Tuple[RiichiState, int, int, Dict[str, int]], None, None]:
     """Yield `(state, who, action, meta)` for every discard.
 
     - `who`: 0..3 (Tenhou seat order)
@@ -613,35 +613,38 @@ def iter_discard_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, 
         elif raw and raw[0] in "DEFG" and raw[1:].isdigit():
             who = "DEFG".index(raw[0])
             tid = int(raw[1:])
-            state = tracker.snapshot_before_action(who)
-            action = get_action_index(tid136_to_t34(tid), "riichi" if tracker.discard_for_riichi[who] else "discard")
-            meta = {
-                "round_index": tracker.round_index,
-                "oya": tracker.oya,
-                "honba": tracker.honba,
-                "riichi_sticks": tracker.riichi_sticks,
-                "action_idx": action_idx,
-            }
-            yield (state, who, action, meta)
-            tracker.discard(who, tid)
-            action_idx += 1
+            # 如果不在立直或者在打出立直宣言牌， 返回动作
+            if not tracker.riichi_flag[who] or tracker.discard_for_riichi[who]:
+                state = tracker.snapshot_before_action(who)
+                action = get_action_index(tid136_to_t34(tid), "riichi" if tracker.discard_for_riichi[who] else "discard")
+                meta = {
+                    "round_index": tracker.round_index,
+                    "oya": tracker.oya,
+                    "honba": tracker.honba,
+                    "riichi_sticks": tracker.riichi_sticks,
+                    "action_idx": action_idx,
+                }
+                yield (state, who, action, meta)
+                tracker.discard(who, tid)
+                action_idx += 1
         elif raw == "N":
             state = tracker.snapshot_before_action(who)
             who = int(el.attrib["who"])
             m_val = int(el.attrib["m"])
             tracker.apply_meld(who, m_val)
-            meld=TenhouMeld(who, m_val)
-            hand = (meld.base_t34, meld.called_index or 0)
-            action = get_action_index(hand, meld.type)
-            meta = {
-                "round_index": tracker.round_index,
-                "oya": tracker.oya,
-                "honba": tracker.honba,
-                "riichi_sticks": tracker.riichi_sticks,
-                "action_idx": action_idx,
-            }
-            yield (state, who, action, meta)
-            action_idx += 1
+            if iter_nakis:
+                meld=TenhouMeld(who, m_val)
+                hand = (meld.base_t34, meld.called_index)
+                action = get_action_index(hand, meld.type)
+                meta = {
+                    "round_index": tracker.round_index,
+                    "oya": tracker.oya,
+                    "honba": tracker.honba,
+                    "riichi_sticks": tracker.riichi_sticks,
+                    "action_idx": action_idx,
+                }
+                yield (state, who, action, meta)
+                action_idx += 1
         elif raw == "REACH":
             who = int(el.attrib["who"])
             step = int(el.attrib.get("step", "0"))
@@ -651,7 +654,27 @@ def iter_discard_states(xml: TagLike) -> Generator[Tuple[RiichiState, int, int, 
             tracker.add_dora(tid)
         elif raw in ("AGARI", "RYUUKYOKU"):
             # end of hand
-            pass
+            if iter_end_states:
+                if raw == "RYUUKYOKU":
+                    type = el.attrib.get("type", None)
+                    if type:
+                        action = get_action_index(None, "ryuukyoku")
+                    else:
+                        action = None
+                elif raw == "AGARI":
+                    who = int(el.attrib["who"])
+                    fromwho = int(el.attrib["fromWho"])
+                    action = get_action_index(None, "tsumo" if who == fromwho else "ron")
+                if action:
+                    meta = {
+                        "round_index": tracker.round_index,
+                        "oya": tracker.oya,
+                        "honba": tracker.honba,
+                        "riichi_sticks": tracker.riichi_sticks,
+                        "action_idx": action_idx,
+                    }
+                    yield (state, who, action, meta)
+                    action_idx += 1
         else:
             # ignore other tags
             pass
