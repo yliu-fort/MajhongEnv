@@ -295,7 +295,6 @@ def _iter_action_samples(
 
     cpu_count = psutil.cpu_count(logical=False) or 1
     max_workers = max(1, min(len(xmls), cpu_count - 1 if cpu_count > 1 else 1))
-    max_workers = 1 #debug
 
     if max_workers <= 1:
         for xml in xmls:
