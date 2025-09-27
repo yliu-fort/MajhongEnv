@@ -150,6 +150,7 @@ class RiichiState:
 
     # Legal actions (optional)
     legal_discards_mask: Optional[Sequence[int]] = None  # len 34, 0/1
+    legal_actions_mask: Optional[Sequence[int]] = None  # len 235, 0/1
 
     # Last droped tiles (for naki)
     last_draw_136: int = -1
@@ -563,6 +564,67 @@ class RiichiResNetFeatures(torch.nn.Module):
             },
         }
 
+
+def get_action_index(t_34, type):
+    """Map an action description to the flat action index used in ``print_all_actions``."""
+    """t_34 can be the tile index or the (t_34, called_index) for chi. """
+    action_type = type.lower() if isinstance(type, str) else type
+
+    if action_type == "discard":
+        return int(t_34)
+
+    if action_type == "riichi":
+        return 34 + int(t_34)
+
+    if action_type == "chi":
+        base, called = t_34
+        base, called = int(base), int(called)
+        suit = base // 9
+        offset = 68 + suit * 15
+        if called == 0:
+            local_a = base + 1
+            return offset + local_a
+        elif called == 1:
+            local_a = base
+            return offset + 8 + local_a
+        elif called == 2:
+            local_a = base
+            return offset + local_a
+        raise ValueError(f"Unsupported chi shape: {t_34}")
+
+    if action_type == "pon":
+        base, called = t_34
+        base, called = int(base), int(called)
+        return 113 + base
+
+    if action_type == "kan":
+        base, called = t_34
+        base, called = int(base), int(called)
+        return 147 + base
+
+    if action_type == "chakan":
+        base, called = t_34
+        base, called = int(base), int(called)
+        return 181 + base
+
+    if action_type == "ankan":
+        base, called = t_34
+        base, called = int(base), int(called)
+        return 215 + base
+
+    if action_type == "ryuukyoku":
+        return 249
+
+    if action_type == "ron":
+        return 250
+
+    if action_type == "tsumo":
+        return 251
+
+    if action_type in ("cancel", "pass"):
+        return 252
+
+    raise ValueError(f"Unsupported action type: {type}")
 
 # ----------------------------
 # Mini example / smoke test
