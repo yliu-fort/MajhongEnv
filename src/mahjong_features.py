@@ -151,11 +151,12 @@ class RiichiState:
 
     # Legal actions (optional)
     legal_discards_mask: Optional[Sequence[int]] = None  # len 34, 0/1
-    legal_actions_mask: Optional[Sequence[int]] = None  # len 235, 0/1
+    legal_actions_mask: Optional[Sequence[int]] = None  # len 253, 0/1
 
     # Last droped tiles (for naki)
     last_draw_136: int = -1
     last_discarded_tile_136: int = -1
+    last_discarder: int = -1
 
     # Computed features
     visible_counts: Sequence[int] = None

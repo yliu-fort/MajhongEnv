@@ -10,8 +10,8 @@ import sqlite3
 import json, math
 import zarr
 from zarr.codecs import BloscCodec, BloscCname, BloscShuffle  # v3 codecs
-from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES
-from tenhou_to_mahjong import (
+from mahjong_features_34 import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES
+from tenhou_to_mahjong_34 import (
     iter_discard_states,
     iter_chi_states,
     iter_pon_states,

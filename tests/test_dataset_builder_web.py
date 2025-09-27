@@ -4,8 +4,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 import unittest
 import torch
 from typing import Dict
-from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
-from dataset_builder_web import encode_record, decode_record
+from mahjong_features_34 import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
+from dataset_builder_web_34 import encode_record, decode_record
 
 
 def _decode_record(raw: bytes) -> Dict:

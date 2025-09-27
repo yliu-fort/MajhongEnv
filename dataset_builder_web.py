@@ -14,13 +14,7 @@ from tqdm import tqdm
 
 from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
 from dataset_builder_zarr import count_xmls_in_database, fetch_xmls_from_database
-from tenhou_to_mahjong import (
-    iter_discard_states,
-    iter_chi_states,
-    iter_pon_states,
-    iter_kan_states,
-    iter_riichi_states,
-)
+from tenhou_to_mahjong import iter_discard_states
 
 # 固定长度常量
 RECORD_SIZE = 400  # 近似值，不需要精确；只用于预分配/统计（实际解码按切片）
@@ -37,6 +31,15 @@ def pack_34bits(mask_iterable):  # 34个0/1 -> 5字节
     for i, m in enumerate(mask_iterable):
         bits |= (int(m) & 1) << i
     return (bits & ((1<<40)-1)).to_bytes(5, "little")
+
+def pack_253bits(mask_iterable):  # 253个0/1 -> 32字节
+    out = bytearray((253 + 7) // 8)
+    for i, m in enumerate(mask_iterable):
+        if i >= 253:
+            break
+        if int(m) & 1:
+            out[i >> 3] |= 1 << (i & 7)
+    return bytes(out)
 
 def pad_arr_u8(arr, length, pad=255):
     out = np.full((length,), pad, dtype=np.uint8)
@@ -95,9 +98,16 @@ def encode_record(s: "RiichiState-like-dict", label, mask)->bytes:
     else:
         b.extend(pack_34bits(legal))
 
+    legal_actions = s.get("legal_actions_mask")
+    if legal_actions is None:
+        b.extend(b"\x00"*32)
+    else:
+        b.extend(pack_253bits(legal))
+
     # last tiles
     b.extend(pack_uint16_offset(s.get("last_draw_136", -1)).tobytes())
     b.extend(pack_uint16_offset(s.get("last_discarded_tile_136", -1)).tobytes())
+    b.extend(pack_uint16_offset(s.get("last_discarder", -1)).tobytes())
 
     u8arr(s.get("visible_counts"), NUM_TILES)
     u8arr(s.get("remaining_counts"), NUM_TILES)
@@ -158,11 +168,17 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
     bits = int.from_bytes(legal_bytes, "little")
     legal_mask = [(bits >> i) & 1 for i in range(NUM_TILES)]
 
+    # Legal actions mask: 32 bytes (253 little-endian bits)
+    legal_actions_bytes = take(32)
+    legal_actions_mask_bits = np.unpackbits(legal_actions_bytes, bitorder="little")
+    legal_actions_mask = legal_actions_mask_bits[:253].astype(int).tolist()
+
     # Last tiles (uint16 little-endian with -1 offset)
-    u16 = v[off:off+4].view(dtype="<u2")
+    u16 = v[off:off+6].view(dtype="<u2")
     last_draw = int(u16[0]) - 1
     last_disc = int(u16[1]) - 1
-    off += 4
+    last_disr = int(u16[2]) - 1
+    off += 6
 
     # Build RiichiState
     left = PlayerPublic(
@@ -210,15 +226,17 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
         aka5p=bool(aka_flags & 0x2),
         aka5s=bool(aka_flags & 0x4),
         legal_discards_mask=legal_mask,
+        legal_actions_mask=legal_actions_mask,
         last_draw_136=last_draw,
         last_discarded_tile_136=last_disc,
+        last_discarder=last_disr,
         visible_counts=visible_counts,
         remaining_counts=remaining_counts,
         shantens=shantens,
         ukeires=ukeires,
     )
 
-    return state, label
+    return state, label, legal_actions_mask
 
 def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
     mask = getattr(state, "legal_discards_mask", None)
@@ -275,18 +293,14 @@ class WebDatasetShardWriter:
         self._writer = wds.ShardWriter(pattern, maxcount=samples_per_shard)
         self._count = 0
 
-    def write(self, state: Dict[str, Any], label: int, mask: Optional[Iterable[int]]=None, meta: Optional[Dict[str, Any]]=None) -> bool:
+    def write(self, state: Dict[str, Any], label: int, meta: Optional[Dict[str, Any]]=None) -> bool:
         if not (0 <= int(label) < NUM_TILES):
             return False
 
         sample = {
             "__key__": f"{self._count:012d}",
-            "bin": encode_record(state, label, mask),
-            #"cls": np.asarray([int(label)], dtype=np.uint8).tobytes(),
-            #"meta.json": json.dumps(meta, ensure_ascii=False).encode("utf-8"),
+            "bin": encode_record(state, label),
         }
-        #if mask is not None:
-        #    sample["mask"] = _mask_bytes(mask)
 
         self._writer.write(sample)
         self._count += 1
@@ -346,38 +360,9 @@ def main() -> None:
     samples_per_shard = int(os.environ.get("RIICHI_WEB_SAMPLES_PER_SHARD", DEFAULT_SAMPLES_PER_SHARD))
     sql_batch_size = int(os.environ.get("TENHOU_SQL_BATCH", DEFAULT_SQL_BATCH))
 
-    _action_configs = {
-        "discard": {
-            "iterator": iter_discard_states,
-            "mask_fn": lambda state, _: _legal_mask_from_state(state),
-            "out_subdir": "discard",
-        },
-        "chi": {
-            "iterator": iter_chi_states,
-            "mask_fn": lambda _state, label: _one_hot_mask(label),
-            "out_subdir": "chi",
-        },
-        "pon": {
-            "iterator": iter_pon_states,
-            "mask_fn": lambda _state, label: _one_hot_mask(label),
-            "out_subdir": "pon",
-        },
-        "kan": {
-            "iterator": iter_kan_states,
-            "mask_fn": lambda _state, label: _one_hot_mask(label),
-            "out_subdir": "kan",
-        },
-        "riichi": {
-            "iterator": iter_riichi_states,
-            "mask_fn": lambda state, _: _legal_mask_from_state(state),
-            "out_subdir": "riichi",
-        },
-    }
-
     action_configs = {
         "discard": {
             "iterator": iter_discard_states,
-            "mask_fn": lambda state, _: _legal_mask_from_state(state),
             "out_subdir": "discard",
         }
     }

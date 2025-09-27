@@ -12,9 +12,9 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from tqdm import tqdm
 
-from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
+from mahjong_features_34 import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
 from dataset_builder_zarr import count_xmls_in_database, fetch_xmls_from_database
-from tenhou_to_mahjong import (
+from tenhou_to_mahjong_34 import (
     iter_discard_states,
     iter_chi_states,
     iter_pon_states,

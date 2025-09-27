@@ -558,6 +558,7 @@ class TenhouRoundTracker:
             legal_discards_mask=legal,
             last_draw_136=self.hands_136[who][-1],
             last_discarded_tile_136=self.last_discarded_tile_136,
+            last_discarder=(self.last_discarder-who) % 4,
             visible_counts=visible_counts,
             remaining_counts=remaining_counts,
             shantens=shantens,
