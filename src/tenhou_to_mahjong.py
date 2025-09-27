@@ -272,6 +272,7 @@ class TenhouRoundTracker:
         # For calculating legal masks
         self.furiten: List[bool] = [False, False, False, False] 
         self.kuikae: List[bool] = [False, False, False, False]
+        self.menzen: List[bool] = [True, True, True, True]
 
     # helpers
     def _mark_red(self, tid: int):
@@ -347,6 +348,7 @@ class TenhouRoundTracker:
                         self.hands_136[who].pop(i)
                         break
                 self.meld_counts[who][t34] += 1
+                self.menzen[who] = False
         elif m.type == "pon":
             removed = 0
             for i in range(len(self.hands_136[who]) - 1, -1, -1):
@@ -356,6 +358,7 @@ class TenhouRoundTracker:
                     if removed == 2:
                         break
             self.meld_counts[who][base] += 3
+            self.menzen[who] = False
         elif m.type == "kan":
             # open or closed
             need = 4 if m.from_who == m.who else 3
@@ -368,12 +371,15 @@ class TenhouRoundTracker:
                         break
             #assert removed == need
             self.meld_counts[who][base] += 4
+            if m.from_who != m.who:
+                self.menzen[who] = False
         elif m.type == "chakan":
             for i in range(len(self.hands_136[who]) - 1, -1, -1):
                 if tid136_to_t34(self.hands_136[who][i]) == base:
                     self.hands_136[who].pop(i)
                     break
             self.meld_counts[who][base] += 1
+            self.menzen[who] = False
         # nuki ignored for 4P
 
     def reach(self, who: int, step: int):
@@ -466,7 +472,7 @@ class TenhouRoundTracker:
         legal_actions = [False] * 253
         meld_counts_self_arr = self.meld_counts[who]
         in_riichi = self.riichi_flag[who]
-        can_declare_riichi = (not in_riichi) and (not any(meld_counts_self_arr))
+        can_declare_riichi = ((not in_riichi) or (self.discard_for_riichi[who])) and (self.menzen[who])
 
         if total_tiles % 3 == 2:  # player's own draw phase
             for tile, cnt in enumerate(counts):
@@ -482,14 +488,14 @@ class TenhouRoundTracker:
                     riichi_idx = get_action_index(tile, "riichi")
                     legal_actions[riichi_idx] = True
 
-                if in_riichi:
-                    continue
-
                 if cnt >= 4:
                     #open_kan_idx = get_action_index((tile, 0), "kan") # No implementation for 大明杠
                     #legal_actions[open_kan_idx] = True
                     closed_kan_idx = get_action_index((tile, None), "kan")
                     legal_actions[closed_kan_idx] = True
+
+                if in_riichi:
+                    continue
 
                 if meld_counts_self_arr[tile] >= 3:
                     chakan_idx = get_action_index((tile, 0), "chakan")
@@ -627,13 +633,14 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                     "riichi_sticks": tracker.riichi_sticks,
                     "action_idx": action_idx,
                 }
+                assert state.legal_actions_mask[action] == True, "Discard: Action is not valid!"
                 yield (state, who, action, meta)
-                tracker.discard(who, tid)
                 action_idx += 1
+            tracker.discard(who, tid)
         elif raw == "N":
-            state = tracker.snapshot_before_action(who)
             who = int(el.attrib["who"])
             m_val = int(el.attrib["m"])
+            state = tracker.snapshot_before_action(who)
             tracker.apply_meld(who, m_val)
             if iter_nakis:
                 meld=TenhouMeld(who, m_val)
@@ -646,6 +653,7 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                     "riichi_sticks": tracker.riichi_sticks,
                     "action_idx": action_idx,
                 }
+                assert state.legal_actions_mask[action] == True, "Naki: Action is not valid!"
                 yield (state, who, action, meta)
                 action_idx += 1
         elif raw == "REACH":
@@ -722,7 +730,7 @@ _DEF_PREVIEW = 500
 def _main(argv: Sequence[str]) -> int:
     import argparse
     p = argparse.ArgumentParser(description="Tenhou → RiichiState converter")
-    p.add_argument("--xml", type=str, default="data/2018012919gm-00e1-0000-335c92d6.xml", help="Path to Tenhou mjlog XML")
+    p.add_argument("--xml", type=str, default="data/debug2.xml", help="Path to Tenhou mjlog XML")
     p.add_argument("--preview", type=int, default=_DEF_PREVIEW, help="Print first N samples")
     p.add_argument("--dump", type=str, default=None, help="Path to dump pickle of lightweight dicts")
     args = p.parse_args(argv[1:])

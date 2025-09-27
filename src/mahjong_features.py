@@ -604,7 +604,7 @@ def get_action_index(t_34, type):
     if action_type == "kan":
         base, called = t_34
         base = int(base)
-        if called:
+        if called != None:
             return 147 + base
         else:
             return 215 + base

@@ -237,18 +237,9 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
 
     return state, label, legal_actions_mask
 
-def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
-    mask = getattr(state, "legal_discards_mask", None)
-    if mask is None:
-        hand = getattr(state, "hand_counts", None) or []
-        mask = [1 if int(v) > 0 else 0 for v in list(hand)[:NUM_TILES]]
-    mask_list = list(mask)
-    if len(mask_list) < NUM_TILES:
-        mask_list.extend([0] * (NUM_TILES - len(mask_list)))
-    return torch.tensor(mask_list[:NUM_TILES], dtype=torch.bool)
-
 
 DEFAULT_DB_PATH = "/workspace/2018.db"
+DEFAULT_DB_PATH = "data/2016.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 DEFAULT_SAMPLES_PER_SHARD = 16000
 DEFAULT_SQL_BATCH = 256
@@ -305,6 +296,7 @@ def _iter_action_samples(
 
     cpu_count = psutil.cpu_count(logical=False) or 1
     max_workers = max(1, min(len(xmls), cpu_count - 1 if cpu_count > 1 else 1))
+    max_workers = 1 #debug
 
     if max_workers <= 1:
         for xml in xmls:
