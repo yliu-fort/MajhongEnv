@@ -4,8 +4,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 import unittest
 import torch
 from typing import Dict
-from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
-from dataset_builder_web import encode_record, decode_record
+from mahjong_features_34 import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
+from dataset_builder_web_34 import encode_record, decode_record
 
 
 def _decode_record(raw: bytes) -> Dict:
@@ -39,13 +39,11 @@ def _decode_record(raw: bytes) -> Dict:
     dora = take(5).astype(np.uint8)
     aka_flags = int(take(1)[0])
     legal_mask = take(5).copy()  # 解 bitmask 留给后处理
-    legal_actions = take(32).copy()  # 解 bitmask 留给后处理
     # uint16 小端：用 view
     rest = v[off:].view(np.uint8)
     last_draw = int(np.frombuffer(rest[:2].tobytes(), dtype="<u2")[0]) - 1
     last_disc = int(np.frombuffer(rest[2:4].tobytes(), dtype="<u2")[0]) - 1
-    last_disr = int(np.frombuffer(rest[4:6].tobytes(), dtype="<u2")[0]) - 1
-    off += 6  # consumed two uint16
+    off += 4  # consumed two uint16
 
     # Visible counts (34), remaining counts (34), shantens (34), ukeires (34)
     visible_counts = take(NUM_TILES).astype(np.uint8)
@@ -59,11 +57,9 @@ def _decode_record(raw: bytes) -> Dict:
         "river_self": torch.from_numpy(river_self.astype(np.int16)),
         "opp": opp,  # 你也可以摊平成张量
         "legal_mask_bytes": torch.from_numpy(legal_mask),
-        "legal_action_bytes": torch.from_numpy(legal_actions),
         "meta": torch.tensor([riichi_self, turn, honba, sticks, dealer, round_wind, seat_wind], dtype=torch.int16),
         "last_draw": torch.tensor(last_draw, dtype=torch.int16),
         "last_disc": torch.tensor(last_disc, dtype=torch.int16),
-        "last_disr": torch.tensor(last_disr, dtype=torch.int16),
         "dora": torch.from_numpy(dora.astype(np.int16)),
         "aka_flags": torch.tensor(aka_flags, dtype=torch.uint8),
         "meld_self": torch.from_numpy(meld_self.astype(np.int16)),
@@ -114,10 +110,8 @@ def _build_sample_state_dict():
         "aka5p": True,
         "aka5s": False,
         "legal_discards_mask": [1 if i in (0, 9, 18, 27, 33) else 0 for i in range(NUM_TILES)],
-        "legal_actions_mask": [1 if i in (0, 9, 14, 18, 27, 33) else 0 for i in range(253)],
         "last_draw_136": 120,
         "last_discarded_tile_136": 55,
-        "last_discarder": 3,
         "visible_counts": visible_counts,
         "remaining_counts": remaining_counts,
         "shantens": shantens,
@@ -125,10 +119,10 @@ def _build_sample_state_dict():
     }
     return state
 
-class TestWebDatasetEncoderDecoder(unittest.TestCase):
+class TestWebDatasetEncoderDecoder34(unittest.TestCase):
     def test_encode_decode_roundtrip_basic(self):
         s = _build_sample_state_dict()
-        raw = encode_record(s,14)
+        raw = encode_record(s,14,[])
 
         # Decode variant 1 (tensor dict)
         d1 = _decode_record(raw)
@@ -159,7 +153,7 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert (aka & 0x1) == 1 and (aka & 0x2) == 0x2 and (aka & 0x4) == 0, "aka flags mismatch"
 
         # Last tiles
-        assert int(d1["last_draw"].item()) == s["last_draw_136"], f"last_draw mismatch: {int(d1["last_draw"].item())} True:{s["last_draw_136"]}"
+        assert int(d1["last_draw"].item()) == s["last_draw_136"], "last_draw mismatch"
         assert int(d1["last_disc"].item()) == s["last_discarded_tile_136"], "last_disc mismatch"
 
         # Counts & derived metrics
@@ -173,7 +167,7 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert d1["ukeires"].tolist() == s["ukeires"], "ukeires mismatch"
 
         # Decode variant 2 (RiichiState dataclass)
-        d2, label, mask = decode_record(raw)
+        d2, label = decode_record(raw)
         assert d2.riichi is True and d2.dealer_self is True
         assert d2.hand_counts == s["hand_counts"], "d2 hand_counts mismatch"
         assert d2.meld_counts_self == s["meld_counts_self"], "d2 meld_self mismatch"
@@ -197,4 +191,3 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert d2.shantens == s["shantens"], "d2 shantens mismatch"
         assert d2.ukeires == s["ukeires"], "d2 ukeires mismatch"
         assert label == 14
-        assert mask[label] == True, str(sum(mask))

@@ -52,7 +52,7 @@ def pad_arr_u8(arr, length, pad=255):
 def pack_uint16_offset(v):  # -1 or 0..135 -> uint16 (0..136)
     return np.uint16(0 if v < 0 else (v + 1))
     
-def encode_record(s: "RiichiState-like-dict", label, mask)->bytes:
+def encode_record(s: "RiichiState-like-dict", label)->bytes:
     # 将你的 dict/对象转成定长块
     b = bytearray()
 
@@ -102,7 +102,7 @@ def encode_record(s: "RiichiState-like-dict", label, mask)->bytes:
     if legal_actions is None:
         b.extend(b"\x00"*32)
     else:
-        b.extend(pack_253bits(legal))
+        b.extend(pack_253bits(legal_actions))
 
     # last tiles
     b.extend(pack_uint16_offset(s.get("last_draw_136", -1)).tobytes())
@@ -250,6 +250,7 @@ def _mask_tensor_from_state(state: RiichiState) -> torch.Tensor:
 
 
 DEFAULT_DB_PATH = "/workspace/2018.db"
+DEFAULT_DB_PATH = "data/2016.db"
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 DEFAULT_SAMPLES_PER_SHARD = 16000
 DEFAULT_SQL_BATCH = 256
