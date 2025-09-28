@@ -85,6 +85,8 @@ def encode_record(s: "RiichiState-like-dict", label)->bytes:
         b.append(np.uint8(1 if pp.get("riichi", False) else 0))
         b.append(np.uint8(pp.get("riichi_turn", 0)))
         u8arr(pp.get("meld_counts"), NUM_TILES)
+        b.extend(pack_uint16_offset(pp.get("score", -1)).tobytes())
+        b.append(np.uint8(pp.get("rank", 0)))
 
     # dora + aka
     b.extend(pad_arr_u8(s.get("dora_indicators", []), DORA_MAX).tobytes())
@@ -108,6 +110,11 @@ def encode_record(s: "RiichiState-like-dict", label)->bytes:
     b.extend(pack_uint16_offset(s.get("last_draw_136", -1)).tobytes())
     b.extend(pack_uint16_offset(s.get("last_discarded_tile_136", -1)).tobytes())
     b.extend(pack_uint16_offset(s.get("last_discarder", -1)).tobytes())
+
+    # score and rank
+    b.extend(pack_uint16_offset(s.get("score", -1)).tobytes())
+    b.append(np.uint8(s.get("rank", 0)))# 1
+
 
     u8arr(s.get("visible_counts"), NUM_TILES)
     u8arr(s.get("remaining_counts"), NUM_TILES)
@@ -156,7 +163,11 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
         rflag = bool(take(1)[0])
         rturn = int(take(1)[0])
         meld = take(NUM_TILES).astype(np.uint8)
-        opps.append((rv, rflag, rturn, meld))
+        u16 = v[off:off+2].view(dtype="<u2")
+        score = int(u16[0]) - 1
+        off += 2
+        rank = int(take(1)[0])
+        opps.append((rv, rflag, rturn, meld, score, rank))
 
     dora_raw = take(DORA_MAX)
     dora_indicators = [int(x) for x in dora_raw.tolist() if x != 255]
@@ -179,24 +190,36 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
     last_disr = int(u16[2]) - 1
     off += 6
 
+    # score and rank
+    u16 = v[off:off+2].view(dtype="<u2")
+    score = int(u16[0]) - 1
+    off += 2
+    rank = int(take(1)[0])
+
     # Build RiichiState
     left = PlayerPublic(
         river=opps[0][0],
         meld_counts=opps[0][3].astype(int).tolist(),
         riichi=opps[0][1],
         riichi_turn=opps[0][2],
+        score=opps[0][4],
+        rank=opps[0][5],
     )
     across = PlayerPublic(
         river=opps[1][0],
         meld_counts=opps[1][3].astype(int).tolist(),
         riichi=opps[1][1],
         riichi_turn=opps[1][2],
+        score=opps[1][4],
+        rank=opps[1][5],
     )
     right = PlayerPublic(
         river=opps[2][0],
         meld_counts=opps[2][3].astype(int).tolist(),
         riichi=opps[2][1],
         riichi_turn=opps[2][2],
+        score=opps[2][4],
+        rank=opps[2][5],
     )
 
     visible_counts = take(NUM_TILES).tolist()
@@ -220,6 +243,8 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
         turn_number=turn,
         honba=honba,
         riichi_sticks=sticks,
+        score=score,
+        rank=rank,
         dora_indicators=dora_indicators,
         aka5m=bool(aka_flags & 0x1),
         aka5p=bool(aka_flags & 0x2),
