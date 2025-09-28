@@ -25,7 +25,7 @@ DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 # 写完后，用 webdataset 的 make_index 生成 .idx 文件（命令行或 python 调用均可）
 
 # The second decode function
-def decode_record(raw: bytes)->Tuple[RiichiState, int]:
+def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
     v = np.frombuffer(raw, dtype=np.uint8)
     off = 0
 
