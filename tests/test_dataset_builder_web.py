@@ -34,6 +34,10 @@ def _decode_record(raw: bytes) -> Dict:
         rv = take(24).astype(np.uint8)
         rflag = int(take(1)[0]); rturn = int(take(1)[0])
         meld = take(34).astype(np.uint8)
+        u16 = v[off:off+2].view(dtype="<u2")
+        score = int(u16[0]) - 1
+        off += 2
+        rank = int(take(1)[0])
         opp.append((rv, rflag, rturn, meld))
 
     dora = take(5).astype(np.uint8)
@@ -46,6 +50,12 @@ def _decode_record(raw: bytes) -> Dict:
     last_disc = int(np.frombuffer(rest[2:4].tobytes(), dtype="<u2")[0]) - 1
     last_disr = int(np.frombuffer(rest[4:6].tobytes(), dtype="<u2")[0]) - 1
     off += 6  # consumed two uint16
+
+    # Score and rank
+    u16 = v[off:off+2].view(dtype="<u2")
+    score = int(u16[0]) - 1
+    off += 2
+    rank = int(take(1)[0])
 
     # Visible counts (34), remaining counts (34), shantens (34), ukeires (34)
     visible_counts = take(NUM_TILES).astype(np.uint8)
@@ -64,6 +74,8 @@ def _decode_record(raw: bytes) -> Dict:
         "last_draw": torch.tensor(last_draw, dtype=torch.int16),
         "last_disc": torch.tensor(last_disc, dtype=torch.int16),
         "last_disr": torch.tensor(last_disr, dtype=torch.int16),
+        "score": torch.tensor(score, dtype=torch.int16),
+        "rank": torch.tensor(rank, dtype=torch.int16),
         "dora": torch.from_numpy(dora.astype(np.int16)),
         "aka_flags": torch.tensor(aka_flags, dtype=torch.uint8),
         "meld_self": torch.from_numpy(meld_self.astype(np.int16)),
@@ -93,6 +105,8 @@ def _build_sample_state_dict():
             "riichi": riichi,
             "riichi_turn": riichi_turn,
             "meld_counts": mc,
+            "score":314,
+            "rank":2
         }
 
     state = {
@@ -109,6 +123,8 @@ def _build_sample_state_dict():
         "turn_number": 9,
         "honba": 2,
         "riichi_sticks": 1,
+        "score": 314,
+        "rank": 1,
         "dora_indicators": [3, 28, 31],
         "aka5m": True,
         "aka5p": True,
@@ -162,6 +178,9 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert int(d1["last_draw"].item()) == s["last_draw_136"], f"last_draw mismatch: {int(d1["last_draw"].item())} True:{s["last_draw_136"]}"
         assert int(d1["last_disc"].item()) == s["last_discarded_tile_136"], "last_disc mismatch"
 
+        assert int(d1["score"].item()) == s["score"], "score mismatch"
+        assert int(d1["rank"].item()) == s["rank"], "score mismatch"
+
         # Counts & derived metrics
         assert d1["visible_counts"].dtype == torch.uint8
         assert d1["remaining_counts"].dtype == torch.uint8
@@ -191,6 +210,8 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert d2.legal_discards_mask == s["legal_discards_mask"], "d2 legal mask mismatch"
         # Last tiles
         assert d2.last_draw_136 == s["last_draw_136"] and d2.last_discarded_tile_136 == s["last_discarded_tile_136"]
+        assert d2.score == s["score"], "score mismatch"
+        assert d2.rank == s["rank"], "score mismatch"
         # Counts & derived metrics
         assert d2.visible_counts == s["visible_counts"], "d2 visible_counts mismatch"
         assert d2.remaining_counts == s["remaining_counts"], "d2 remaining_counts mismatch"
