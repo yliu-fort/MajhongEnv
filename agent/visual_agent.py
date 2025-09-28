@@ -14,7 +14,7 @@ try:
 except ImportError:
     timm = None
 
-from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES, get_action_from_index
+from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES, get_action_from_index, get_action_index
 from .random_discard_agent import RandomDiscardAgent
 
 def tid136_to_t34(tid: int) -> int:
@@ -64,7 +64,7 @@ class VisualAgent:
     def __init__(self, env: gym.Env, backbone: str = "resnet18", device = None):
         self.env = env
         self._device = _select_device(device)
-        self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_TILES, pretrained = False)
+        self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = 253, pretrained = False)
         self.model.to(self._device)
         self.extractor = RiichiResNetFeatures()
         self._alt_model = RandomDiscardAgent(env)
@@ -91,10 +91,10 @@ class VisualAgent:
     
     def predict(self, observation):
         # 如果当前状态是和牌状态，直接返回和牌动作
-        if self.env and (self.env.phase == "tsumo" or self.env.phase == "ron"):
-            return (0, True)
+        if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):
+            return get_action_index(None, self.env.phase)
 
-        if self.env and (self.env.phase in ["discard", "riichi", "chi", "pon", "kan"]):
+        if self.env and (self.env.phase in ["discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"]):
             # 推理时获取动作
             with torch.no_grad():
                 out = self.extractor(observation[0])
@@ -107,7 +107,7 @@ class VisualAgent:
                 logits = logits.numpy().squeeze()
                 #legal_mask = out["legal_mask"]
                 #legal_mask = legal_mask.cpu().numpy()
-                legal_mask = self.env.action_masks() # TODO: 253-mask provided by env
+                legal_mask = np.asarray(self.env.action_masks()) # TODO: 253-mask provided by env
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # tile-34
 
