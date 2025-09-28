@@ -625,6 +625,10 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
             # 如果不在立直或者在打出立直宣言牌， 返回动作
             if not tracker.riichi_flag[who] or tracker.discard_for_riichi[who]:
                 state = tracker.snapshot_before_action(who)
+                legal_mask = [i for i in state.legal_actions_mask]
+                can_riichi = sum(legal_mask[34:68]) > 0
+                can_chakan = sum(legal_mask[181:215]) > 0
+                can_ankan = sum(legal_mask[215:249]) > 0
                 action = get_action_index(tid136_to_t34(tid), "riichi" if tracker.discard_for_riichi[who] else "discard")
                 meta = {
                     "round_index": tracker.round_index,
@@ -633,9 +637,65 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                     "riichi_sticks": tracker.riichi_sticks,
                     "action_idx": action_idx,
                 }
-                assert state.legal_actions_mask[action] == True, "Discard: Action is not valid!"
-                yield (state, who, action, meta)
-                action_idx += 1
+                if tracker.discard_for_riichi[who]:
+                    state.legal_actions_mask = [False]*253
+                    state.legal_actions_mask[34:68]=legal_mask[34:68]
+                    state.legal_actions_mask[-1]=True
+                    assert state.legal_actions_mask[action] == True, "Riichi: Action is not valid!"
+                    yield (state, who, action, meta)
+                    action_idx += 1
+                    if can_chakan:
+                        state = tracker.snapshot_before_action(who)
+                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask[181:215]=legal_mask[181:215]
+                        state.legal_actions_mask[-1]=True
+                        action = get_action_index(None, "pass")
+                        assert state.legal_actions_mask[action] == True, "Chakan: Action is not valid!"
+                        yield (state, who, action, meta)
+                        action_idx += 1
+                    if can_ankan:
+                        state = tracker.snapshot_before_action(who)
+                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask[215:249]=legal_mask[215:249]
+                        state.legal_actions_mask[-1]=True
+                        action = get_action_index(None, "pass")
+                        assert state.legal_actions_mask[action] == True, "Ankan: Action is not valid!"
+                        yield (state, who, action, meta)
+                        action_idx += 1
+                else:
+                    state.legal_actions_mask = [False]*253
+                    state.legal_actions_mask[:34]=legal_mask[:34]
+                    assert state.legal_actions_mask[action] == True, "Discard: Action is not valid!"
+                    yield (state, who, action, meta)
+                    action_idx += 1
+                    if can_riichi:
+                        state = tracker.snapshot_before_action(who)
+                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask[34:68]=legal_mask[34:68]
+                        state.legal_actions_mask[-1]=True
+                        action = get_action_index(None, "pass")
+                        assert state.legal_actions_mask[action] == True, "Riichi: Action is not valid!"
+                        yield (state, who, action, meta)
+                        action_idx += 1
+                    if can_chakan:
+                        state = tracker.snapshot_before_action(who)
+                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask[181:215]=legal_mask[181:215]
+                        state.legal_actions_mask[-1]=True
+                        action = get_action_index(None, "pass")
+                        assert state.legal_actions_mask[action] == True, "Chakan: Action is not valid!"
+                        yield (state, who, action, meta)
+                        action_idx += 1
+                    if can_ankan:
+                        state = tracker.snapshot_before_action(who)
+                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask[215:249]=legal_mask[215:249]
+                        state.legal_actions_mask[-1]=True
+                        action = get_action_index(None, "pass")
+                        assert state.legal_actions_mask[action] == True, "Ankan: Action is not valid!"
+                        yield (state, who, action, meta)
+                        action_idx += 1
+                # TODO: yield twice when discard and riichi are both available. First with mask for discard, second with mask for riichi + cancel
             tracker.discard(who, tid)
         elif raw == "N":
             who = int(el.attrib["who"])
@@ -730,7 +790,7 @@ _DEF_PREVIEW = 500
 def _main(argv: Sequence[str]) -> int:
     import argparse
     p = argparse.ArgumentParser(description="Tenhou → RiichiState converter")
-    p.add_argument("--xml", type=str, default="data/debug2.xml", help="Path to Tenhou mjlog XML")
+    p.add_argument("--xml", type=str, default="data/debug0.xml", help="Path to Tenhou mjlog XML")
     p.add_argument("--preview", type=int, default=_DEF_PREVIEW, help="Print first N samples")
     p.add_argument("--dump", type=str, default=None, help="Path to dump pickle of lightweight dicts")
     args = p.parse_args(argv[1:])
