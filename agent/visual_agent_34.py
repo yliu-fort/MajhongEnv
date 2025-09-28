@@ -14,7 +14,7 @@ try:
 except ImportError:
     timm = None
 
-from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES, get_action_from_index
+from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES
 from .random_discard_agent import RandomDiscardAgent
 
 def tid136_to_t34(tid: int) -> int:
@@ -93,10 +93,13 @@ class VisualAgent:
         # 如果当前状态是和牌状态，直接返回和牌动作
         if self.env and (self.env.phase == "tsumo" or self.env.phase == "ron"):
             return (0, True)
+        
+        # No options yet
+        if self.env and (self.env.phase == "riichi"):
+            return self._alt_model.predict(observation)[0], True if self.env.num_riichi < 3 else False
 
-        if self.env and (self.env.phase in ["discard", "riichi", "chi", "pon", "kan"]):
+        if self.env and (self.env.phase == "discard"):
             # 推理时获取动作
-            hand = self.env.hands[observation[1]['who']]
             with torch.no_grad():
                 out = self.extractor(observation[0])
                 x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
@@ -106,34 +109,16 @@ class VisualAgent:
                 if logits.device.type != "cpu":
                     logits = logits.cpu()
                 logits = logits.numpy().squeeze()
-                #legal_mask = out["legal_mask"]
-                #legal_mask = legal_mask.cpu().numpy()
-                legal_mask = self.env.action_masks() # TODO: 253-mask provided by env
+                legal_mask = out["legal_mask"] # len=253
+                legal_mask = legal_mask.cpu().numpy()
                 logits += -1e9*(1-legal_mask) # mask to valid logits
-                pred = int(logits.argmax()) # tile-34
+                pred = int(logits.argmax()) # len=253
 
-                if self.env.phase == "riichi":
-                    t_34, option = get_action_from_index(pred)
-                    if not option:
-                        return (0, option)
-                    for i, x in enumerate(hand):
-                        if tid136_to_t34(x) == t_34:
-                            return (i, option)
-                elif self.env.phase in ["chi","pon","kan"]:
-                    t_34s, option = get_action_from_index(pred)
-                    return (t_34s, option)
-                elif self.env.phase in ["ankan","chakan"]:
-                    t_34, option = get_action_from_index(pred)
-                    if not option:
-                        return (0, option)
-                    for i, x in enumerate(hand):
-                        if tid136_to_t34(x) == t_34:
-                            return (i, option)
-                elif self.env.phase == "discard":
-                    t_34, option = get_action_from_index(pred)
-                    for i, x in enumerate(hand):
-                        if tid136_to_t34(x) == t_34:
-                            return (i, option)
-                        
+                # Check if pred falls in valid action_masks
+                action_masks = self.env.action_masks() # 0 - 13 position in hand
+                for i, x in enumerate(self.env.hands[observation[1]['who']]):
+                    if tid136_to_t34(x) == pred and action_masks[i] == True:
+                        return (i, False)
+
         # if preds not in action_masks, return a random choice from action_masks.
-        return self._alt_model.predict(observation)
+        return self._alt_model.predict(observation)[0], False

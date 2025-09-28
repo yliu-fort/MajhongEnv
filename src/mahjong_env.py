@@ -8,7 +8,7 @@ from mahjong_tiles_print_style import tile_printout, tiles_printout
 from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
 from agent.random_discard_agent import RandomDiscardAgent
-
+from mahjong_features import get_action_index
 
 class MahjongEnvBase(gym.Env):
     """
@@ -733,6 +733,16 @@ class MahjongEnvBase(gym.Env):
                         self.logger.add_meld(player, new_meld)
                 elif confirm:
                     self.is_selecting_tiles_for_claim = True
+                    # Pre-fill with selected tiles for 253-dim action set
+                    if isinstance(action, tuple):
+                        hand = self.hands[player]
+                        for tile_34 in action:
+                            for idx, tile in enumerate(hand):
+                                if tile // 4 == tile_34:
+                                    self.selected_tiles.append(self.hands[player].pop(idx))
+                                    break
+                            else:
+                                raise ValueError(f"Tile {tile_34} not found in hand")
                 else:
                     # 什么都不做
                     self.claims.pop(0)
@@ -1345,12 +1355,12 @@ class MahjongEnvBase(gym.Env):
         return action_grp
 
 
-class MahjongEnv(MahjongEnvBase):
+class MahjongEnv34(MahjongEnvBase):
     """
     一个简化的麻将环境示例。
     """
     def __init__(self, num_players=4, num_rounds=4):
-        super(MahjongEnv, self).__init__(num_players=num_players, num_rounds=num_rounds)
+        super(MahjongEnv34, self).__init__(num_players=num_players, num_rounds=num_rounds)
 
         # 定义动作空间
         # 维度1: 0 ~ 13: 切出14张手牌中的哪一张
@@ -1447,6 +1457,109 @@ class MahjongEnv(MahjongEnvBase):
     def action_map(self, action_grp):
         return action_grp
 
+
+class MahjongEnv(MahjongEnvBase):
+    """
+    一个简化的麻将环境示例。
+    """
+    def __init__(self, num_players=4, num_rounds=4):
+        super(MahjongEnv, self).__init__(num_players=num_players, num_rounds=num_rounds)
+
+        # 定义动作空间
+        # 维度1: 0 ~ 252: 253-dim action space
+        self.action_space = spaces.MultiDiscrete([253,])
+ 
+        # 定义状态空间 (仅示例，具体需要你根据状态表示来定)
+
+        self.reset()
+
+    def get_observation(self, player):
+        """根据当前玩家，返回相应的状态表示。"""
+        return self.logger.snapshot_before_discard(player), {'who':player}
+    
+    def action_masks(self) -> list[bool]:
+        match self.phase:
+            case "discard":
+                mask = [False] * 253
+                if self.riichi[self.current_player]:
+                    # 立直后只能打最后摸到的牌
+                    mask[self.hands[self.current_player][-1]//4]=True
+                else:
+                    for t136 in self.hands[self.current_player]:
+                        mask[t136//4]=True
+                return mask
+
+            case "chi":
+                mask = [False] * 253
+                mask[get_action_index((self.claims[0]["tile"],0), self.phase)]=True
+                mask[get_action_index((self.claims[0]["tile"],1), self.phase)]=True
+                mask[get_action_index((self.claims[0]["tile"],2), self.phase)]=True
+                mask[get_action_index(None, "cancel")]=True
+                return mask
+
+            case "pon"|"kan":
+                mask = [False] * 253
+                mask[get_action_index((self.claims[0]["tile"],0), self.phase)]=True
+                mask[get_action_index(None, "cancel")]=True
+                return mask
+                
+            case "ron":
+                mask = [False] * 253
+                # TODO: furiten justification
+                if not (self.furiten_0[self.current_player] or self.furiten_1[self.current_player]):
+                    mask[get_action_index(None, self.phase)]=True
+                mask[get_action_index(None, "cancel")]=True
+                return mask
+
+            case "tsumo"|"ryuukyoku":
+                mask = [False] * 253
+                mask[get_action_index(None, self.phase)]=True
+                mask[get_action_index(None, "cancel")]=True
+                return mask
+
+            case "ankan":
+                # TODO: ankan after riichi should not change the machii
+                mask = [False] * 253
+                hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
+ 
+                for tile, count in Counter(hands_34).items():
+                    if count >= 4:
+                        for i, t in enumerate(hands_34):
+                            if t == tile:
+                                mask[get_action_index((t,None), "kan")]=True
+                mask[get_action_index(None, "cancel")]=True
+                return mask
+
+            case "chakan":
+                mask = [False] * 253
+                hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
+ 
+                for m in self.melds[self.current_player]:
+                    if m["type"] == "pon":
+                        tile = m["claimed_tile"] // 4
+                        for i, t in enumerate(hands_34):
+                            if t == tile:
+                                mask[get_action_index((t,0), "chakan")]=True
+                mask[get_action_index(None, "cancel")]=True
+                return mask
+            
+            case "riichi":
+                mask = [False] * 253
+                # 立直时只能打能使手牌听牌的牌
+                assert len(self.hands[self.current_player]) == 14, "立直时手牌必须是14张"
+                shantens = self.hand_checker.check_shantens(self.hands[self.current_player])
+                discard_for_riichi = [t//4 for i, t in enumerate(self.hands[self.current_player]) if shantens[i] <= 0]
+                for t34 in discard_for_riichi:
+                    mask[get_action_index(t34, "riichi")]=True
+                mask[get_action_index(None, "cancel")]=True
+                return mask
+
+        return [False] * 253
+    
+    def action_map(self, action_grp):
+        # TODO: map actions in discard, riichi, ankan, chakan phase
+        # covert t34 to position of tile in hand.
+        return action_grp
 
 if __name__ == "__main__":
     # 创建环境
