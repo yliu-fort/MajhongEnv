@@ -104,6 +104,8 @@ class PlayerPublic:
     meld_counts: Optional[Sequence[int]] = None    # length 34 (exposed tiles from chi/pon/kan)
     riichi: bool = False
     riichi_turn: int = 0  # turn number when riichi declared (if any)
+    score: int = 0
+    rank: int = -1
 
 
 @dataclass
@@ -142,6 +144,8 @@ class RiichiState:
     turn_number: int = 0       # approx 0..24 (normalize later)
     honba: int = 0
     riichi_sticks: int = 0
+    score: int = 0
+    rank: int = -1
 
     # Dora
     dora_indicators: Sequence[int] = field(default_factory=list)

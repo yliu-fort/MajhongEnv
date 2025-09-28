@@ -274,6 +274,10 @@ class TenhouRoundTracker:
         self.kuikae: List[bool] = [False, False, False, False]
         self.menzen: List[bool] = [True, True, True, True]
 
+        # Score
+        self.scores: List[int] = [250, 250, 250, 250]
+        self.ranks: List[int] = [-1, -1, -1, -1]
+
     # helpers
     def _mark_red(self, tid: int):
         if tid == 16:
@@ -292,7 +296,7 @@ class TenhouRoundTracker:
             self.seen_red["s"] = False
 
     # INIT
-    def start_init(self, seed_list: List[int], oya: int, hands: Dict[int, List[int]]):
+    def start_init(self, seed_list: List[int], oya: int, hands: Dict[int, List[int]], scores: List[int]):
         self.reset()
         self.round_index = seed_list[0]
         self.honba = seed_list[1]
@@ -305,6 +309,8 @@ class TenhouRoundTracker:
             self.hands_136[p] = list(h)
             for tid in h:
                 self._mark_red(tid)
+        self.scores = list(scores)
+        self.ranks = list(reversed(sorted(list(range(4)), key=lambda x: self.scores[x])))
 
     # events
     def draw(self, who: int, tid: int):
@@ -410,15 +416,21 @@ class TenhouRoundTracker:
         pp_left = PlayerPublic(river=list(self.rivers_t34[left]),
                                meld_counts=list(self.meld_counts[left]),
                                riichi=self.riichi_flag[left],
-                               riichi_turn=self.riichi_turn[left])
+                               riichi_turn=self.riichi_turn[left],
+                               score=self.scores[left],
+                               rank=self.ranks[left])
         pp_across = PlayerPublic(river=list(self.rivers_t34[across]),
                                  meld_counts=list(self.meld_counts[across]),
                                  riichi=self.riichi_flag[across],
-                                 riichi_turn=self.riichi_turn[across])
+                                 riichi_turn=self.riichi_turn[across],
+                                 score=self.scores[across],
+                                 rank=self.ranks[across])
         pp_right = PlayerPublic(river=list(self.rivers_t34[right]),
                                 meld_counts=list(self.meld_counts[right]),
                                 riichi=self.riichi_flag[right],
-                                riichi_turn=self.riichi_turn[right])
+                                riichi_turn=self.riichi_turn[right],
+                                score=self.scores[right],
+                                rank=self.ranks[right])
         
         # Compute per-tile visible counts (hand + all melds + all rivers + dora indicators), clipped to 0..4
         vc = np.zeros(NUM_TILES, dtype=np.int16)
@@ -559,6 +571,8 @@ class TenhouRoundTracker:
             turn_number=self.discards_total // 4,
             honba=self.honba,
             riichi_sticks=self.riichi_sticks,
+            score=self.scores[who],
+            rank=self.ranks[who],
             dora_indicators=list(self.dora_inds_t34),
             aka5m=self.seen_red["m"], aka5p=self.seen_red["p"], aka5s=self.seen_red["s"],
             legal_discards_mask=legal,
@@ -614,7 +628,8 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                 key = f"hai{p}"
                 if key in attr:
                     hands[p] = list(map(int, attr[key].split(",")))
-            tracker.start_init(seed, oya, hands)
+            scores = list(map(int, attr["ten"].split(",")))
+            tracker.start_init(seed, oya, hands, scores)
         elif raw and raw[0] in "TUVW" and raw[1:].isdigit():
             who = "TUVW".index(raw[0])
             tid = int(raw[1:])
