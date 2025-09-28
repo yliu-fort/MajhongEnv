@@ -115,6 +115,7 @@ class MahjongEnvBase(gym.Env):
         self.ippatsu = [False for _ in range(self.num_players)] # 一发状态
         self.furiten_0 = [False for _ in range(self.num_players)] # 舍张振听状态
         self.furiten_1 = [False for _ in range(self.num_players)] # 同巡振听状态
+        self.menzen = [True for _ in range(self.num_players)] # 门清状态
 
         # 初始分数
         self.score_deltas = [0 for _ in range(self.num_players)]
@@ -729,6 +730,9 @@ class MahjongEnvBase(gym.Env):
                         # 鸣牌后四风连打不再成立
                         self.can_kaze4 = False
 
+                        # 鸣牌后门清不再成立
+                        self.menzen[player] = False
+
                         # 记录天凤格式log e.g., <N who="2" m="25611" />
                         self.logger.add_meld(player, new_meld)
                 elif confirm:
@@ -906,7 +910,7 @@ class MahjongEnvBase(gym.Env):
     
     def can_riichi(self, player):
         # 立直要求手牌听牌，门清，且分数大于1000点
-        if  not self.melds[player] and \
+        if  self.menzen[player] and \
             not self.riichi[player] and \
             self.scores[player] >= MahjongEnvBase.KYOUTAKU and \
             self.hand_checker.check_shanten(self.hands[player]) <= 0:
@@ -1516,7 +1520,7 @@ class MahjongEnv(MahjongEnvBase):
                 
             case "ron":
                 mask = [False] * 253
-                # TODO: furiten justification
+                # furiten justification
                 if not (self.furiten_0[self.current_player] or self.furiten_1[self.current_player]):
                     mask[get_action_index(None, self.phase)]=True
                 mask[get_action_index(None, "cancel")]=True
@@ -1557,7 +1561,6 @@ class MahjongEnv(MahjongEnvBase):
             case "riichi":
                 mask = [False] * 253
                 # 立直时只能打能使手牌听牌的牌
-                assert len(self.hands[self.current_player]) == 14, "立直时手牌必须是14张"
                 shantens = self.hand_checker.check_shantens(self.hands[self.current_player])
                 discard_for_riichi = [t//4 for i, t in enumerate(self.hands[self.current_player]) if shantens[i] <= 0]
                 for t34 in discard_for_riichi:
