@@ -144,6 +144,8 @@ class RiichiState:
     turn_number: int = 0       # approx 0..24 (normalize later)
     honba: int = 0
     riichi_sticks: int = 0
+
+    # Score and rank
     score: int = 0
     rank: int = -1
 
