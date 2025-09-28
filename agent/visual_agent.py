@@ -96,7 +96,6 @@ class VisualAgent:
 
         if self.env and (self.env.phase in ["discard", "riichi", "chi", "pon", "kan"]):
             # 推理时获取动作
-            hand = self.env.hands[observation[1]['who']]
             with torch.no_grad():
                 out = self.extractor(observation[0])
                 x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
@@ -112,28 +111,7 @@ class VisualAgent:
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # tile-34
 
-                if self.env.phase == "riichi":
-                    t_34, option = get_action_from_index(pred)
-                    if not option:
-                        return (0, option)
-                    for i, x in enumerate(hand):
-                        if tid136_to_t34(x) == t_34:
-                            return (i, option)
-                elif self.env.phase in ["chi","pon","kan"]:
-                    t_34s, option = get_action_from_index(pred)
-                    return (t_34s, option)
-                elif self.env.phase in ["ankan","chakan"]:
-                    t_34, option = get_action_from_index(pred)
-                    if not option:
-                        return (0, option)
-                    for i, x in enumerate(hand):
-                        if tid136_to_t34(x) == t_34:
-                            return (i, option)
-                elif self.env.phase == "discard":
-                    t_34, option = get_action_from_index(pred)
-                    for i, x in enumerate(hand):
-                        if tid136_to_t34(x) == t_34:
-                            return (i, option)
+                return pred
                         
         # if preds not in action_masks, return a random choice from action_masks.
         return self._alt_model.predict(observation)

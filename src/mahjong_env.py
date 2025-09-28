@@ -8,7 +8,7 @@ from mahjong_tiles_print_style import tile_printout, tiles_printout
 from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
 from agent.random_discard_agent import RandomDiscardAgent
-from mahjong_features import get_action_index
+from mahjong_features import get_action_index, get_action_from_index
 
 class MahjongEnvBase(gym.Env):
     """
@@ -1556,10 +1556,31 @@ class MahjongEnv(MahjongEnvBase):
 
         return [False] * 253
     
-    def action_map(self, action_grp):
-        # TODO: map actions in discard, riichi, ankan, chakan phase
-        # covert t34 to position of tile in hand.
-        return action_grp
+    def action_map(self, action_grp: int):
+        payload, confirm = get_action_from_index(action_grp)
+
+        def _hand_index(tile_34: int) -> int:
+            hand = self.hands[self.current_player]
+            for idx, tile in enumerate(hand):
+                if tile // 4 == tile_34:
+                    return idx
+            raise ValueError(f"tile {tile_34} not found in hand {hand}")
+
+        if self.phase == "discard":
+            return _hand_index(payload), confirm
+
+        if self.phase == "riichi":
+            if not confirm:
+                return 0, False
+            return _hand_index(payload), True
+
+        if self.phase in {"ankan", "chakan"}:
+            if not confirm:
+                return 0, False
+            tile_34 = payload
+            return _hand_index(tile_34), True
+
+        return payload, confirm
 
 if __name__ == "__main__":
     # 创建环境
