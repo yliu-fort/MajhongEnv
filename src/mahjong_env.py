@@ -1475,7 +1475,7 @@ class MahjongEnv(MahjongEnvBase):
 
     def get_observation(self, player):
         """根据当前玩家，返回相应的状态表示。"""
-        return self.logger.snapshot_before_discard(player), {'who':player}
+        return self.logger.snapshot_before_action(player), {'who':player}
     
     def action_masks(self) -> list[bool]:
         match self.phase:
@@ -1491,15 +1491,26 @@ class MahjongEnv(MahjongEnvBase):
 
             case "chi":
                 mask = [False] * 253
-                mask[get_action_index((self.claims[0]["tile"],0), self.phase)]=True
-                mask[get_action_index((self.claims[0]["tile"],1), self.phase)]=True
-                mask[get_action_index((self.claims[0]["tile"],2), self.phase)]=True
+                claimed_t34 = self.claims[0]["tile"]//4
+                rank = claimed_t34 % 9
+                hand_34 = [False] * 34
+                for t136 in self.hands[self.current_player]:
+                    hand_34[t136//4]+=1
+                if 0 <= rank <= 6:
+                    has_required_tiles = hand_34[claimed_t34+1] * hand_34[claimed_t34+2]
+                    mask[get_action_index((self.claims[0]["tile"]//4,0), self.phase)]=has_required_tiles
+                if 1 <= rank <= 7:
+                    has_required_tiles = hand_34[claimed_t34-1] * hand_34[claimed_t34+1]
+                    mask[get_action_index((self.claims[0]["tile"]//4-1,1), self.phase)]=has_required_tiles
+                if 2 <= rank <= 8:
+                    has_required_tiles = hand_34[claimed_t34-2] * hand_34[claimed_t34-1]
+                    mask[get_action_index((self.claims[0]["tile"]//4-2,2), self.phase)]=has_required_tiles
                 mask[get_action_index(None, "cancel")]=True
                 return mask
 
             case "pon"|"kan":
                 mask = [False] * 253
-                mask[get_action_index((self.claims[0]["tile"],0), self.phase)]=True
+                mask[get_action_index((self.claims[0]["tile"]//4,0), self.phase)]=True
                 mask[get_action_index(None, "cancel")]=True
                 return mask
                 
@@ -1577,7 +1588,7 @@ class MahjongEnv(MahjongEnvBase):
         if self.phase in {"ankan", "chakan"}:
             if not confirm:
                 return 0, False
-            tile_34 = payload
+            tile_34 = payload[0]
             return _hand_index(tile_34), True
 
         return payload, confirm
