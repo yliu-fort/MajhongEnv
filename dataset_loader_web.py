@@ -4,16 +4,20 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
 import torch
+import torch.nn.functional as F
 from torchvision import transforms
 import webdataset as wds
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, Tuple, List
-#from probe import probe_map
+from typing import Any, Dict, Tuple, List, Optional
+from probe import probe_map
 
 from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
 
 
 NUM_FEATURES = 128
+# Resize targets are anisotropic; historically the height 224 pairs with width 65.
+RESIZE_BASE_HEIGHT = 224
+RESIZE_BASE_WIDTH = 65
 DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 
 
@@ -21,7 +25,7 @@ DEFAULT_OUTPUT_DIR = os.path.join("output", "webdataset")
 # 写完后，用 webdataset 的 make_index 生成 .idx 文件（命令行或 python 调用均可）
 
 # The second decode function
-def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
+def decode_record(raw: bytes)->Tuple[RiichiState, int]:
     v = np.frombuffer(raw, dtype=np.uint8)
     off = 0
 
@@ -54,7 +58,11 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
         rflag = bool(take(1)[0])
         rturn = int(take(1)[0])
         meld = take(NUM_TILES).astype(np.uint8)
-        opps.append((rv, rflag, rturn, meld))
+        u16 = v[off:off+2].view(dtype="<u2")
+        score = int(u16[0]) - 1
+        off += 2
+        rank = int(take(1)[0])
+        opps.append((rv, rflag, rturn, meld, score, rank))
 
     dora_raw = take(DORA_MAX)
     dora_indicators = [int(x) for x in dora_raw.tolist() if x != 255]
@@ -77,24 +85,36 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
     last_disr = int(u16[2]) - 1
     off += 6
 
+    # score and rank
+    u16 = v[off:off+2].view(dtype="<u2")
+    score = int(u16[0]) - 1
+    off += 2
+    rank = int(take(1)[0])
+
     # Build RiichiState
     left = PlayerPublic(
         river=opps[0][0],
         meld_counts=opps[0][3].astype(int).tolist(),
         riichi=opps[0][1],
         riichi_turn=opps[0][2],
+        score=opps[0][4],
+        rank=opps[0][5],
     )
     across = PlayerPublic(
         river=opps[1][0],
         meld_counts=opps[1][3].astype(int).tolist(),
         riichi=opps[1][1],
         riichi_turn=opps[1][2],
+        score=opps[1][4],
+        rank=opps[1][5],
     )
     right = PlayerPublic(
         river=opps[2][0],
         meld_counts=opps[2][3].astype(int).tolist(),
         riichi=opps[2][1],
         riichi_turn=opps[2][2],
+        score=opps[2][4],
+        rank=opps[2][5],
     )
 
     visible_counts = take(NUM_TILES).tolist()
@@ -118,6 +138,8 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
         turn_number=turn,
         honba=honba,
         riichi_sticks=sticks,
+        score=score,
+        rank=rank,
         dora_indicators=dora_indicators,
         aka5m=bool(aka_flags & 0x1),
         aka5p=bool(aka_flags & 0x2),
@@ -138,17 +160,31 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
 
 
 class DecodeHelper:
-    _extractor = RiichiResNetFeatures()
+    _extractor: Optional[RiichiResNetFeatures] = None
     _transform = None
     _target_transform = None
+
+    @staticmethod
+    def ensure_initialized() -> RiichiResNetFeatures:
+        if DecodeHelper._extractor is None:
+            extractor = RiichiResNetFeatures()
+            extractor.eval()
+            DecodeHelper._extractor = extractor
+        return DecodeHelper._extractor
+
+    @staticmethod
+    @torch.inference_mode()
+    def _extract(state: RiichiState) -> torch.Tensor:
+        extractor = DecodeHelper.ensure_initialized()
+        features = extractor(state)["x"]
+        return features.detach()[..., :1]
 
     @staticmethod
     def apply(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
         state, label, _ = decode_record(sample["bin"])
 
-        with torch.no_grad():
-            x = DecodeHelper._extractor(state)["x"].detach()[...,:1]
-        y = torch.asarray(label, dtype=torch.long)
+        x = DecodeHelper._extract(state)
+        y = torch.as_tensor(label, dtype=torch.long)
 
         if DecodeHelper._transform:
             x = DecodeHelper._transform(x)
@@ -161,10 +197,9 @@ class DecodeHelper:
     def apply_with_mask(sample: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         state, label, mask = decode_record(sample["bin"])
 
-        with torch.no_grad():
-            x = DecodeHelper._extractor(state)["x"].detach()[...,:1]
-        y = torch.asarray(label, dtype=torch.long)
-        m = torch.asarray(mask, dtype=torch.long)
+        x = DecodeHelper._extract(state)
+        y = torch.as_tensor(label, dtype=torch.long)
+        m = torch.as_tensor(mask, dtype=torch.long)
 
         if DecodeHelper._transform:
             x = DecodeHelper._transform(x)
@@ -174,12 +209,54 @@ class DecodeHelper:
         return x, y, m
     
     @staticmethod
-    def resize_batch(batch, size=224):
+    def resize_batch(batch, size=RESIZE_BASE_HEIGHT):
+        """Resize helper retained for backward compatibility."""
         xs, ys, *rest = batch                        # [B,C,H,W]
-        x = torch.nn.functional.interpolate(xs, (size, 65), mode="nearest")
+        x = resize_batch_on_device(xs, compute_resize_shape(size))
         if rest:
             return x, ys, *rest
         return x, ys
+
+
+def compute_resize_shape(target_height: int) -> Tuple[int, int]:
+    """Return the (height, width) pair used when upscaling feature maps."""
+    width = int(round(target_height * RESIZE_BASE_WIDTH / RESIZE_BASE_HEIGHT))
+    width = max(1, width)
+    return target_height, width
+
+
+def resize_batch_on_device(images: torch.Tensor, target_shape: Optional[Tuple[int, int]], mode: str = "nearest") -> torch.Tensor:
+    """Resize a tensor batch on the caller's device if needed.
+
+    Args:
+        images: Tensor with shape ``(B, C, H, W)``.
+        target_shape: ``(height, width)`` tuple. If ``None`` the tensor is returned as-is.
+        mode: Interpolation mode (defaults to ``"nearest"`` to match previous behaviour).
+    """
+
+    if target_shape is None:
+        return images
+
+    height, width = target_shape
+    if height <= 0 or width <= 0:
+        raise ValueError("target_shape must contain positive dimensions")
+
+    if images.dim() != 4:
+        raise ValueError("images tensor must be 4D (B, C, H, W)")
+
+    if images.shape[-2:] == (height, width):
+        return images
+
+    return F.interpolate(images, size=(height, width), mode=mode)
+
+
+def _worker_init_fn(worker_id: int) -> None:
+    """Initialise heavy objects once per worker and tame threading."""
+    DecodeHelper.ensure_initialized()
+    try:
+        torch.set_num_threads(1)
+    except Exception:
+        pass
     
 def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, class_conditional=True, prefetch_factor=1, seed=42):
     # 在旧版 webdataset 兼容接口下，ResampledShards 需要通过 resampled=True 打开，否则会因类型断言失败
@@ -205,11 +282,23 @@ def make_loader(pattern, batch_size, num_workers=4, shard_shuffle=True, class_co
         #.map(probe_map)                    # ← 在这里测“单样本解码后”的体积～0.017 MB
         .shuffle(sample_shuffle)  # 片内大缓冲区乱序（关键！）
         .batched(batch_size, partial=False)
-        .map(DecodeHelper.resize_batch)# ← 在这里测“单样本解码后”的体积～24.6 MB，主要因为有一个resize
     )
-    loader = torch.utils.data.DataLoader(
-        ds, batch_size=None, num_workers=num_workers, pin_memory=True, prefetch_factor=prefetch_factor
-    )
+
+    loader_kwargs = dict(batch_size=None, pin_memory=True)
+    if torch.cuda.is_available():
+        loader_kwargs["pin_memory_device"] = "cuda"
+
+    if num_workers > 0:
+        loader_kwargs.update(
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
+            persistent_workers=True,
+            worker_init_fn=_worker_init_fn,
+        )
+    else:
+        loader_kwargs.update(num_workers=0)
+
+    loader = torch.utils.data.DataLoader(ds, **loader_kwargs)
     return loader
 
 def build_riichi_dataloader(
