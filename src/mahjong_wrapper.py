@@ -68,7 +68,7 @@ class MahjongEnv(_BaseMahjongEnv):
         window_size: Tuple[int, int] = (1024, 720),
         fps: int = 30,
         font_name: Optional[str] = None,
-        font_size: int = 20,
+        font_size: int = 12,
         fallback_fonts: Optional[Sequence[str]] = None,
         **kwargs: Any,
     ) -> None:
@@ -112,7 +112,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._small_font: Optional[pygame.font.Font] = None
         self._header_font: Optional[pygame.font.Font] = None
         self._clock: Optional[pygame.time.Clock] = None
-        self._line_height = font_size + 6
+        self._line_height = font_size + 4
         self._quit_requested = False
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
         self._auto_advance = True
@@ -202,7 +202,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._font = self._create_font(self._font_size)
         small_size = max(12, self._font_size - 4)
         self._small_font = self._create_font(small_size)
-        self._header_font = self._create_font(self._font_size + 10)
+        self._header_font = self._create_font(self._font_size + 8)
         self._clock = pygame.time.Clock()
         self._line_height = self._font.get_linesize() + 4
         self._load_tile_assets()
@@ -673,7 +673,7 @@ class MahjongEnv(_BaseMahjongEnv):
         wall_tile = self._tile_metrics.get("wall", (20, 26))
         stack_size = 5
         gap = 6
-        margin_y = 24
+        margin_y = 32
         total_height = stack_size * (wall_tile[0] + gap) - gap
         start_x = play_rect.centerx + total_height // 2
         y = play_rect.centery + margin_y
@@ -737,11 +737,6 @@ class MahjongEnv(_BaseMahjongEnv):
         phase_text = f"Phase: {self.phase}  |  Current Player: P{self.current_player}"
         phase_surface = self._small_font.render(phase_text, True, self._accent_color)
         self._screen.blit(phase_surface, (margin, margin))
-
-        info_text = self._last_payload.info.get("msg") or getattr(self, "msg", "")
-        if info_text:
-            info_surface = self._small_font.render(str(info_text), True, self._text_color)
-            self._screen.blit(info_surface, (margin, margin + phase_surface.get_height() + 6))
 
         reward_color = self._danger_color if self._last_payload.reward < 0 else self._text_color
         reward_text = f"Action: {self._last_payload.action}  Reward: {self._last_payload.reward:.2f}"
@@ -910,11 +905,6 @@ class MahjongEnv(_BaseMahjongEnv):
             else:
                 message_lines.append("Draw - No Tenpai")
 
-        msg_text = str(getattr(self, "msg", "")).strip()
-        if msg_text:
-            wrapped_msg = self._wrap_text(self._small_font, msg_text, max_text_width)
-            message_lines.extend(wrapped_msg[:4])
-
         yaku_lines: list[tuple[str, str]] = []
         if agari:
             raw_yaku = [str(item) for item in agari.get("yaku", [])]
@@ -930,7 +920,7 @@ class MahjongEnv(_BaseMahjongEnv):
                     for extra in wrapped_yaku[1:]:
                         yaku_lines.append(("", extra))
 
-        line_height = self._font.get_linesize() + 6
+        line_height = self._font.get_linesize() + 4
         small_height = self._small_font.get_linesize() + 2
 
         player_section_height = num_players * line_height if num_players else 0
