@@ -130,6 +130,7 @@ class MahjongEnvBase(gym.Env):
 
         # 发初始手牌
         self.discard_pile = np.zeros((4, 136), dtype=bool)
+        self.discard_pile_seq = [[] for _ in range(self.num_players)]
         self.melds = [[] for _ in range(self.num_players)]
         self.hands = [[] for _ in range(self.num_players)]
         for _ in range(3):
@@ -266,6 +267,7 @@ class MahjongEnvBase(gym.Env):
                     self.hands[player].remove(tile_to_discard)
                     self.last_discarded_tile = tile_to_discard
                     self.discard_pile[player, tile_to_discard] = True # 加入弃牌堆
+                    self.discard_pile_seq[player].append(tile_to_discard)
 
                     # 输出天凤格式的log. e.g. <D122/>
                     self.logger.add_discard(player, tile_to_discard)
@@ -699,6 +701,7 @@ class MahjongEnvBase(gym.Env):
                         # 将丢弃的牌加入自己的副露(Melds)中,清空选中的牌
                         self.last_discarded_tile = -1
                         self.discard_pile[fromwho, claim["tile"]] = False # 移出弃牌堆
+                        self.discard_pile_seq[fromwho].remove(claim["tile"])
                         new_meld = {"type":claim["type"], 
                                     "fromwho":fromwho, "offset":self.get_distance(player, fromwho),
                                     "m": sorted([t for t in self.selected_tiles] + [claim["tile"]]), 
