@@ -315,8 +315,8 @@ class MahjongEnv(_BaseMahjongEnv):
         }
 
     def _draw_center_panel(self, play_rect: pygame.Rect) -> pygame.Rect:
-        center_width = max(220, int(play_rect.width * 0.24))
-        center_height = max(150, int(play_rect.height * 0.24))
+        center_width = max(100, int(play_rect.width * 0.2))
+        center_height = max(100, int(play_rect.height * 0.2))
         center_rect = pygame.Rect(0, 0, center_width, center_height)
         center_rect.center = play_rect.center
 
@@ -342,18 +342,25 @@ class MahjongEnv(_BaseMahjongEnv):
         honba = round_data[1] if len(round_data) > 1 and isinstance(round_data[1], int) else 0
         riichi = getattr(self, "num_riichi", 0)
         tiles_remaining = len(getattr(self, "deck", []))
-        counters = f"Honba {honba}  |  Riichi {riichi}  |  Tiles {tiles_remaining}"
-        counters_surface = self._small_font.render(counters, True, self._muted_text_color)
-        counters_rect = counters_surface.get_rect()
-        counters_rect.centerx = center_rect.centerx
-        counters_rect.top = title_rect.bottom + 12
-        self._screen.blit(counters_surface, counters_rect)
+        counter_texts = (
+            f"Honba {honba}",
+            f"Riichi {riichi}",
+            f"Tiles {tiles_remaining}",
+        )
+        next_top = title_rect.bottom + 12
+        for text in counter_texts:
+            surface = self._small_font.render(text, True, self._muted_text_color)
+            rect = surface.get_rect()
+            rect.centerx = center_rect.centerx
+            rect.top = next_top
+            self._screen.blit(surface, rect)
+            next_top = rect.bottom + 4
 
         score_positions = {
-            0: (center_rect.centerx, center_rect.bottom + 28),
-            1: (center_rect.right + 36, center_rect.centery),
-            2: (center_rect.centerx, center_rect.top - 28),
-            3: (center_rect.left - 36, center_rect.centery),
+            0: (center_rect.centerx, center_rect.bottom + 14),
+            1: (center_rect.right + 18, center_rect.centery),
+            2: (center_rect.centerx, center_rect.top - 14),
+            3: (center_rect.left - 18, center_rect.centery),
         }
 
         scores = getattr(self, "scores", [])
