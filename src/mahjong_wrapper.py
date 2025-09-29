@@ -469,7 +469,7 @@ class MahjongEnv(_BaseMahjongEnv):
         rows = max(1, (len(discard_tiles) + cols - 1) // cols)
         grid_width = cols * (discard_tile[0] + 4)
         grid_height = rows * (discard_tile[1] + 4)
-        discard_rect = pygame.Rect(margin_side, 0, grid_width, grid_height)
+        discard_rect = pygame.Rect(area.centerx-grid_width/2, 0, grid_width, grid_height)
         discard_rect.bottom = y - 12
         self._draw_tile_grid(discard_tiles, discard_rect, discard_tile, 0, cols, target_surface)
 
