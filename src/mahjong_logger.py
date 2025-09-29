@@ -173,7 +173,7 @@ class MahjongLogger(MahjongLoggerBase, TenhouRoundTracker):
     def add_init(self, round, kyoutaku, dice, dora_indicator, scores, oya, hands: List):
         super().add_init(round, kyoutaku, dice, dora_indicator, scores, oya, hands)
         seed_list = [round[0],round[1],kyoutaku,dice[0],dice[1],dora_indicator[0]]
-        TenhouRoundTracker.start_init(self, seed_list, oya, {i: pai for i, pai in enumerate(hands)})
+        TenhouRoundTracker.start_init(self, seed_list, oya, {i: pai for i, pai in enumerate(hands)}, scores)
 
     def add_draw(self, who:int, tile:int):
         super().add_draw(who, tile)
