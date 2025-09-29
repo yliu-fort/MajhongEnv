@@ -287,31 +287,17 @@ class MahjongEnv(_BaseMahjongEnv):
         width = max(1, play_rect.width)
         height = max(1, play_rect.height)
 
-        south_tile_width = max(24, min(width // 20, 72))
-        south_tile_height = max(36, int(south_tile_width * 1.4))
-
-        north_tile_width = max(20, int(south_tile_width * 0.85))
-        north_tile_height = max(30, int(north_tile_width * 1.4))
-
-        side_tile_height = max(24, min(height // 16, int(south_tile_height * 0.85)))
-        side_tile_width = max(18, int(side_tile_height * 0.7))
-
-        discard_tile_width = max(18, int(south_tile_width * 0.85))
-        discard_tile_height = max(28, int(discard_tile_width * 1.3))
-
-        wall_tile_width = max(12, int(south_tile_width * 0.55))
-        wall_tile_height = max(18, int(wall_tile_width * 1.3))
-
-        meld_tile_width = max(20, int(discard_tile_width * 1.05))
-        meld_tile_height = max(28, int(meld_tile_width * 1.3))
+        base_width = max(28, min(width // 22, height // 18, 96))
+        base_height = int(base_width * 1.4)
+        tile_size = (base_width, base_height)
 
         self._tile_metrics = {
-            "south_hand": (south_tile_width, south_tile_height),
-            "north_hand": (north_tile_width, north_tile_height),
-            "side_hand": (side_tile_width, side_tile_height),
-            "discard": (discard_tile_width, discard_tile_height),
-            "wall": (wall_tile_width, wall_tile_height),
-            "meld": (meld_tile_width, meld_tile_height),
+            "south_hand": tile_size,
+            "north_hand": tile_size,
+            "side_hand": tile_size,
+            "discard": tile_size,
+            "wall": tile_size,
+            "meld": tile_size,
         }
 
     def _draw_center_panel(self, play_rect: pygame.Rect) -> pygame.Rect:
@@ -447,17 +433,58 @@ class MahjongEnv(_BaseMahjongEnv):
     ) -> None:
         area = target_surface.get_rect()
         margin_side = 28
-        margin_bottom = 28
+        margin_vertical = 24
+        grid_spacing = 4
 
         tile_size = self._tile_metrics.get("south_hand", (40, 56))
-        spacing = tile_size[0] + 6
-        draw_gap = spacing // 2
+        wall_tile = self._tile_metrics.get("wall", tile_size)
+        discard_tile = self._tile_metrics.get("discard", tile_size)
 
         hands = getattr(self, "hands", [])
         hand_tiles = list(hands[player_idx]) if player_idx < len(hands) else []
 
+        cols = 6
+        discard_tiles = self._get_discard_tiles(player_idx)
+        discard_rows = (
+            min(3, max(1, (len(discard_tiles) + cols - 1) // cols)) if discard_tiles else 0
+        )
+        grid_width = cols * discard_tile[0] + max(0, cols - 1) * grid_spacing
+        grid_height = (
+            discard_rows * discard_tile[1] + max(0, discard_rows - 1) * grid_spacing
+        )
+
+        available_height = max(1, area.height - 2 * margin_vertical)
+        total_static = grid_height + wall_tile[1] + tile_size[1]
+        remaining = max(0, available_height - total_static)
+        section_spacing = max(4, remaining // 3)
+
+        hand_y = area.bottom - margin_vertical - tile_size[1]
+        wall_y = hand_y - section_spacing - wall_tile[1]
+        discard_bottom = wall_y - section_spacing
+
+        discard_rect = pygame.Rect(0, 0, grid_width, grid_height)
+        discard_rect.centerx = area.centerx
+        discard_rect.bottom = discard_bottom
+
+        if discard_rect.top < margin_vertical:
+            shift = margin_vertical - discard_rect.top
+            discard_rect.move_ip(0, shift)
+            wall_y += shift
+            hand_y += shift
+
+        bottom_limit = area.bottom - margin_vertical
+        hand_bottom = hand_y + tile_size[1]
+        if hand_bottom > bottom_limit:
+            adjust = hand_bottom - bottom_limit
+            hand_y -= adjust
+            wall_y -= adjust
+            discard_rect.move_ip(0, -adjust)
+
+        spacing = tile_size[0] + 6
+        draw_gap = spacing // 2
+
         x = margin_side
-        y = area.bottom - tile_size[1] - margin_bottom
+        y = hand_y
         for idx, tile in enumerate(hand_tiles):
             if len(hand_tiles) > 1 and idx == len(hand_tiles) - 1:
                 x += draw_gap
@@ -470,15 +497,22 @@ class MahjongEnv(_BaseMahjongEnv):
 
         hand_end_x = x if hand_tiles else margin_side
 
-        discard_tiles = self._get_discard_tiles(player_idx)
-        discard_tile = self._tile_metrics.get("discard", tile_size)
-        cols = 6
-        rows = max(1, (len(discard_tiles) + cols - 1) // cols)
-        grid_width = cols * (discard_tile[0] + 4)
-        grid_height = rows * (discard_tile[1] + 4)
-        discard_rect = pygame.Rect(area.centerx-grid_width/2, 0, grid_width, grid_height)
-        discard_rect.top = y - 3 * (discard_tile[1] + 4) # maximum 3 rows
         self._draw_tile_grid(discard_tiles, discard_rect, discard_tile, 0, cols, target_surface)
+
+        wall_count = 17
+        wall_spacing = wall_tile[0] + grid_spacing
+        total_wall_width = (
+            wall_tile[0] + (wall_count - 1) * wall_spacing if wall_count > 0 else 0
+        )
+        max_width = area.width - 2 * margin_side
+        if wall_count > 1 and total_wall_width > max_width:
+            wall_spacing = max(1.0, (max_width - wall_tile[0]) / (wall_count - 1))
+            total_wall_width = wall_tile[0] + (wall_count - 1) * wall_spacing
+        start_x = area.centerx - total_wall_width / 2 if wall_count else area.centerx
+        wall_surface = self._get_face_down_surface(wall_tile, 0)
+        for i in range(wall_count):
+            wall_x = int(round(start_x + i * wall_spacing))
+            target_surface.blit(wall_surface, (wall_x, int(round(wall_y))))
 
         meld_tile = self._tile_metrics.get("meld", tile_size)
         max_meld_width = meld_tile[0] * 4 + 12
@@ -520,48 +554,18 @@ class MahjongEnv(_BaseMahjongEnv):
             rect = rendered.get_rect(center=play_rect.center)
             self._screen.blit(rendered, rect)
 
-    def _draw_walls(self, play_rect: pygame.Rect) -> None:
-        wall_tile = self._tile_metrics.get("wall", (20, 26))
-        tiles_per_side = 17
-        spacing = 4
-
-        # Top and bottom walls
-        top_y = play_rect.top - wall_tile[1] - 12
-        bottom_y = play_rect.bottom + 12
-        available_width = play_rect.width - 40
-        horizontal_spacing = max(
-            wall_tile[0] + spacing,
-            (available_width - wall_tile[0]) / max(1, tiles_per_side - 1),
-        )
-        for i in range(tiles_per_side):
-            x = int(play_rect.left + 20 + i * horizontal_spacing)
-            surface = self._get_face_down_surface(wall_tile, 0)
-            self._screen.blit(surface, (x, top_y))
-            self._screen.blit(surface, (x, bottom_y))
-
-        # Left and right walls
-        left_x = play_rect.left - wall_tile[0] - 12
-        right_x = play_rect.right + 12
-        available_height = play_rect.height - 40
-        vertical_spacing = max(
-            wall_tile[1] + spacing,
-            (available_height - wall_tile[1]) / max(1, tiles_per_side - 1),
-        )
-        for i in range(tiles_per_side):
-            y = int(play_rect.top + 20 + i * vertical_spacing)
-            surface = self._get_face_down_surface(wall_tile, 0)
-            self._screen.blit(surface, (left_x, y))
-            self._screen.blit(surface, (right_x, y))
-
-        self._draw_dead_wall(play_rect, wall_tile)
-
     def _draw_dead_wall(self, play_rect: pygame.Rect, wall_tile: Tuple[int, int]) -> None:
         dead_wall_tiles = getattr(self, "dead_wall", [])
         stack_size = max(1, len(dead_wall_tiles) // 2) if dead_wall_tiles else 7
         gap = 6
         total_height = stack_size * (wall_tile[1] + gap) - gap
-        x = play_rect.right + wall_tile[0] * 2 + 24
+        margin = 24
+        x = play_rect.right - margin - wall_tile[0]
         start_y = play_rect.centery - total_height // 2
+        start_y = max(play_rect.top + margin, start_y)
+        max_y = play_rect.bottom - margin - wall_tile[1]
+        if start_y + total_height > max_y:
+            start_y = max(play_rect.top + margin, max_y - total_height)
 
         for i in range(stack_size):
             y = start_y + i * (wall_tile[1] + gap)
@@ -570,13 +574,10 @@ class MahjongEnv(_BaseMahjongEnv):
 
         if getattr(self, "dora_indicator", []):
             tile = self.dora_indicator[-1] // 4
-            indicator_size = (int(wall_tile[0] * 1.1), int(wall_tile[1] * 1.1))
-            surface = self._get_tile_surface(tile, indicator_size, True, 270)
+            surface = self._get_tile_surface(tile, wall_tile, True, 270)
             rect = surface.get_rect()
-            rect.midleft = (
-                x + wall_tile[0] + 14,
-                start_y + (stack_size - 1) * (wall_tile[1] + gap) + wall_tile[1] // 2,
-            )
+            stack_center = start_y + (stack_size - 1) * (wall_tile[1] + gap) / 2 + wall_tile[1] / 2
+            rect.midright = (x - 16, int(round(stack_center)))
             self._screen.blit(surface, rect)
 
     def _draw_seat_labels(self, play_rect: pygame.Rect) -> None:
@@ -588,11 +589,12 @@ class MahjongEnv(_BaseMahjongEnv):
         if len(seat_names) < num_players:
             seat_names.extend(["NoName"] * (num_players - len(seat_names)))
 
+        margin = 40
         label_positions = {
-            0: (play_rect.centerx, play_rect.bottom + 32),
-            1: (play_rect.right + 40, play_rect.centery),
-            2: (play_rect.centerx, play_rect.top - 32),
-            3: (play_rect.left - 40, play_rect.centery),
+            0: (play_rect.centerx, play_rect.bottom - margin),
+            1: (play_rect.right - margin, play_rect.centery),
+            2: (play_rect.centerx, play_rect.top + margin),
+            3: (play_rect.left + margin, play_rect.centery),
         }
 
         for idx in range(min(4, num_players)):
@@ -653,18 +655,16 @@ class MahjongEnv(_BaseMahjongEnv):
 
         self._screen.fill(self._background_color)
         width, height = self._screen.get_size()
-        min_dim = min(width, height)
-        play_size = min(max(260, int(min_dim * 0.72)), max(200, min_dim - 60))
-        play_rect = pygame.Rect(0, 0, play_size, play_size)
-        play_rect.center = (width // 2, height // 2)
+        play_rect = pygame.Rect(0, 0, width, height)
 
-        pygame.draw.rect(self._screen, self._play_area_color, play_rect, border_radius=16)
-        pygame.draw.rect(self._screen, self._play_area_border, play_rect, 3, border_radius=16)
+        pygame.draw.rect(self._screen, self._play_area_color, play_rect)
+        pygame.draw.rect(self._screen, self._play_area_border, play_rect, 3)
 
         self._compute_tile_metrics(play_rect)
-        self._draw_walls(play_rect)
         self._draw_center_panel(play_rect)
         self._draw_player_areas(play_rect)
+        wall_tile = self._tile_metrics.get("wall", (40, 56))
+        self._draw_dead_wall(play_rect, wall_tile)
         self._draw_seat_labels(play_rect)
         self._draw_status_text(width)
 
