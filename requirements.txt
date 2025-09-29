@@ -8,3 +8,4 @@ scikit-learn>=1.7.0
 psutil>=1.0.0
 timm>=1.0.7
 webdataset>=1.0.2
+pygame>=2.6.1
