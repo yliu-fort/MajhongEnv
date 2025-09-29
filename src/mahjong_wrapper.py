@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Sequence, Tuple
 
 try:
     import pygame
@@ -68,13 +68,34 @@ class MahjongEnv(_BaseMahjongEnv):
         window_size: Tuple[int, int] = (1024, 720),
         fps: int = 30,
         font_name: Optional[str] = None,
-        font_size: int = 20,
+        font_size: int = 12,
+        fallback_fonts: Optional[Sequence[str]] = None,
         **kwargs: Any,
     ) -> None:
         self._window_size = window_size
         self._fps = max(1, fps)
         self._font_name = font_name
         self._font_size = font_size
+        self._fallback_fonts: Tuple[str, ...] = (
+            tuple(fallback_fonts)
+            if fallback_fonts is not None
+            else (
+                "Noto Sans CJK SC",
+                "Noto Sans CJK TC",
+                "Noto Sans CJK JP",
+                "Source Han Sans CN",
+                "Source Han Sans TW",
+                "Source Han Sans JP",
+                "Microsoft YaHei",
+                "Microsoft JhengHei",
+                "Yu Gothic",
+                "Meiryo",
+                "MS Gothic",
+                "SimHei",
+                "WenQuanYi Zen Hei",
+                "Arial Unicode MS",
+            )
+        )
         self._background_color = (12, 30, 60)
         self._play_area_color = (24, 60, 90)
         self._play_area_border = (40, 90, 130)
@@ -91,7 +112,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._small_font: Optional[pygame.font.Font] = None
         self._header_font: Optional[pygame.font.Font] = None
         self._clock: Optional[pygame.time.Clock] = None
-        self._line_height = font_size + 6
+        self._line_height = font_size + 4
         self._quit_requested = False
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
         self._auto_advance = True
@@ -178,13 +199,53 @@ class MahjongEnv(_BaseMahjongEnv):
         flags = pygame.RESIZABLE
         self._screen = pygame.display.set_mode(self._window_size, flags)
         pygame.display.set_caption("MahjongEnv GUI")
-        self._font = pygame.font.SysFont(self._font_name, self._font_size)
+        self._font = self._create_font(self._font_size)
         small_size = max(12, self._font_size - 4)
-        self._small_font = pygame.font.SysFont(self._font_name, small_size)
-        self._header_font = pygame.font.SysFont(self._font_name, self._font_size + 10)
+        self._small_font = self._create_font(small_size)
+        self._header_font = self._create_font(self._font_size + 8)
         self._clock = pygame.time.Clock()
         self._line_height = self._font.get_linesize() + 4
         self._load_tile_assets()
+
+    def _create_font(self, size: int) -> pygame.font.Font:
+        if pygame.font is None:
+            raise RuntimeError("pygame.font must be available to create fonts")
+
+        if self._font_name:
+            font_path = Path(self._font_name)
+            if font_path.exists():
+                try:
+                    return pygame.font.Font(str(font_path), size)
+                except Exception:
+                    pass
+
+        candidate_names: list[str] = []
+        if self._font_name:
+            candidate_names.extend(self._normalize_font_names(self._font_name))
+        candidate_names.extend(name for name in self._fallback_fonts if name)
+
+        seen: set[str] = set()
+        for name in candidate_names:
+            if name in seen:
+                continue
+            seen.add(name)
+            try:
+                matched = pygame.font.match_font(name)
+            except Exception:
+                matched = None
+            if matched:
+                try:
+                    return pygame.font.Font(matched, size)
+                except Exception:
+                    continue
+
+        return pygame.font.SysFont(self._font_name, size)
+
+    @staticmethod
+    def _normalize_font_names(font_name: str | Iterable[str]) -> list[str]:
+        if isinstance(font_name, str):
+            return [name.strip() for name in font_name.replace(";", ",").split(",") if name.strip()]
+        return [name for name in font_name if isinstance(name, str) and name]
 
     def _process_events(self) -> None:
         if self._screen is None:
@@ -612,7 +673,7 @@ class MahjongEnv(_BaseMahjongEnv):
         wall_tile = self._tile_metrics.get("wall", (20, 26))
         stack_size = 5
         gap = 6
-        margin_y = 24
+        margin_y = 32
         total_height = stack_size * (wall_tile[0] + gap) - gap
         start_x = play_rect.centerx + total_height // 2
         y = play_rect.centery + margin_y
@@ -676,11 +737,6 @@ class MahjongEnv(_BaseMahjongEnv):
         phase_text = f"Phase: {self.phase}  |  Current Player: P{self.current_player}"
         phase_surface = self._small_font.render(phase_text, True, self._accent_color)
         self._screen.blit(phase_surface, (margin, margin))
-
-        info_text = self._last_payload.info.get("msg") or getattr(self, "msg", "")
-        if info_text:
-            info_surface = self._small_font.render(str(info_text), True, self._text_color)
-            self._screen.blit(info_surface, (margin, margin + phase_surface.get_height() + 6))
 
         reward_color = self._danger_color if self._last_payload.reward < 0 else self._text_color
         reward_text = f"Action: {self._last_payload.action}  Reward: {self._last_payload.reward:.2f}"
@@ -849,11 +905,6 @@ class MahjongEnv(_BaseMahjongEnv):
             else:
                 message_lines.append("Draw - No Tenpai")
 
-        msg_text = str(getattr(self, "msg", "")).strip()
-        if msg_text:
-            wrapped_msg = self._wrap_text(self._small_font, msg_text, max_text_width)
-            message_lines.extend(wrapped_msg[:4])
-
         yaku_lines: list[tuple[str, str]] = []
         if agari:
             raw_yaku = [str(item) for item in agari.get("yaku", [])]
@@ -869,7 +920,7 @@ class MahjongEnv(_BaseMahjongEnv):
                     for extra in wrapped_yaku[1:]:
                         yaku_lines.append(("", extra))
 
-        line_height = self._font.get_linesize() + 6
+        line_height = self._font.get_linesize() + 4
         small_height = self._small_font.get_linesize() + 2
 
         player_section_height = num_players * line_height if num_players else 0
