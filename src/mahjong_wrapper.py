@@ -94,6 +94,10 @@ class MahjongEnv(_BaseMahjongEnv):
         self._line_height = font_size + 6
         self._quit_requested = False
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
+        self._auto_advance = True
+        self._step_once_requested = False
+        self._auto_button_rect = pygame.Rect(0, 0, 0, 0)
+        self._step_button_rect = pygame.Rect(0, 0, 0, 0)
         self._asset_root = Path(__file__).resolve().parent.parent / "data" / "assets"
         self._raw_tile_assets: dict[int, pygame.Surface] = {}
         self._tile_cache: dict[tuple[int, Tuple[int, int]], pygame.Surface] = {}
@@ -111,6 +115,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._process_events()
         observation = super().reset(*args, **kwargs)
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=self.done, info={})
+        self._step_once_requested = False
         self._render()
         return observation
 
@@ -123,6 +128,20 @@ class MahjongEnv(_BaseMahjongEnv):
             self._last_payload = _RenderPayload(action=None, reward=0.0, done=True, info=info)
             self._render()
             return observation, 0.0, True, info
+
+        while (
+            not self._quit_requested
+            and not self._auto_advance
+            and not self._step_once_requested
+            and not getattr(self, "done", False)
+        ):
+            self._process_events()
+            self._render()
+            if self._clock is not None:
+                self._clock.tick(self._fps)
+
+        if self._step_once_requested:
+            self._step_once_requested = False
 
         observation, reward, done, info = super().step(action)
         self._last_payload = _RenderPayload(action=action, reward=reward, done=done, info=info)
@@ -167,6 +186,16 @@ class MahjongEnv(_BaseMahjongEnv):
                 self._window_size = (event.w, event.h)
                 flags = pygame.RESIZABLE
                 self._screen = pygame.display.set_mode(self._window_size, flags)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self._handle_mouse_click(event.pos)
+
+    def _handle_mouse_click(self, position: Tuple[int, int]) -> None:
+        if self._auto_button_rect.collidepoint(position):
+            self._auto_advance = not self._auto_advance
+            if self._auto_advance:
+                self._step_once_requested = False
+        elif self._step_button_rect.collidepoint(position) and not self._auto_advance:
+            self._step_once_requested = True
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -628,6 +657,55 @@ class MahjongEnv(_BaseMahjongEnv):
             done_rect.topright = (surface_width - margin, reward_rect.bottom + 4)
             self._screen.blit(done_surface, done_rect)
 
+    def _draw_control_buttons(self, surface_width: int, surface_height: int) -> None:
+        if self._screen is None or self._font is None or self._small_font is None:
+            return
+
+        margin = 16
+        max_label_width = max(
+            self._font.size("Auto Next: OFF")[0],
+            self._font.size("Next Step")[0],
+        )
+        button_width = max(160, max_label_width + 24)
+        button_height = 44
+        gap = 10
+
+        base_right = surface_width - margin
+        base_bottom = surface_height - margin
+
+        step_rect = pygame.Rect(0, 0, button_width, button_height)
+        step_rect.bottomright = (base_right, base_bottom)
+        auto_rect = pygame.Rect(0, 0, button_width, button_height)
+        auto_rect.bottomright = (base_right, step_rect.top - gap)
+
+        self._step_button_rect = step_rect
+        self._auto_button_rect = auto_rect
+
+        def draw_button(rect: pygame.Rect, label: str, enabled: bool, active: bool = False) -> None:
+            base_color = self._panel_color
+            border_color = self._panel_border
+            if active:
+                base_color = tuple(min(255, c + 40) for c in self._panel_color)
+                border_color = self._accent_color
+            elif not enabled:
+                base_color = tuple(max(0, c - 20) for c in self._panel_color)
+                border_color = self._muted_text_color
+
+            pygame.draw.rect(self._screen, base_color, rect, border_radius=10)
+            pygame.draw.rect(self._screen, border_color, rect, 2, border_radius=10)
+
+            font = self._font
+            text_color = self._text_color if enabled else self._muted_text_color
+            text_surface = font.render(label, True, text_color)
+            text_rect = text_surface.get_rect(center=rect.center)
+            self._screen.blit(text_surface, text_rect)
+
+        auto_label = "Auto Next: ON" if self._auto_advance else "Auto Next: OFF"
+        draw_button(auto_rect, auto_label, enabled=True, active=self._auto_advance)
+
+        step_enabled = not self._auto_advance
+        draw_button(step_rect, "Next Step", enabled=step_enabled)
+
     def _wrap_text(
         self, font: pygame.font.Font, text: str, max_width: int
     ) -> list[str]:
@@ -903,6 +981,8 @@ class MahjongEnv(_BaseMahjongEnv):
             self._draw_score_panel(width)
         else:
             self._draw_status_text(width)
+
+        self._draw_control_buttons(width, height)
 
         pygame.display.flip()
         self._clock.tick(self._fps)
