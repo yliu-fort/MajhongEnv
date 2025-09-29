@@ -99,10 +99,10 @@ class MahjongEnv(_BaseMahjongEnv):
         self._auto_button_rect = pygame.Rect(0, 0, 0, 0)
         self._step_button_rect = pygame.Rect(0, 0, 0, 0)
         self._pause_button_rect = pygame.Rect(0, 0, 0, 0)
-        self._pause_on_score = True
+        self._pause_on_score = False
         self._score_pause_active = False
         self._score_pause_pending = False
-        self._last_phase = ""
+        self._last_phase_is_score_last = ""
         self._asset_root = Path(__file__).resolve().parent.parent / "data" / "assets"
         self._raw_tile_assets: dict[int, pygame.Surface] = {}
         self._tile_cache: dict[tuple[int, Tuple[int, int]], pygame.Surface] = {}
@@ -123,7 +123,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._step_once_requested = False
         self._score_pause_active = False
         self._score_pause_pending = False
-        self._last_phase = getattr(self, "phase", "")
+        self._last_phase_is_score_last = getattr(self, "phase", "")
         self._render()
         return observation
 
@@ -205,7 +205,7 @@ class MahjongEnv(_BaseMahjongEnv):
             if self._auto_advance:
                 self._step_once_requested = False
                 if (
-                    getattr(self, "phase", "") == "score"
+                    self._score_last()
                     and self._pause_on_score
                 ):
                     self._score_pause_active = True
@@ -225,12 +225,15 @@ class MahjongEnv(_BaseMahjongEnv):
                 self._score_pause_pending = False
         elif self._pause_button_rect.collidepoint(position) and self._auto_advance:
             self._pause_on_score = not self._pause_on_score
-            if self._pause_on_score and getattr(self, "phase", "") == "score":
+            if self._pause_on_score and self._score_last():
                 self._score_pause_active = True
                 self._score_pause_pending = True
             else:
                 self._score_pause_active = False
                 self._score_pause_pending = False
+    
+    def _score_last(self):
+        return getattr(self, "phase", "") == "score" and self.current_player == self.num_players - 1
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -1058,24 +1061,25 @@ class MahjongEnv(_BaseMahjongEnv):
         if self._screen is None or self._font is None or self._clock is None:
             return
 
-        phase = getattr(self, "phase", "")
-        if phase != self._last_phase:
-            if phase == "score" and self._auto_advance and self._pause_on_score:
-                self._score_pause_pending = True
-                self._score_pause_active = True
+        if self._score_last():
+            if self._auto_advance and self._pause_on_score:
+                if not self._last_phase_is_score_last:
+                    self._score_pause_pending = True
+                    self._score_pause_active = True
             else:
                 self._score_pause_pending = False
                 self._score_pause_active = False
-            self._last_phase = phase
-        elif phase != "score":
-            self._score_pause_pending = False
-            self._score_pause_active = False
+            self._last_phase_is_score_last = self._score_last()
         elif self._score_pause_pending:
             if self._auto_advance and self._pause_on_score:
                 self._score_pause_active = True
             else:
                 self._score_pause_active = False
                 self._score_pause_pending = False
+        else:
+            self._score_pause_pending = False
+            self._score_pause_active = False
+            self._last_phase_is_score_last = self._score_last()
 
         self._screen.fill(self._background_color)
         width, height = self._screen.get_size()
@@ -1093,7 +1097,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._draw_dead_wall(play_rect)
         self._draw_player_areas(play_rect)
         self._draw_seat_labels(play_rect)
-        if phase == "score":
+        if self._score_last():
             self._draw_score_panel((width, height))
         else:
             self._draw_status_text(width)
