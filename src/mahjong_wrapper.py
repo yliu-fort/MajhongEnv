@@ -277,11 +277,9 @@ class MahjongEnv(_BaseMahjongEnv):
         return self._face_down_cache[cache_key]
 
     def _get_discard_tiles(self, player_idx: int) -> list[int]:
-        if player_idx >= len(getattr(self, "discard_pile", [])):
+        if player_idx >= len(getattr(self, "discard_pile_seq", [])):
             return []
-        tiles = [idx for idx, flagged in enumerate(self.discard_pile[player_idx]) if flagged]
-        tiles.sort()
-        return [tile // 4 for tile in tiles]
+        return [t for t in self.discard_pile_seq[player_idx]]
 
     def _compute_tile_metrics(self, play_rect: pygame.Rect) -> None:
         width = max(1, play_rect.width)
@@ -385,7 +383,7 @@ class MahjongEnv(_BaseMahjongEnv):
         for idx, tile in enumerate(tiles):
             column = idx % columns
             row = idx // columns
-            tile_surface = self._get_tile_surface(tile, tile_size, True, orientation)
+            tile_surface = self._get_tile_surface(tile // 4, tile_size, True, orientation)
             tile_width, tile_height = tile_surface.get_size()
             x = area.left + column * (tile_width + spacing)
             y = area.top + row * (tile_height + spacing)
@@ -447,7 +445,6 @@ class MahjongEnv(_BaseMahjongEnv):
         hands = getattr(self, "hands", [])
         hand_tiles = list(hands[player_idx]) if player_idx < len(hands) else []
 
-        #x = margin_side
         x = area.centerx - 7*(tile_size[0] + 6)
         y = area.bottom - tile_size[1] - margin_bottom
         for idx, tile in enumerate(hand_tiles):
