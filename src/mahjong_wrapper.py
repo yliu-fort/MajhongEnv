@@ -1025,7 +1025,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._draw_dead_wall(play_rect)
         self._draw_player_areas(play_rect)
         self._draw_seat_labels(play_rect)
-        if getattr(self, "phase", "") == "score":
+        if getattr(self, "phase", "") == "score" and self.current_player == self.num_players - 1:
             self._draw_score_panel((width, height))
         else:
             self._draw_status_text(width)
