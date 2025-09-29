@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Sequence, Tuple
 
 try:
     import pygame
@@ -69,12 +69,33 @@ class MahjongEnv(_BaseMahjongEnv):
         fps: int = 30,
         font_name: Optional[str] = None,
         font_size: int = 20,
+        fallback_fonts: Optional[Sequence[str]] = None,
         **kwargs: Any,
     ) -> None:
         self._window_size = window_size
         self._fps = max(1, fps)
         self._font_name = font_name
         self._font_size = font_size
+        self._fallback_fonts: Tuple[str, ...] = (
+            tuple(fallback_fonts)
+            if fallback_fonts is not None
+            else (
+                "Noto Sans CJK SC",
+                "Noto Sans CJK TC",
+                "Noto Sans CJK JP",
+                "Source Han Sans CN",
+                "Source Han Sans TW",
+                "Source Han Sans JP",
+                "Microsoft YaHei",
+                "Microsoft JhengHei",
+                "Yu Gothic",
+                "Meiryo",
+                "MS Gothic",
+                "SimHei",
+                "WenQuanYi Zen Hei",
+                "Arial Unicode MS",
+            )
+        )
         self._background_color = (12, 30, 60)
         self._play_area_color = (24, 60, 90)
         self._play_area_border = (40, 90, 130)
@@ -178,13 +199,53 @@ class MahjongEnv(_BaseMahjongEnv):
         flags = pygame.RESIZABLE
         self._screen = pygame.display.set_mode(self._window_size, flags)
         pygame.display.set_caption("MahjongEnv GUI")
-        self._font = pygame.font.SysFont(self._font_name, self._font_size)
+        self._font = self._create_font(self._font_size)
         small_size = max(12, self._font_size - 4)
-        self._small_font = pygame.font.SysFont(self._font_name, small_size)
-        self._header_font = pygame.font.SysFont(self._font_name, self._font_size + 10)
+        self._small_font = self._create_font(small_size)
+        self._header_font = self._create_font(self._font_size + 10)
         self._clock = pygame.time.Clock()
         self._line_height = self._font.get_linesize() + 4
         self._load_tile_assets()
+
+    def _create_font(self, size: int) -> pygame.font.Font:
+        if pygame.font is None:
+            raise RuntimeError("pygame.font must be available to create fonts")
+
+        if self._font_name:
+            font_path = Path(self._font_name)
+            if font_path.exists():
+                try:
+                    return pygame.font.Font(str(font_path), size)
+                except Exception:
+                    pass
+
+        candidate_names: list[str] = []
+        if self._font_name:
+            candidate_names.extend(self._normalize_font_names(self._font_name))
+        candidate_names.extend(name for name in self._fallback_fonts if name)
+
+        seen: set[str] = set()
+        for name in candidate_names:
+            if name in seen:
+                continue
+            seen.add(name)
+            try:
+                matched = pygame.font.match_font(name)
+            except Exception:
+                matched = None
+            if matched:
+                try:
+                    return pygame.font.Font(matched, size)
+                except Exception:
+                    continue
+
+        return pygame.font.SysFont(self._font_name, size)
+
+    @staticmethod
+    def _normalize_font_names(font_name: str | Iterable[str]) -> list[str]:
+        if isinstance(font_name, str):
+            return [name.strip() for name in font_name.replace(";", ",").split(",") if name.strip()]
+        return [name for name in font_name if isinstance(name, str) and name]
 
     def _process_events(self) -> None:
         if self._screen is None:
