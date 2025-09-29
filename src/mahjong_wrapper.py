@@ -13,7 +13,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
 
 from mahjong_env import MahjongEnv as _BaseMahjongEnv
 
-_TILE_SYMBOLS: Tuple[str, ...] = (
+_ALT_TILE_SYMBOLS: Tuple[str, ...] = (
     "1m",
     "2m",
     "3m",
@@ -50,6 +50,45 @@ _TILE_SYMBOLS: Tuple[str, ...] = (
     "Re",
 )
 
+_TILE_SYMBOLS: Tuple[str, ...] = (
+    "Man1",
+    "Man2",
+    "Man3",
+    "Man4",
+    "Man5",
+    "Man6",
+    "Man7",
+    "Man8",
+    "Man9",
+    "Pin1",
+    "Pin2",
+    "Pin3",
+    "Pin4",
+    "Pin5",
+    "Pin6",
+    "Pin7",
+    "Pin8",
+    "Pin9",
+    "Sou1",
+    "Sou2",
+    "Sou3",
+    "Sou4",
+    "Sou5",
+    "Sou6",
+    "Sou7",
+    "Sou8",
+    "Sou9",
+    "Ton",
+    "Nan",
+    "Shaa",
+    "Pei",
+    "Haku",
+    "Hatsu",
+    "Chun",
+    "Man5-Dora",
+    "Pin5-Dora",
+    "Sou5-Dora",
+)
 
 @dataclass(slots=True)
 class _RenderPayload:
@@ -124,7 +163,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._score_pause_active = False
         self._score_pause_pending = False
         self._last_phase_is_score_last = ""
-        self._asset_root = Path(__file__).resolve().parent.parent / "data" / "assets"
+        self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Regular"
         self._raw_tile_assets: dict[int, pygame.Surface] = {}
         self._tile_cache: dict[tuple[int, Tuple[int, int]], pygame.Surface] = {}
         self._tile_orientation_cache: dict[tuple[int, Tuple[int, int], int], pygame.Surface] = {}
@@ -311,8 +350,10 @@ class MahjongEnv(_BaseMahjongEnv):
             if not path.exists():
                 continue
             try:
-                surface = pygame.image.load(str(path))
-                surface = surface.convert_alpha()
+                fg = pygame.image.load(str(path)).convert_alpha()
+                surface = pygame.Surface(fg.get_size(), pygame.SRCALPHA)
+                surface.fill([245, 245, 245])
+                surface.blit(fg, (0, 0))
             except Exception:
                 continue
             self._raw_tile_assets[tile_index] = surface
@@ -351,11 +392,18 @@ class MahjongEnv(_BaseMahjongEnv):
 
     def _get_tile_surface(
         self,
-        tile_34: int,
+        tile_136: int,
         size: Tuple[int, int],
         face_up: bool = True,
         orientation: int = 0,
     ) -> pygame.Surface:
+        tile_34 = tile_136 // 4
+        if tile_136 == 16:
+            tile_34 = 34
+        elif tile_136 == 52:
+            tile_34 = 35
+        elif tile_136 == 88:
+            tile_34 = 36
         width = max(1, size[0])
         height = max(1, size[1])
         base_size = (width, height)
@@ -511,7 +559,7 @@ class MahjongEnv(_BaseMahjongEnv):
         for idx, tile in enumerate(tiles):
             column = idx % columns
             row = idx // columns
-            tile_surface = self._get_tile_surface(tile // 4, tile_size, True, orientation)
+            tile_surface = self._get_tile_surface(tile, tile_size, True, orientation)
             tile_width, tile_height = tile_surface.get_size()
             x = area.left + column * (tile_width + spacing)
             y = area.top + row * (tile_height + spacing)
@@ -537,7 +585,7 @@ class MahjongEnv(_BaseMahjongEnv):
         x, y = origin
         spacing = 8
         for meld in melds[player]:
-            tiles = [tile // 4 for tile in meld.get("m", [])]
+            tiles = [tile for tile in meld.get("m", [])]
             opened = meld.get("opened", True)
             cur_x, cur_y = x, y
             for tile in tiles:
@@ -579,7 +627,7 @@ class MahjongEnv(_BaseMahjongEnv):
             if len(hand_tiles) > 1 and idx == len(hand_tiles) - 1:
                 x += draw_gap
             if face_up_hand:
-                tile_surface = self._get_tile_surface(tile // 4, tile_size, True, 0)
+                tile_surface = self._get_tile_surface(tile, tile_size, True, 0)
             else:
                 tile_surface = self._get_face_down_surface(tile_size, 0)
             target_surface.blit(tile_surface, (x, y))
@@ -683,7 +731,7 @@ class MahjongEnv(_BaseMahjongEnv):
         for i in range(stack_size):
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
             if i < len(self.dora_indicator):
-                surface = self._get_tile_surface(self.dora_indicator[i] // 4, wall_tile, True, 0)
+                surface = self._get_tile_surface(self.dora_indicator[i], wall_tile, True, 0)
             else:
                 surface = self._get_face_down_surface(wall_tile, 0)
             self._screen.blit(surface, (x, y))
