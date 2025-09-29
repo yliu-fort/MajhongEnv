@@ -352,7 +352,14 @@ class MahjongEnv(_BaseMahjongEnv):
             try:
                 fg = pygame.image.load(str(path)).convert_alpha()
                 surface = pygame.Surface(fg.get_size(), pygame.SRCALPHA)
-                surface.fill([245, 245, 245])
+                rect = surface.get_rect()
+                border_radius = max(2, min(rect.width, rect.height) // 16)
+                pygame.draw.rect(
+                    surface,
+                    (245, 245, 245),
+                    rect,
+                    border_radius=border_radius,
+                )
                 surface.blit(fg, (0, 0))
             except Exception:
                 continue
