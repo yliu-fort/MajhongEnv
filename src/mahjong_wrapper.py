@@ -628,6 +628,257 @@ class MahjongEnv(_BaseMahjongEnv):
             done_rect.topright = (surface_width - margin, reward_rect.bottom + 4)
             self._screen.blit(done_surface, done_rect)
 
+    def _wrap_text(
+        self, font: pygame.font.Font, text: str, max_width: int
+    ) -> list[str]:
+        if not text:
+            return []
+        max_width = max(10, max_width)
+        words = str(text).split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if font.size(candidate)[0] <= max_width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
+
+    def _draw_score_panel(self, surface_width: int) -> None:
+        if (
+            self._screen is None
+            or self._font is None
+            or self._small_font is None
+            or self._header_font is None
+        ):
+            return
+
+        margin = 16
+        padding = 14
+        panel_width = max(120, surface_width - margin * 2)
+        max_text_width = max(50, panel_width - padding * 2)
+
+        round_data = getattr(self, "round", [0, 0])
+        round_index = round_data[0] if isinstance(round_data[0], int) else 0
+        wind_names = ["East", "South", "West", "North"]
+        wind = wind_names[(round_index // 4) % 4]
+        hand_number = round_index % 4 + 1
+        honba = round_data[1] if len(round_data) > 1 and isinstance(round_data[1], int) else 0
+        riichi_sticks = getattr(self, "num_riichi", 0)
+        kyoutaku = getattr(self, "num_kyoutaku", 0)
+
+        info_lines: list[str] = [
+            f"{wind} {hand_number} | Honba {honba} | Riichi {riichi_sticks} | Kyoutaku {kyoutaku}"
+        ]
+
+        seat_names = list(getattr(self, "seat_names", []))
+        num_players = getattr(self, "num_players", 0)
+        if len(seat_names) < num_players:
+            seat_names.extend([f"P{idx}" for idx in range(len(seat_names), num_players)])
+
+        agari = getattr(self, "agari", None)
+        message_lines: list[str] = []
+        if agari:
+            winner = agari.get("who", -1)
+            from_who = agari.get("fromwho", -1)
+            if 0 <= winner < num_players:
+                winner_name = seat_names[winner]
+            else:
+                winner_name = f"Player {winner}"
+            if winner == from_who:
+                result_text = f"{winner_name} Tsumo"
+            else:
+                loser_name = (
+                    seat_names[from_who]
+                    if 0 <= from_who < num_players
+                    else f"Player {from_who}"
+                )
+                result_text = f"{winner_name} Ron vs {loser_name}"
+            message_lines.append(result_text)
+            ten = list(agari.get("ten", []))
+            fu = ten[0] if len(ten) > 0 else 0
+            total = ten[1] if len(ten) > 1 else 0
+            han = ten[2] if len(ten) > 2 else 0
+            message_lines.append(f"{han} Han | {fu} Fu | {total} Points")
+        else:
+            tenpai_flags = list(getattr(self, "tenpai", []))
+            tenpai_players = [
+                seat_names[idx]
+                for idx, is_tenpai in enumerate(tenpai_flags)
+                if is_tenpai and idx < num_players
+            ]
+            if tenpai_players:
+                message_lines.append("Draw - Tenpai: " + ", ".join(tenpai_players))
+            else:
+                message_lines.append("Draw - No Tenpai")
+
+        msg_text = str(getattr(self, "msg", "")).strip()
+        if msg_text:
+            wrapped_msg = self._wrap_text(self._small_font, msg_text, max_text_width)
+            message_lines.extend(wrapped_msg[:4])
+
+        yaku_lines: list[tuple[str, str]] = []
+        if agari:
+            raw_yaku = [str(item) for item in agari.get("yaku", [])]
+            if raw_yaku:
+                combined = ", ".join(raw_yaku)
+                label = "Yaku: "
+                label_width = self._small_font.size(label)[0]
+                wrapped_yaku = self._wrap_text(
+                    self._small_font, combined, max(10, max_text_width - label_width)
+                )
+                if wrapped_yaku:
+                    yaku_lines.append((label, wrapped_yaku[0]))
+                    for extra in wrapped_yaku[1:]:
+                        yaku_lines.append(("", extra))
+
+        line_height = self._font.get_linesize() + 6
+        small_height = self._small_font.get_linesize() + 2
+
+        player_section_height = num_players * line_height if num_players else 0
+        info_height = len(info_lines) * small_height
+        message_height = len(message_lines) * small_height
+        yaku_height = len(yaku_lines) * small_height
+
+        panel_height = padding * 2 + self._header_font.get_linesize()
+        if info_height:
+            panel_height += 6 + info_height
+        if message_height:
+            panel_height += 6 + message_height
+        if player_section_height:
+            panel_height += 6 + player_section_height
+        if yaku_height:
+            panel_height += 6 + yaku_height
+
+        panel_rect = pygame.Rect(margin, margin, panel_width, panel_height)
+        pygame.draw.rect(self._screen, self._panel_color, panel_rect, border_radius=12)
+        pygame.draw.rect(self._screen, self._panel_border, panel_rect, 2, border_radius=12)
+
+        current_y = panel_rect.top + padding
+        title_surface = self._header_font.render("Round Results", True, self._accent_color)
+        title_rect = title_surface.get_rect()
+        title_rect.midtop = (panel_rect.centerx, current_y)
+        self._screen.blit(title_surface, title_rect)
+        current_y = title_rect.bottom + 6
+
+        for line in info_lines:
+            surface = self._small_font.render(line, True, self._muted_text_color)
+            rect = surface.get_rect()
+            rect.left = panel_rect.left + padding
+            rect.top = current_y
+            self._screen.blit(surface, rect)
+            current_y = rect.bottom + 2
+
+        if info_lines:
+            current_y += 4
+
+        for line in message_lines:
+            surface = self._small_font.render(line, True, self._text_color)
+            rect = surface.get_rect()
+            rect.left = panel_rect.left + padding
+            rect.top = current_y
+            self._screen.blit(surface, rect)
+            current_y = rect.bottom + 2
+
+        if message_lines:
+            current_y += 4
+
+        scores = list(getattr(self, "scores", []))
+        if len(scores) < num_players:
+            scores.extend([0] * (num_players - len(scores)))
+        score_deltas = list(getattr(self, "score_deltas", []))
+        if len(score_deltas) < num_players:
+            score_deltas.extend([0] * (num_players - len(score_deltas)))
+        dealer = getattr(self, "oya", -1)
+
+        def ordinal(value: int) -> str:
+            suffix = "th"
+            if value % 100 not in {11, 12, 13}:
+                suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+            return f"{value}{suffix}"
+
+        ranks: dict[int, int] = {}
+        sorted_players = sorted(
+            range(num_players), key=lambda idx: (-scores[idx], idx)
+        )
+        last_score: Optional[int] = None
+        current_rank = 0
+        for position, player_idx in enumerate(sorted_players):
+            if player_idx >= len(scores):
+                continue
+            score_value = scores[player_idx]
+            if last_score is None or score_value != last_score:
+                current_rank = position + 1
+                last_score = score_value
+            ranks[player_idx] = current_rank
+
+        winner_idx = agari.get("who") if isinstance(agari, dict) else None
+
+        for player_idx in range(num_players):
+            if player_idx >= len(scores):
+                continue
+            display_name = seat_names[player_idx]
+            if player_idx == dealer:
+                display_name += " (Dealer)"
+            base_color = (
+                self._accent_color if player_idx == winner_idx else self._text_color
+            )
+            rank_text = ordinal(ranks.get(player_idx, player_idx + 1))
+            name_surface = self._font.render(
+                f"{rank_text}  {display_name}", True, base_color
+            )
+            name_rect = name_surface.get_rect()
+            name_rect.left = panel_rect.left + padding
+            name_rect.top = current_y
+            self._screen.blit(name_surface, name_rect)
+
+            delta_value = score_deltas[player_idx] if player_idx < len(score_deltas) else 0
+            delta_points = int(round(delta_value * 100))
+            delta_color = (
+                self._accent_color
+                if delta_points > 0
+                else self._danger_color if delta_points < 0 else self._muted_text_color
+            )
+            delta_surface = self._font.render(f"{delta_points:+}", True, delta_color)
+            delta_rect = delta_surface.get_rect()
+            delta_rect.topright = (panel_rect.right - padding, current_y)
+            self._screen.blit(delta_surface, delta_rect)
+
+            score_points = int(round(scores[player_idx] * 100))
+            score_surface = self._font.render(f"{score_points:>6d}", True, base_color)
+            score_rect = score_surface.get_rect()
+            score_rect.top = current_y
+            score_rect.right = delta_rect.left - 16
+            self._screen.blit(score_surface, score_rect)
+
+            current_y += line_height
+
+        if num_players:
+            current_y += 4
+
+        for prefix, text in yaku_lines:
+            label_width = self._small_font.size("Yaku: ")[0]
+            x = panel_rect.left + padding
+            if prefix:
+                label_surface = self._small_font.render(prefix, True, self._accent_color)
+                label_rect = label_surface.get_rect()
+                label_rect.left = x
+                label_rect.top = current_y
+                self._screen.blit(label_surface, label_rect)
+                x = label_rect.right
+            else:
+                x += label_width
+            text_surface = self._small_font.render(text, True, self._text_color)
+            text_rect = text_surface.get_rect()
+            text_rect.left = x
+            text_rect.top = current_y
+            self._screen.blit(text_surface, text_rect)
+            current_y = text_rect.bottom + 2
+
     def _render(self) -> None:
         if self._screen is None or self._font is None or self._clock is None:
             return
@@ -648,7 +899,10 @@ class MahjongEnv(_BaseMahjongEnv):
         self._draw_dead_wall(play_rect)
         self._draw_player_areas(play_rect)
         self._draw_seat_labels(play_rect)
-        self._draw_status_text(width)
+        if getattr(self, "phase", "") == "score":
+            self._draw_score_panel(width)
+        else:
+            self._draw_status_text(width)
 
         pygame.display.flip()
         self._clock.tick(self._fps)
