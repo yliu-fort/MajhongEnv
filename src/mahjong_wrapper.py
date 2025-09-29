@@ -726,7 +726,7 @@ class MahjongEnv(_BaseMahjongEnv):
             lines.append(current)
         return lines
 
-    def _draw_score_panel(self, surface_width: int) -> None:
+    def _draw_score_panel(self, surface_size: Tuple[int, int]) -> None:
         if (
             self._screen is None
             or self._font is None
@@ -735,10 +735,13 @@ class MahjongEnv(_BaseMahjongEnv):
         ):
             return
 
-        margin = 16
+        surface_width, surface_height = surface_size
+        margin = 0
         padding = 14
-        panel_width = max(120, surface_width - margin * 2)
-        max_text_width = max(50, panel_width - padding * 2)
+        min_dimension = min(surface_width, surface_height)
+        available_side = min_dimension - margin * 2
+        effective_side = available_side if available_side > 0 else min_dimension
+        max_text_width = max(50, effective_side - padding * 2)
 
         round_data = getattr(self, "round", [0, 0])
         round_index = round_data[0] if isinstance(round_data[0], int) else 0
@@ -822,48 +825,16 @@ class MahjongEnv(_BaseMahjongEnv):
         message_height = len(message_lines) * small_height
         yaku_height = len(yaku_lines) * small_height
 
-        panel_height = padding * 2 + self._header_font.get_linesize()
-        if info_height:
-            panel_height += 6 + info_height
-        if message_height:
-            panel_height += 6 + message_height
-        if player_section_height:
-            panel_height += 6 + player_section_height
-        if yaku_height:
-            panel_height += 6 + yaku_height
-
-        panel_rect = pygame.Rect(margin, margin, panel_width, panel_height)
-        pygame.draw.rect(self._screen, self._panel_color, panel_rect, border_radius=12)
-        pygame.draw.rect(self._screen, self._panel_border, panel_rect, 2, border_radius=12)
-
-        current_y = panel_rect.top + padding
-        title_surface = self._header_font.render("Round Results", True, self._accent_color)
-        title_rect = title_surface.get_rect()
-        title_rect.midtop = (panel_rect.centerx, current_y)
-        self._screen.blit(title_surface, title_rect)
-        current_y = title_rect.bottom + 6
-
-        for line in info_lines:
-            surface = self._small_font.render(line, True, self._muted_text_color)
-            rect = surface.get_rect()
-            rect.left = panel_rect.left + padding
-            rect.top = current_y
-            self._screen.blit(surface, rect)
-            current_y = rect.bottom + 2
+        title_text = "Round Results"
+        title_width, title_height = self._header_font.size(title_text)
+        content_width = title_width
 
         if info_lines:
-            current_y += 4
-
-        for line in message_lines:
-            surface = self._small_font.render(line, True, self._text_color)
-            rect = surface.get_rect()
-            rect.left = panel_rect.left + padding
-            rect.top = current_y
-            self._screen.blit(surface, rect)
-            current_y = rect.bottom + 2
-
+            info_width = max(self._small_font.size(line)[0] for line in info_lines)
+            content_width = max(content_width, info_width)
         if message_lines:
-            current_y += 4
+            message_width = max(self._small_font.size(line)[0] for line in message_lines)
+            content_width = max(content_width, message_width)
 
         scores = list(getattr(self, "scores", []))
         if len(scores) < num_players:
@@ -895,6 +866,83 @@ class MahjongEnv(_BaseMahjongEnv):
             ranks[player_idx] = current_rank
 
         winner_idx = agari.get("who") if isinstance(agari, dict) else None
+
+        for player_idx in range(num_players):
+            if player_idx >= len(scores):
+                continue
+            display_name = seat_names[player_idx]
+            if player_idx == dealer:
+                display_name += " (Dealer)"
+            rank_text = ordinal(ranks.get(player_idx, player_idx + 1))
+            name_text = f"{rank_text}  {display_name}"
+            name_width = self._font.size(name_text)[0]
+            delta_value = score_deltas[player_idx] if player_idx < len(score_deltas) else 0
+            delta_points = int(round(delta_value * 100))
+            delta_width = self._font.size(f"{delta_points:+}")[0]
+            score_points = int(round(scores[player_idx] * 100))
+            score_width = self._font.size(f"{score_points:>6d}")[0]
+            score_line_width = name_width + score_width + delta_width + 16
+            content_width = max(content_width, score_line_width)
+
+        if yaku_lines:
+            label_width = self._small_font.size("Yaku: ")[0]
+            for prefix, text in yaku_lines:
+                prefix_width = self._small_font.size(prefix)[0] if prefix else 0
+                text_width = self._small_font.size(text)[0]
+                total_width = prefix_width + (label_width if not prefix else 0) + text_width
+                content_width = max(content_width, total_width)
+
+        panel_height = padding * 2 + title_height
+        if info_height:
+            panel_height += 6 + info_height
+        if message_height:
+            panel_height += 6 + message_height
+        if player_section_height:
+            panel_height += 6 + player_section_height
+        if yaku_height:
+            panel_height += 6 + yaku_height
+
+        required_width = padding * 2 + content_width
+        required_height = panel_height
+        panel_size = max(required_width, required_height)
+        if available_side > 0:
+            panel_size = min(panel_size, available_side)
+        else:
+            panel_size = min(panel_size, min_dimension)
+        panel_rect = pygame.Rect(0, 0, panel_size, panel_size)
+        panel_rect.center = (surface_width // 2, surface_height // 2)
+
+        pygame.draw.rect(self._screen, self._panel_color, panel_rect, border_radius=12)
+        pygame.draw.rect(self._screen, self._panel_border, panel_rect, 2, border_radius=12)
+
+        current_y = panel_rect.top + padding
+        title_surface = self._header_font.render(title_text, True, self._accent_color)
+        title_rect = title_surface.get_rect()
+        title_rect.midtop = (panel_rect.centerx, current_y)
+        self._screen.blit(title_surface, title_rect)
+        current_y = title_rect.bottom + 6
+
+        for line in info_lines:
+            surface = self._small_font.render(line, True, self._muted_text_color)
+            rect = surface.get_rect()
+            rect.left = panel_rect.left + padding
+            rect.top = current_y
+            self._screen.blit(surface, rect)
+            current_y = rect.bottom + 2
+
+        if info_lines:
+            current_y += 4
+
+        for line in message_lines:
+            surface = self._small_font.render(line, True, self._text_color)
+            rect = surface.get_rect()
+            rect.left = panel_rect.left + padding
+            rect.top = current_y
+            self._screen.blit(surface, rect)
+            current_y = rect.bottom + 2
+
+        if message_lines:
+            current_y += 4
 
         for player_idx in range(num_players):
             if player_idx >= len(scores):
@@ -978,7 +1026,7 @@ class MahjongEnv(_BaseMahjongEnv):
         self._draw_player_areas(play_rect)
         self._draw_seat_labels(play_rect)
         if getattr(self, "phase", "") == "score":
-            self._draw_score_panel(width)
+            self._draw_score_panel((width, height))
         else:
             self._draw_status_text(width)
 
