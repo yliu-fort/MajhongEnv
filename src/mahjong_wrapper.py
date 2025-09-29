@@ -94,6 +94,15 @@ class MahjongEnv(_BaseMahjongEnv):
         self._line_height = font_size + 6
         self._quit_requested = False
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
+        self._auto_advance = True
+        self._step_once_requested = False
+        self._auto_button_rect = pygame.Rect(0, 0, 0, 0)
+        self._step_button_rect = pygame.Rect(0, 0, 0, 0)
+        self._pause_button_rect = pygame.Rect(0, 0, 0, 0)
+        self._pause_on_score = False
+        self._score_pause_active = False
+        self._score_pause_pending = False
+        self._last_phase_is_score_last = ""
         self._asset_root = Path(__file__).resolve().parent.parent / "data" / "assets"
         self._raw_tile_assets: dict[int, pygame.Surface] = {}
         self._tile_cache: dict[tuple[int, Tuple[int, int]], pygame.Surface] = {}
@@ -111,6 +120,10 @@ class MahjongEnv(_BaseMahjongEnv):
         self._process_events()
         observation = super().reset(*args, **kwargs)
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=self.done, info={})
+        self._step_once_requested = False
+        self._score_pause_active = False
+        self._score_pause_pending = False
+        self._last_phase_is_score_last = getattr(self, "phase", "")
         self._render()
         return observation
 
@@ -123,6 +136,22 @@ class MahjongEnv(_BaseMahjongEnv):
             self._last_payload = _RenderPayload(action=None, reward=0.0, done=True, info=info)
             self._render()
             return observation, 0.0, True, info
+
+        while (
+            not self._quit_requested
+            and (
+                (not self._auto_advance and not self._step_once_requested)
+                or self._score_pause_active
+            )
+            and not getattr(self, "done", False)
+        ):
+            self._process_events()
+            self._render()
+            if self._clock is not None:
+                self._clock.tick(self._fps)
+
+        if self._step_once_requested:
+            self._step_once_requested = False
 
         observation, reward, done, info = super().step(action)
         self._last_payload = _RenderPayload(action=action, reward=reward, done=done, info=info)
@@ -167,6 +196,44 @@ class MahjongEnv(_BaseMahjongEnv):
                 self._window_size = (event.w, event.h)
                 flags = pygame.RESIZABLE
                 self._screen = pygame.display.set_mode(self._window_size, flags)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self._handle_mouse_click(event.pos)
+
+    def _handle_mouse_click(self, position: Tuple[int, int]) -> None:
+        if self._auto_button_rect.collidepoint(position):
+            self._auto_advance = not self._auto_advance
+            if self._auto_advance:
+                self._step_once_requested = False
+                if (
+                    self._score_last()
+                    and self._pause_on_score
+                ):
+                    self._score_pause_active = True
+                    self._score_pause_pending = True
+                else:
+                    self._score_pause_active = False
+                    self._score_pause_pending = False
+            else:
+                self._step_once_requested = False
+                self._score_pause_active = False
+                self._score_pause_pending = False
+        elif self._step_button_rect.collidepoint(position):
+            if not self._auto_advance:
+                self._step_once_requested = True
+            elif self._score_pause_active:
+                self._score_pause_active = False
+                self._score_pause_pending = False
+        elif self._pause_button_rect.collidepoint(position) and self._auto_advance:
+            self._pause_on_score = not self._pause_on_score
+            if self._pause_on_score and self._score_last():
+                self._score_pause_active = True
+                self._score_pause_pending = True
+            else:
+                self._score_pause_active = False
+                self._score_pause_pending = False
+    
+    def _score_last(self):
+        return getattr(self, "phase", "") == "score" and self.current_player == self.num_players - 1
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -628,9 +695,391 @@ class MahjongEnv(_BaseMahjongEnv):
             done_rect.topright = (surface_width - margin, reward_rect.bottom + 4)
             self._screen.blit(done_surface, done_rect)
 
+    def _draw_control_buttons(self, surface_width: int, surface_height: int) -> None:
+        if self._screen is None or self._font is None or self._small_font is None:
+            return
+
+        margin = 16
+        max_label_width = max(
+            self._font.size("Auto Next: OFF")[0],
+            self._font.size("Next")[0],
+            self._font.size("Pause on Score: ON")[0],
+        )
+        button_width = max(160, max_label_width + 24)
+        button_height = 44
+        gap = 10
+
+        base_right = surface_width - margin
+        base_bottom = surface_height - margin
+
+        step_rect = pygame.Rect(0, 0, button_width, button_height)
+        step_rect.bottomright = (base_right, base_bottom)
+        auto_rect = pygame.Rect(0, 0, button_width, button_height)
+        auto_rect.bottomright = (base_right, step_rect.top - gap)
+        pause_rect = pygame.Rect(0, 0, button_width, button_height)
+        pause_rect.bottomright = (base_right, auto_rect.top - gap)
+
+        self._step_button_rect = step_rect
+        self._auto_button_rect = auto_rect
+        self._pause_button_rect = pause_rect
+
+        def draw_button(rect: pygame.Rect, label: str, enabled: bool, active: bool = False) -> None:
+            base_color = self._panel_color
+            border_color = self._panel_border
+            if active:
+                base_color = tuple(min(255, c + 40) for c in self._panel_color)
+                border_color = self._accent_color
+            elif not enabled:
+                base_color = tuple(max(0, c - 20) for c in self._panel_color)
+                border_color = self._muted_text_color
+
+            pygame.draw.rect(self._screen, base_color, rect, border_radius=10)
+            pygame.draw.rect(self._screen, border_color, rect, 2, border_radius=10)
+
+            font = self._font
+            text_color = self._text_color if enabled else self._muted_text_color
+            text_surface = font.render(label, True, text_color)
+            text_rect = text_surface.get_rect(center=rect.center)
+            self._screen.blit(text_surface, text_rect)
+
+        pause_label = "Pause on Score: ON" if self._pause_on_score else "Pause on Score: OFF"
+        pause_enabled = self._auto_advance
+        draw_button(
+            pause_rect,
+            pause_label,
+            enabled=pause_enabled,
+            active=self._pause_on_score and pause_enabled,
+        )
+
+        auto_label = "Auto Next: ON" if self._auto_advance else "Auto Next: OFF"
+        draw_button(auto_rect, auto_label, enabled=True, active=self._auto_advance)
+
+        step_label = "Next"
+        step_enabled = (not self._auto_advance) or self._score_pause_active
+        draw_button(step_rect, step_label, enabled=step_enabled, active=self._score_pause_active)
+
+    def _wrap_text(
+        self, font: pygame.font.Font, text: str, max_width: int
+    ) -> list[str]:
+        if not text:
+            return []
+        max_width = max(10, max_width)
+        words = str(text).split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if font.size(candidate)[0] <= max_width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
+
+    def _draw_score_panel(self, surface_size: Tuple[int, int]) -> None:
+        if (
+            self._screen is None
+            or self._font is None
+            or self._small_font is None
+            or self._header_font is None
+        ):
+            return
+
+        surface_width, surface_height = surface_size
+        margin = 0
+        padding = 14
+        min_dimension = min(surface_width, surface_height)
+        available_side = min_dimension - margin * 2
+        effective_side = available_side if available_side > 0 else min_dimension
+        max_text_width = max(50, effective_side - padding * 2)
+
+        round_data = getattr(self, "round", [0, 0])
+        round_index = round_data[0] if isinstance(round_data[0], int) else 0
+        wind_names = ["East", "South", "West", "North"]
+        wind = wind_names[(round_index // 4) % 4]
+        hand_number = round_index % 4 + 1
+        honba = round_data[1] if len(round_data) > 1 and isinstance(round_data[1], int) else 0
+        riichi_sticks = getattr(self, "num_riichi", 0)
+        kyoutaku = getattr(self, "num_kyoutaku", 0)
+
+        info_lines: list[str] = [
+            f"{wind} {hand_number} | Honba {honba} | Riichi {riichi_sticks} | Kyoutaku {kyoutaku}"
+        ]
+
+        seat_names = list(getattr(self, "seat_names", []))
+        num_players = getattr(self, "num_players", 0)
+        if len(seat_names) < num_players:
+            seat_names.extend([f"P{idx}" for idx in range(len(seat_names), num_players)])
+
+        agari = getattr(self, "agari", None)
+        message_lines: list[str] = []
+        if agari:
+            winner = agari.get("who", -1)
+            from_who = agari.get("fromwho", -1)
+            if 0 <= winner < num_players:
+                winner_name = seat_names[winner]
+            else:
+                winner_name = f"Player {winner}"
+            if winner == from_who:
+                result_text = f"{winner_name} Tsumo"
+            else:
+                loser_name = (
+                    seat_names[from_who]
+                    if 0 <= from_who < num_players
+                    else f"Player {from_who}"
+                )
+                result_text = f"{winner_name} Ron vs {loser_name}"
+            message_lines.append(result_text)
+            ten = list(agari.get("ten", []))
+            fu = ten[0] if len(ten) > 0 else 0
+            total = ten[1] if len(ten) > 1 else 0
+            han = ten[2] if len(ten) > 2 else 0
+            message_lines.append(f"{han} Han | {fu} Fu | {total} Points")
+        else:
+            tenpai_flags = list(getattr(self, "tenpai", []))
+            tenpai_players = [
+                seat_names[idx]
+                for idx, is_tenpai in enumerate(tenpai_flags)
+                if is_tenpai and idx < num_players
+            ]
+            if tenpai_players:
+                message_lines.append("Draw - Tenpai: " + ", ".join(tenpai_players))
+            else:
+                message_lines.append("Draw - No Tenpai")
+
+        msg_text = str(getattr(self, "msg", "")).strip()
+        if msg_text:
+            wrapped_msg = self._wrap_text(self._small_font, msg_text, max_text_width)
+            message_lines.extend(wrapped_msg[:4])
+
+        yaku_lines: list[tuple[str, str]] = []
+        if agari:
+            raw_yaku = [str(item) for item in agari.get("yaku", [])]
+            if raw_yaku:
+                combined = ", ".join(raw_yaku)
+                label = "Yaku: "
+                label_width = self._small_font.size(label)[0]
+                wrapped_yaku = self._wrap_text(
+                    self._small_font, combined, max(10, max_text_width - label_width)
+                )
+                if wrapped_yaku:
+                    yaku_lines.append((label, wrapped_yaku[0]))
+                    for extra in wrapped_yaku[1:]:
+                        yaku_lines.append(("", extra))
+
+        line_height = self._font.get_linesize() + 6
+        small_height = self._small_font.get_linesize() + 2
+
+        player_section_height = num_players * line_height if num_players else 0
+        info_height = len(info_lines) * small_height
+        message_height = len(message_lines) * small_height
+        yaku_height = len(yaku_lines) * small_height
+
+        title_text = "Round Results"
+        title_width, title_height = self._header_font.size(title_text)
+        content_width = title_width
+
+        if info_lines:
+            info_width = max(self._small_font.size(line)[0] for line in info_lines)
+            content_width = max(content_width, info_width)
+        if message_lines:
+            message_width = max(self._small_font.size(line)[0] for line in message_lines)
+            content_width = max(content_width, message_width)
+
+        scores = list(getattr(self, "scores", []))
+        if len(scores) < num_players:
+            scores.extend([0] * (num_players - len(scores)))
+        score_deltas = list(getattr(self, "score_deltas", []))
+        if len(score_deltas) < num_players:
+            score_deltas.extend([0] * (num_players - len(score_deltas)))
+        dealer = getattr(self, "oya", -1)
+
+        def ordinal(value: int) -> str:
+            suffix = "th"
+            if value % 100 not in {11, 12, 13}:
+                suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+            return f"{value}{suffix}"
+
+        ranks: dict[int, int] = {}
+        sorted_players = sorted(
+            range(num_players), key=lambda idx: (-scores[idx], idx)
+        )
+        last_score: Optional[int] = None
+        current_rank = 0
+        for position, player_idx in enumerate(sorted_players):
+            if player_idx >= len(scores):
+                continue
+            score_value = scores[player_idx]
+            if last_score is None or score_value != last_score:
+                current_rank = position + 1
+                last_score = score_value
+            ranks[player_idx] = current_rank
+
+        winner_idx = agari.get("who") if isinstance(agari, dict) else None
+
+        for player_idx in range(num_players):
+            if player_idx >= len(scores):
+                continue
+            display_name = seat_names[player_idx]
+            if player_idx == dealer:
+                display_name += " (Dealer)"
+            rank_text = ordinal(ranks.get(player_idx, player_idx + 1))
+            name_text = f"{rank_text}  {display_name}"
+            name_width = self._font.size(name_text)[0]
+            delta_value = score_deltas[player_idx] if player_idx < len(score_deltas) else 0
+            delta_points = int(round(delta_value * 100))
+            delta_width = self._font.size(f"{delta_points:+}")[0]
+            score_points = int(round(scores[player_idx] * 100))
+            score_width = self._font.size(f"{score_points:>6d}")[0]
+            score_line_width = name_width + score_width + delta_width + 16
+            content_width = max(content_width, score_line_width)
+
+        if yaku_lines:
+            label_width = self._small_font.size("Yaku: ")[0]
+            for prefix, text in yaku_lines:
+                prefix_width = self._small_font.size(prefix)[0] if prefix else 0
+                text_width = self._small_font.size(text)[0]
+                total_width = prefix_width + (label_width if not prefix else 0) + text_width
+                content_width = max(content_width, total_width)
+
+        panel_height = padding * 2 + title_height
+        if info_height:
+            panel_height += 6 + info_height
+        if message_height:
+            panel_height += 6 + message_height
+        if player_section_height:
+            panel_height += 6 + player_section_height
+        if yaku_height:
+            panel_height += 6 + yaku_height
+
+        required_width = padding * 2 + content_width
+        required_height = panel_height
+        panel_size = max(required_width, required_height)
+        if available_side > 0:
+            panel_size = min(panel_size, available_side)
+        else:
+            panel_size = min(panel_size, min_dimension)
+        panel_rect = pygame.Rect(0, 0, panel_size, panel_size)
+        panel_rect.center = (surface_width // 2, surface_height // 2)
+
+        pygame.draw.rect(self._screen, self._panel_color, panel_rect, border_radius=12)
+        pygame.draw.rect(self._screen, self._panel_border, panel_rect, 2, border_radius=12)
+
+        current_y = panel_rect.top + padding
+        title_surface = self._header_font.render(title_text, True, self._accent_color)
+        title_rect = title_surface.get_rect()
+        title_rect.midtop = (panel_rect.centerx, current_y)
+        self._screen.blit(title_surface, title_rect)
+        current_y = title_rect.bottom + 6
+
+        for line in info_lines:
+            surface = self._small_font.render(line, True, self._muted_text_color)
+            rect = surface.get_rect()
+            rect.left = panel_rect.left + padding
+            rect.top = current_y
+            self._screen.blit(surface, rect)
+            current_y = rect.bottom + 2
+
+        if info_lines:
+            current_y += 4
+
+        for line in message_lines:
+            surface = self._small_font.render(line, True, self._text_color)
+            rect = surface.get_rect()
+            rect.left = panel_rect.left + padding
+            rect.top = current_y
+            self._screen.blit(surface, rect)
+            current_y = rect.bottom + 2
+
+        if message_lines:
+            current_y += 4
+
+        for player_idx in range(num_players):
+            if player_idx >= len(scores):
+                continue
+            display_name = seat_names[player_idx]
+            if player_idx == dealer:
+                display_name += " (Dealer)"
+            base_color = (
+                self._accent_color if player_idx == winner_idx else self._text_color
+            )
+            rank_text = ordinal(ranks.get(player_idx, player_idx + 1))
+            name_surface = self._font.render(
+                f"{rank_text}  {display_name}", True, base_color
+            )
+            name_rect = name_surface.get_rect()
+            name_rect.left = panel_rect.left + padding
+            name_rect.top = current_y
+            self._screen.blit(name_surface, name_rect)
+
+            delta_value = score_deltas[player_idx] if player_idx < len(score_deltas) else 0
+            delta_points = int(round(delta_value * 100))
+            delta_color = (
+                self._accent_color
+                if delta_points > 0
+                else self._danger_color if delta_points < 0 else self._muted_text_color
+            )
+            delta_surface = self._font.render(f"{delta_points:+}", True, delta_color)
+            delta_rect = delta_surface.get_rect()
+            delta_rect.topright = (panel_rect.right - padding, current_y)
+            self._screen.blit(delta_surface, delta_rect)
+
+            score_points = int(round(scores[player_idx] * 100))
+            score_surface = self._font.render(f"{score_points:>6d}", True, base_color)
+            score_rect = score_surface.get_rect()
+            score_rect.top = current_y
+            score_rect.right = delta_rect.left - 16
+            self._screen.blit(score_surface, score_rect)
+
+            current_y += line_height
+
+        if num_players:
+            current_y += 4
+
+        for prefix, text in yaku_lines:
+            label_width = self._small_font.size("Yaku: ")[0]
+            x = panel_rect.left + padding
+            if prefix:
+                label_surface = self._small_font.render(prefix, True, self._accent_color)
+                label_rect = label_surface.get_rect()
+                label_rect.left = x
+                label_rect.top = current_y
+                self._screen.blit(label_surface, label_rect)
+                x = label_rect.right
+            else:
+                x += label_width
+            text_surface = self._small_font.render(text, True, self._text_color)
+            text_rect = text_surface.get_rect()
+            text_rect.left = x
+            text_rect.top = current_y
+            self._screen.blit(text_surface, text_rect)
+            current_y = text_rect.bottom + 2
+
     def _render(self) -> None:
         if self._screen is None or self._font is None or self._clock is None:
             return
+
+        if self._score_last():
+            if self._auto_advance and self._pause_on_score:
+                if not self._last_phase_is_score_last:
+                    self._score_pause_pending = True
+                    self._score_pause_active = True
+            else:
+                self._score_pause_pending = False
+                self._score_pause_active = False
+            self._last_phase_is_score_last = self._score_last()
+        elif self._score_pause_pending:
+            if self._auto_advance and self._pause_on_score:
+                self._score_pause_active = True
+            else:
+                self._score_pause_active = False
+                self._score_pause_pending = False
+        else:
+            self._score_pause_pending = False
+            self._score_pause_active = False
+            self._last_phase_is_score_last = self._score_last()
 
         self._screen.fill(self._background_color)
         width, height = self._screen.get_size()
@@ -648,7 +1097,12 @@ class MahjongEnv(_BaseMahjongEnv):
         self._draw_dead_wall(play_rect)
         self._draw_player_areas(play_rect)
         self._draw_seat_labels(play_rect)
-        self._draw_status_text(width)
+        if self._score_last():
+            self._draw_score_panel((width, height))
+        else:
+            self._draw_status_text(width)
+
+        self._draw_control_buttons(width, height)
 
         pygame.display.flip()
         self._clock.tick(self._fps)
