@@ -1515,13 +1515,13 @@ class MahjongEnv(MahjongEnvBase):
                 for t136 in self.hands[self.current_player]:
                     hand_34[t136//4]+=1
                 if 0 <= rank <= 6:
-                    has_required_tiles = hand_34[claimed_t34+1] * hand_34[claimed_t34+2]
+                    has_required_tiles = hand_34[claimed_t34+1] > 0 and hand_34[claimed_t34+2] > 0
                     mask[get_action_index((self.claims[0]["tile"]//4,0), self.phase)]=has_required_tiles
                 if 1 <= rank <= 7:
-                    has_required_tiles = hand_34[claimed_t34-1] * hand_34[claimed_t34+1]
+                    has_required_tiles = hand_34[claimed_t34-1] > 0 and hand_34[claimed_t34+1] > 0
                     mask[get_action_index((self.claims[0]["tile"]//4-1,1), self.phase)]=has_required_tiles
                 if 2 <= rank <= 8:
-                    has_required_tiles = hand_34[claimed_t34-2] * hand_34[claimed_t34-1]
+                    has_required_tiles = hand_34[claimed_t34-2] > 0 and hand_34[claimed_t34-1] > 0
                     mask[get_action_index((self.claims[0]["tile"]//4-2,2), self.phase)]=has_required_tiles
                 mask[get_action_index(None, "cancel")]=True
                 return mask
