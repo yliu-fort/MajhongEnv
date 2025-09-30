@@ -633,6 +633,41 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
         elif raw and raw[0] in "TUVW" and raw[1:].isdigit():
             who = "TUVW".index(raw[0])
             tid = int(raw[1:])
+            for p in range(4):
+                if p == tracker.last_discarder or tracker.riichi_flag[p]:
+                    continue
+                state = tracker.snapshot_before_action(p)
+                legal_mask = [i for i in state.legal_actions_mask]
+                chi_mask, pon_mask, kan_mask = [False]*253, [False]*253, [False]*253
+                chi_mask[68:113]=legal_mask[68:113]
+                pon_mask[113:147]=legal_mask[113:147]
+                kan_mask[147:181]=legal_mask[147:181]
+                action = get_action_index(None, "pass")
+                chi_mask[action]=True
+                pon_mask[action]=True
+                kan_mask[action]=True
+                meta = {
+                    "round_index": tracker.round_index,
+                    "oya": tracker.oya,
+                    "honba": tracker.honba,
+                    "riichi_sticks": tracker.riichi_sticks,
+                    "action_idx": action_idx,
+                }
+                if sum(kan_mask) > 1:
+                    state = tracker.snapshot_before_action(p)
+                    state.legal_actions_mask = kan_mask
+                    yield (state, p, action, meta)
+                    action_idx += 1
+                if sum(pon_mask) > 1:
+                    state = tracker.snapshot_before_action(p)
+                    state.legal_actions_mask = pon_mask
+                    yield (state, p, action, meta)
+                    action_idx += 1
+                if sum(chi_mask) > 1:
+                    state = tracker.snapshot_before_action(p)
+                    state.legal_actions_mask = chi_mask
+                    yield (state, p, action, meta)
+                    action_idx += 1
             tracker.draw(who, tid)
         elif raw and raw[0] in "DEFG" and raw[1:].isdigit():
             who = "DEFG".index(raw[0])
@@ -710,7 +745,6 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                         assert state.legal_actions_mask[action] == True, "Ankan: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1
-                # TODO: yield twice when discard and riichi are both available. First with mask for discard, second with mask for riichi + cancel
             tracker.discard(who, tid)
         elif raw == "N":
             who = int(el.attrib["who"])
@@ -800,7 +834,7 @@ def collect_discard_samples(xml: TagLike) -> List[Dict[str, Any]]:
 # ----------------------------
 # CLI
 # ----------------------------
-_DEF_PREVIEW = 500
+_DEF_PREVIEW = 5000
 
 def _main(argv: Sequence[str]) -> int:
     import argparse
