@@ -449,6 +449,20 @@ class MahjongEnv(_BaseMahjongEnv):
         if window is None:
             raise RuntimeError("Failed to create Kivy window for MahjongEnv")
 
+        # ``ensure_window`` may return a window instance that has not yet been
+        # materialised on screen.  Explicitly trigger creation and showing of
+        # the native window so the GUI becomes visible when the environment is
+        # instantiated, matching the pygame behaviour of the original wrapper.
+        if getattr(window, "canvas", None) is None and hasattr(window, "create_window"):
+            window.create_window()
+        if hasattr(window, "show"):
+            try:
+                window.show()
+            except Exception:
+                # Some window providers (e.g. SDL2) implicitly show during
+                # ``create_window`` and raise if ``show`` is called twice.
+                pass
+
         window.size = self._window_size
         window.clearcolor = (
             self._background_color[0] / 255.0,
