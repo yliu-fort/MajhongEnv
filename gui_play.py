@@ -12,7 +12,7 @@ from agent.visual_agent import VisualAgent
 def evaluate_model(episodes=100):
     # 创建环境
     env = MahjongEnv(num_players=4)
-    agent = RandomDiscardAgent(env, backbone="resnet50")
+    agent = VisualAgent(env, backbone="resnet50")
     
     # 加载训练好的模型
     agent.load_model("model_weights/latest.pt")
