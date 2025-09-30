@@ -798,7 +798,7 @@ class MahjongEnvBase(gym.Env):
             "kyoutaku_number": self.num_kyoutaku,
             "tsumi_number": self.round[1],
             })
-        if claimed_tile:
+        if claimed_tile != None:
             winning_hand = [t for t in self.hands[who]] + [claimed_tile]
         else:
             winning_hand = [t for t in self.hands[who]]
