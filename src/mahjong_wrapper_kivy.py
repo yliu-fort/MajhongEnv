@@ -484,6 +484,17 @@ class MahjongEnv(_BaseMahjongEnv):
         if not self._assets_loaded:
             self._load_tile_assets()
 
+        # ``ensure_window`` returns once the native window has been created, but
+        # a further event pump is required for some window backends (notably the
+        # SDL2 provider on Linux) to materialise the surface on screen.  Drain
+        # the event queue and request an explicit redraw so the window becomes
+        # visible immediately instead of lingering as a flashing taskbar icon.
+        self._drain_kivy_event_loop()
+        try:
+            window.canvas.ask_update()
+        except Exception:
+            pass
+
     def _process_events(self) -> None:
         if self._window is None:
             return
