@@ -517,13 +517,13 @@ class MahjongEnv(_BaseMahjongEnv):
                 if self._riichi_pending[idx]:
                     self._riichi_declarations[idx] = last_count
                     self._riichi_pending[idx] = False
-            elif current_count < last_count:
-                if (
-                    idx in self._riichi_declarations
-                    and self._riichi_declarations[idx] >= current_count
-                ):
-                    self._riichi_declarations.pop(idx, None)
-                    self._riichi_pending[idx] = False
+            #elif current_count < last_count:
+            #    if (
+            #        idx in self._riichi_declarations
+            #        and self._riichi_declarations[idx] >= current_count
+            #    ):
+            #        self._riichi_declarations.pop(idx, None)
+            #        self._riichi_pending[idx] = False
             self._discard_counts[idx] = current_count
 
     def _extract_winner_indices(self, agari: Any) -> set[int]:
@@ -659,15 +659,26 @@ class MahjongEnv(_BaseMahjongEnv):
 
         columns = max(1, columns)
         spacing = 4
+        x0, y0 = area.left, area.top
+        x, y = x0, y0
         for idx, tile in enumerate(tiles):
             column = idx % columns
-            row = idx // columns
+            row_prev = -1 if idx == 0 else min(3, (idx-1) // columns)
+            row = min(3, idx // columns)
             tile_orientation = orientation
             if orientation_map and idx in orientation_map:
                 tile_orientation = orientation_map[idx]
             tile_surface = self._get_tile_surface(tile, tile_size, True, tile_orientation)
             tile_width, tile_height = tile_surface.get_size()
-            x = area.left + column * (tile_width + spacing)
+            if orientation_map and idx in orientation_map:
+                tile_width, tile_height = tile_height, tile_width
+            #x = area.left + column * (tile_width + spacing)
+            if row != row_prev:
+                x = x0
+            elif orientation_map and idx-1 in orientation_map:
+                x += tile_height + spacing
+            else:
+                x += tile_width + spacing
             y = area.top + row * (tile_height + spacing)
             surface.blit(tile_surface, (x, y))
 
@@ -691,7 +702,7 @@ class MahjongEnv(_BaseMahjongEnv):
         x, y = origin
         spacing = 8
         for meld in melds[player]:
-            tiles = [tile for tile in meld.get("m", [])]
+            tiles = list(reversed([tile for tile in meld.get("m", [])]))
             opened = meld.get("opened", True)
             meld_type = meld.get("type", "")
             claimed_tile = meld.get("claimed_tile")
@@ -720,7 +731,10 @@ class MahjongEnv(_BaseMahjongEnv):
                 )
                 surface.blit(tile_surface, (cur_x, cur_y))
                 if direction == "horizontal":
-                    cur_x -= tile_surface.get_width() + 4
+                    if sideways_index is not None and ((idx+1) == sideways_index or idx == sideways_index):
+                        cur_x -= tile_surface.get_height() + 4
+                    else:
+                        cur_x -= tile_surface.get_width() + 4
                 else:
                     cur_y -= tile_surface.get_height() + 4
             if direction == "horizontal":
@@ -773,18 +787,16 @@ class MahjongEnv(_BaseMahjongEnv):
         discard_tiles = self._get_discard_tiles(player_idx)
         discard_tile = self._tile_metrics.get("discard", tile_size)
         cols = 6
-        rows = max(1, (len(discard_tiles) + cols - 1) // cols)
-        grid_width = cols * (discard_tile[0] + 4)
-        grid_height = rows * (discard_tile[1] + 4)
-        discard_rect = pygame.Rect(area.centerx-grid_width/2, 0, grid_width, grid_height)
+        #rows = max(1, (len(discard_tiles) + cols - 1) // cols)
+        grid_half_width = (3) * (discard_tile[0] + 4)
+        grid_width = (8) * (discard_tile[0] + 4)
+        grid_height = (3) * (discard_tile[1] + 4)
+        discard_rect = pygame.Rect(area.centerx-grid_half_width, 0, grid_width, grid_height)
         discard_rect.top = y - 4 * (discard_tile[1] + 4) - 24 # maximum 3 rows
         orientation_map: Optional[dict[int, int]] = None
         declaration_index = self._riichi_declarations.get(player_idx)
         if declaration_index is not None:
-            if declaration_index < len(discard_tiles):
-                orientation_map = {declaration_index: 90}
-            else:
-                self._riichi_declarations.pop(player_idx, None)
+            orientation_map = {declaration_index: 90}
         self._draw_tile_grid(
             discard_tiles,
             discard_rect,
