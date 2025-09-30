@@ -9,3 +9,7 @@ psutil>=1.0.0
 timm>=1.0.7
 webdataset>=1.0.2
 pygame>=2.6.1
+# Optional GUI backend dependencies
+pillow>=9.0.0
+cairosvg>=2.7.0
+kivy>=2.3.0
