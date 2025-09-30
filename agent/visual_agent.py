@@ -90,10 +90,16 @@ class VisualAgent:
 
     
     def predict(self, observation):
+        legal_mask = np.asarray(self.env.action_masks())
+        if sum(legal_mask) == 0:
+            return 252
+        if sum(legal_mask) == 1:
+            return np.where(legal_mask==1)[0]
+        
         # 如果当前状态是和牌状态，直接返回和牌动作
         if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):
             return get_action_index(None, self.env.phase)
-
+        
         if self.env and (self.env.phase in ["discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"]):
             # 推理时获取动作
             with torch.no_grad():
@@ -105,11 +111,9 @@ class VisualAgent:
                 if logits.device.type != "cpu":
                     logits = logits.cpu()
                 logits = logits.numpy().squeeze()
-                #legal_mask = out["legal_mask"]
-                #legal_mask = legal_mask.cpu().numpy()
-                legal_mask = np.asarray(self.env.action_masks()) # TODO: 253-mask provided by env
+                legal_mask = np.asarray(self.env.action_masks())
                 logits += -1e9*(1-legal_mask) # mask to valid logits
-                pred = int(logits.argmax()) # tile-34
+                pred = int(logits.argmax()) # 253-dim
 
                 return pred
                         
