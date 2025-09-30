@@ -803,7 +803,12 @@ class MahjongEnvBase(gym.Env):
         else:
             winning_hand = [t for t in self.hands[who]]
             claimed_tile = winning_hand[-1]
-        result = self.hand_checker.calculate_hand_value(winning_hand, claimed_tile, self.melds[who], config, raise_error=True)
+        try:
+            result = self.hand_checker.calculate_hand_value(winning_hand, claimed_tile, self.melds[who], config, raise_error=True)
+        except Exception as e:
+            print(who, fromwho, winning_hand, claimed_tile, self.melds[who], config)
+            print(self.furiten_0, self.furiten_1, self.menzen, self.riichi, self.to_riichi)
+            print(e)
 
         sc = [result["cost"]["total"] if p == who else \
             -result["cost"]["main"]-result["cost"]["main_bonus"] if p == self.oya else \
