@@ -746,7 +746,7 @@ class MahjongEnv(_BaseMahjongEnv):
         target_surface: pygame.Surface,
         player_idx: int,
         face_up_hand: bool,
-        sorted: bool = True
+        sort_hand: bool = True
     ) -> None:
         area = target_surface.get_rect()
         margin_side = 14
@@ -758,7 +758,7 @@ class MahjongEnv(_BaseMahjongEnv):
 
         hands = getattr(self, "hands", [])
         hand_tiles = list(hands[player_idx]) if player_idx < len(hands) else []
-        if sorted:
+        if sort_hand:
             if getattr(self, "phase", []) in ["draw","kan_draw"] and self.current_player == player_idx:
                 hand_tiles = sorted(hand_tiles[:-1]) + [hand_tiles[-1]]
             else:
