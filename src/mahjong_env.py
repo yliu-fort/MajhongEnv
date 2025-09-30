@@ -357,7 +357,7 @@ class MahjongEnvBase(gym.Env):
                     # 立直棒数清零
                     self.num_kyoutaku += self.num_riichi
                     self.num_riichi = 0
-                    self.agari = self.agari_calculation(player, player, claim["config"])
+                    self.agari = self.agari_calculation(player, player, None, claim["config"])
                     self.num_kyoutaku = 0
 
                     self.phase = "score"
@@ -386,13 +386,14 @@ class MahjongEnvBase(gym.Env):
                     self.to_open_dora = 0
 
                     # 更新游戏状态并计算奖励
-                    self.hands[player] += [claim['tile']]
+                    #self.hands[player] += [claim['tile']]
 
                     # 立直棒数清零
                     self.num_kyoutaku += self.num_riichi
                     self.num_riichi = 0
-                    self.agari = self.agari_calculation(player, fromwho, claim["config"])
+                    self.agari = self.agari_calculation(player, fromwho, claim['tile'], claim["config"])
                     self.num_kyoutaku = 0
+                    #self.hands[player].pop()
 
                     self.phase = "score"
                     self.current_player = 0
@@ -791,13 +792,18 @@ class MahjongEnvBase(gym.Env):
             else:
                 return 'next_round'
 
-    def agari_calculation(self, who, fromwho, config={}):
+    def agari_calculation(self, who, fromwho, claimed_tile, config={}):
         config.update({ 
             "dora_indicators": self.dora_indicator + self.ura_indicator,
             "kyoutaku_number": self.num_kyoutaku,
             "tsumi_number": self.round[1],
             })
-        result = self.hand_checker.calculate_hand_value(self.hands[who], self.hands[who][-1], self.melds[who], config, raise_error=True)
+        if claimed_tile:
+            winning_hand = [t for t in self.hands[who]] + [claimed_tile]
+        else:
+            claimed_tile = winning_hand[-1]
+            winning_hand = [t for t in self.hands[who]]
+        result = self.hand_checker.calculate_hand_value(winning_hand, claimed_tile, self.melds[who], config, raise_error=True)
 
         sc = [result["cost"]["total"] if p == who else \
             -result["cost"]["main"]-result["cost"]["main_bonus"] if p == self.oya else \
@@ -809,8 +815,8 @@ class MahjongEnvBase(gym.Env):
         # Scale down by 100
         sc = [s//100 for s in sc]
 
-        agari = {"hai":self.hands[who], "m":self.melds[who],\
-                                   "machi":self.hands[who][-1], \
+        agari = {"hai":winning_hand, "m":self.melds[who],\
+                                   "machi":claimed_tile, \
                                     "ten":[result["fu"],result["cost"]["total"],result["cost"]["yaku_level"]], \
                                     "yaku":result["yaku"], \
                                     "yaku_tenhou":result["yaku_tenhou"], \
