@@ -170,6 +170,10 @@ class MahjongEnv(_BaseMahjongEnv):
         self._face_down_cache: dict[tuple[Tuple[int, int], int], pygame.Surface] = {}
         self._placeholder_cache: dict[tuple[int, Tuple[int, int]], pygame.Surface] = {}
         self._tile_metrics: dict[str, Tuple[int, int]] = {}
+        self._riichi_flags: list[bool] = []
+        self._riichi_declarations: dict[int, int] = {}
+        self._riichi_pending: dict[int, int] = {}
+        self._discard_counts: list[int] = []
         self._ensure_gui()
         super().__init__(*args, **kwargs)
 
@@ -184,6 +188,10 @@ class MahjongEnv(_BaseMahjongEnv):
         self._score_pause_active = False
         self._score_pause_pending = False
         self._last_phase_is_score_last = getattr(self, "phase", "")
+        self._riichi_flags = []
+        self._riichi_declarations.clear()
+        self._riichi_pending.clear()
+        self._discard_counts = []
         self._render()
         return observation
 
@@ -556,6 +564,7 @@ class MahjongEnv(_BaseMahjongEnv):
         orientation: int,
         columns: int,
         target_surface: Optional[pygame.Surface] = None,
+        tile_orientations: Optional[dict[int, int]] = None,
     ) -> None:
         surface = target_surface or self._screen
         if surface is None or not tiles:
@@ -566,7 +575,10 @@ class MahjongEnv(_BaseMahjongEnv):
         for idx, tile in enumerate(tiles):
             column = idx % columns
             row = idx // columns
-            tile_surface = self._get_tile_surface(tile, tile_size, True, orientation)
+            tile_orientation = orientation
+            if tile_orientations is not None and tile in tile_orientations:
+                tile_orientation = tile_orientations[tile]
+            tile_surface = self._get_tile_surface(tile, tile_size, True, tile_orientation)
             tile_width, tile_height = tile_surface.get_size()
             x = area.left + column * (tile_width + spacing)
             y = area.top + row * (tile_height + spacing)
@@ -593,14 +605,30 @@ class MahjongEnv(_BaseMahjongEnv):
         spacing = 8
         for meld in melds[player]:
             tiles = [tile for tile in meld.get("m", [])]
-            opened = meld.get("opened", True)
+            opened = bool(meld.get("opened", True))
+            meld_type = str(meld.get("type", "")).lower()
+            claimed_tile = meld.get("claimed_tile")
             cur_x, cur_y = x, y
-            for tile in tiles:
-                tile_surface = (
-                    self._get_tile_surface(tile, tile_size, True, orientation)
-                    if opened
-                    else self._get_face_down_surface(tile_size, orientation)
-                )
+            claimed_remaining = claimed_tile if opened else None
+            for idx, tile in enumerate(tiles):
+                face_up = opened
+                tile_orientation = orientation
+                if meld_type == "kan" and not opened:
+                    face_up = idx not in {0, len(tiles) - 1}
+                if face_up:
+                    if (
+                        claimed_remaining is not None
+                        and tile == claimed_remaining
+                    ):
+                        tile_orientation = (orientation - 90) % 360
+                        claimed_remaining = None
+                    tile_surface = self._get_tile_surface(
+                        tile, tile_size, True, tile_orientation
+                    )
+                else:
+                    tile_surface = self._get_face_down_surface(
+                        tile_size, tile_orientation
+                    )
                 surface.blit(tile_surface, (cur_x, cur_y))
                 if direction == "horizontal":
                     cur_x -= tile_surface.get_width() + 4
@@ -628,8 +656,9 @@ class MahjongEnv(_BaseMahjongEnv):
         hands = getattr(self, "hands", [])
         hand_tiles = list(hands[player_idx]) if player_idx < len(hands) else []
 
-        x = area.centerx - 7*(tile_size[0] + 6)
+        x = area.centerx - 7 * (tile_size[0] + 6)
         y = area.bottom - tile_size[1] - margin_bottom
+        hand_top = y
         for idx, tile in enumerate(hand_tiles):
             if len(hand_tiles) > 1 and idx == len(hand_tiles) - 1:
                 x += draw_gap
@@ -642,15 +671,42 @@ class MahjongEnv(_BaseMahjongEnv):
 
         hand_end_x = x if hand_tiles else margin_side
 
+        riichi_flags = list(getattr(self, "riichi", []))
+        is_riichi = player_idx < len(riichi_flags) and riichi_flags[player_idx]
+        if is_riichi and self._small_font is not None:
+            label_surface = self._small_font.render("Riichi", True, self._accent_color)
+            label_rect = label_surface.get_rect()
+            label_rect.midtop = (area.centerx, max(area.top, hand_top - label_rect.height - 4))
+            target_surface.blit(label_surface, label_rect)
+
         discard_tiles = self._get_discard_tiles(player_idx)
         discard_tile = self._tile_metrics.get("discard", tile_size)
         cols = 6
         rows = max(1, (len(discard_tiles) + cols - 1) // cols)
-        grid_width = cols * (discard_tile[0] + 4)
-        grid_height = rows * (discard_tile[1] + 4)
-        discard_rect = pygame.Rect(area.centerx-grid_width/2, 0, grid_width, grid_height)
-        discard_rect.top = y - 4 * (discard_tile[1] + 4) - 24 # maximum 3 rows
-        self._draw_tile_grid(discard_tiles, discard_rect, discard_tile, 0, cols, target_surface)
+        orientation_map: dict[int, int] = {}
+        riichi_tile = self._riichi_declarations.get(player_idx)
+        if riichi_tile is not None and riichi_tile in discard_tiles:
+            orientation_map[riichi_tile] = (orientation_map.get(riichi_tile, 0) - 90) % 360
+        has_sideways = any(angle % 180 for angle in orientation_map.values())
+        tile_width = discard_tile[0]
+        tile_height = discard_tile[1]
+        if has_sideways:
+            max_dim = max(discard_tile)
+            tile_width = max_dim
+            tile_height = max_dim
+        grid_width = cols * (tile_width + 4)
+        grid_height = rows * (tile_height + 4)
+        discard_rect = pygame.Rect(area.centerx - grid_width / 2, 0, grid_width, grid_height)
+        discard_rect.top = y - 4 * (tile_height + 4) - 24  # maximum 3 rows
+        self._draw_tile_grid(
+            discard_tiles,
+            discard_rect,
+            discard_tile,
+            0,
+            cols,
+            target_surface,
+            tile_orientations=orientation_map if orientation_map else None,
+        )
 
         meld_tile = self._tile_metrics.get("meld", tile_size)
         max_meld_width = meld_tile[0] * 4 + 12
@@ -676,10 +732,11 @@ class MahjongEnv(_BaseMahjongEnv):
 
         angle_map = {0: 0, 1: -90, 2: 180, 3: 90}
 
+        reveal_on_score = self._players_to_reveal()
         for player_idx in range(min(4, num_players)):
             layout_surface = pygame.Surface(play_rect.size, pygame.SRCALPHA)
             layout_surface.fill((0, 0, 0, 0))
-            face_up = player_idx == 0
+            face_up = player_idx == 0 or player_idx in reveal_on_score
             self._draw_player_layout(layout_surface, player_idx, face_up)
             angle = angle_map.get(player_idx, 0) % 360
             if angle:
@@ -688,6 +745,29 @@ class MahjongEnv(_BaseMahjongEnv):
                 rendered = layout_surface
             rect = rendered.get_rect(center=play_rect.center)
             self._screen.blit(rendered, rect)
+
+    def _players_to_reveal(self) -> set[int]:
+        reveal: set[int] = set()
+        if getattr(self, "phase", "") != "score":
+            return reveal
+
+        agari = getattr(self, "agari", None)
+        if agari:
+            winners = agari.get("who") if isinstance(agari, dict) else None
+            if isinstance(winners, int):
+                reveal.add(winners)
+            elif isinstance(winners, Iterable) and not isinstance(winners, (str, bytes)):
+                for entry in winners:
+                    if isinstance(entry, int):
+                        reveal.add(entry)
+        else:
+            tenpai_flags = list(getattr(self, "tenpai", []))
+            ryuukyoku_type = getattr(self, "ryuukyoku_type", "")
+            if ryuukyoku_type or any(tenpai_flags):
+                for idx, is_tenpai in enumerate(tenpai_flags):
+                    if is_tenpai:
+                        reveal.add(idx)
+        return reveal
 
     def _draw_walls(self, play_rect: pygame.Rect) -> None:
         wall_tile = self._tile_metrics.get("wall", (20, 26))
@@ -1167,6 +1247,8 @@ class MahjongEnv(_BaseMahjongEnv):
         if self._screen is None or self._font is None or self._clock is None:
             return
 
+        self._update_riichi_tracking()
+
         if self._score_last():
             if self._auto_advance and self._pause_on_score:
                 if not self._last_phase_is_score_last:
@@ -1212,6 +1294,59 @@ class MahjongEnv(_BaseMahjongEnv):
 
         pygame.display.flip()
         self._clock.tick(self._fps)
+
+    def _update_riichi_tracking(self) -> None:
+        riichi_flags = list(getattr(self, "riichi", []))
+        num_players = len(riichi_flags)
+
+        if len(self._riichi_flags) < num_players:
+            self._riichi_flags.extend([False] * (num_players - len(self._riichi_flags)))
+        if len(self._discard_counts) < num_players:
+            self._discard_counts.extend([0] * (num_players - len(self._discard_counts)))
+
+        for idx in list(self._riichi_declarations.keys()):
+            if idx >= num_players or not (idx < len(riichi_flags) and riichi_flags[idx]):
+                self._riichi_declarations.pop(idx, None)
+        for idx in list(self._riichi_pending.keys()):
+            if idx >= num_players or not (idx < len(riichi_flags) and riichi_flags[idx]):
+                self._riichi_pending.pop(idx, None)
+
+        for idx, flag in enumerate(riichi_flags):
+            discards = self._get_discard_tiles(idx)
+            prev_flag = self._riichi_flags[idx]
+            prev_count = self._discard_counts[idx]
+
+            if not flag:
+                self._riichi_declarations.pop(idx, None)
+                self._riichi_pending.pop(idx, None)
+            else:
+                if idx not in self._riichi_declarations:
+                    if not prev_flag:
+                        if len(discards) > prev_count:
+                            self._riichi_declarations[idx] = discards[-1]
+                        else:
+                            self._riichi_pending[idx] = prev_count + 1
+                    elif idx in self._riichi_pending:
+                        target = self._riichi_pending[idx]
+                        if len(discards) >= target and discards:
+                            target_index = min(len(discards) - 1, target - 1)
+                            self._riichi_declarations[idx] = discards[target_index]
+                            self._riichi_pending.pop(idx, None)
+                elif idx in self._riichi_pending:
+                    target = self._riichi_pending[idx]
+                    if len(discards) >= target and discards:
+                        target_index = min(len(discards) - 1, target - 1)
+                        self._riichi_declarations[idx] = discards[target_index]
+                        self._riichi_pending.pop(idx, None)
+
+            if idx < len(self._riichi_flags):
+                self._riichi_flags[idx] = flag
+            self._discard_counts[idx] = len(discards)
+
+        if len(self._riichi_flags) > num_players:
+            self._riichi_flags = self._riichi_flags[:num_players]
+        if len(self._discard_counts) > num_players:
+            self._discard_counts = self._discard_counts[:num_players]
 
     # ------------------------------------------------------------------
     # Support context manager style usage
