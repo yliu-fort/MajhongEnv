@@ -801,8 +801,8 @@ class MahjongEnvBase(gym.Env):
         if claimed_tile:
             winning_hand = [t for t in self.hands[who]] + [claimed_tile]
         else:
-            claimed_tile = winning_hand[-1]
             winning_hand = [t for t in self.hands[who]]
+            claimed_tile = winning_hand[-1]
         result = self.hand_checker.calculate_hand_value(winning_hand, claimed_tile, self.melds[who], config, raise_error=True)
 
         sc = [result["cost"]["total"] if p == who else \

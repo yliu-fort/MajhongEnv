@@ -672,7 +672,6 @@ class MahjongEnv(_BaseMahjongEnv):
             tile_width, tile_height = tile_surface.get_size()
             if orientation_map and idx in orientation_map:
                 tile_width, tile_height = tile_height, tile_width
-            #x = area.left + column * (tile_width + spacing)
             if row != row_prev:
                 x = x0
             elif orientation_map and idx-1 in orientation_map:
@@ -787,10 +786,9 @@ class MahjongEnv(_BaseMahjongEnv):
         discard_tiles = self._get_discard_tiles(player_idx)
         discard_tile = self._tile_metrics.get("discard", tile_size)
         cols = 6
-        #rows = max(1, (len(discard_tiles) + cols - 1) // cols)
         grid_half_width = (3) * (discard_tile[0] + 4)
-        grid_width = (8) * (discard_tile[0] + 4)
-        grid_height = (3) * (discard_tile[1] + 4)
+        grid_width = (6) * (discard_tile[0] + 4)
+        grid_height = (4) * (discard_tile[1] + 4)
         discard_rect = pygame.Rect(area.centerx-grid_half_width, 0, grid_width, grid_height)
         discard_rect.top = y - 4 * (discard_tile[1] + 4) - 24 # maximum 3 rows
         orientation_map: Optional[dict[int, int]] = None
