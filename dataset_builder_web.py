@@ -290,7 +290,7 @@ class WebDatasetShardWriter:
         self._count = 0
 
     def write(self, state: Dict[str, Any], label: int, meta: Optional[Dict[str, Any]]=None) -> bool:
-        if not (0 <= int(label) < NUM_TILES):
+        if not (0 <= int(label) < 253):
             return False
 
         sample = {
