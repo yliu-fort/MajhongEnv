@@ -11,44 +11,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
         "pygame is required for the MahjongEnv GUI wrapper; install pygame to continue"
     ) from exc
 
-from mahjong_env import MahjongEnv as _BaseMahjongEnv
-
-_ALT_TILE_SYMBOLS: Tuple[str, ...] = (
-    "1m",
-    "2m",
-    "3m",
-    "4m",
-    "5m",
-    "6m",
-    "7m",
-    "8m",
-    "9m",
-    "1p",
-    "2p",
-    "3p",
-    "4p",
-    "5p",
-    "6p",
-    "7p",
-    "8p",
-    "9p",
-    "1s",
-    "2s",
-    "3s",
-    "4s",
-    "5s",
-    "6s",
-    "7s",
-    "8s",
-    "9s",
-    "Ea",
-    "So",
-    "We",
-    "No",
-    "Wh",
-    "Gr",
-    "Re",
-)
+from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -98,44 +61,13 @@ class _RenderPayload:
     info: dict[str, Any]
 
 
-class _MahjongEnvInterface:
-    """Lightweight wrapper exposing the base Mahjong environment."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._env = _BaseMahjongEnv(*args, **kwargs)
-
-    def reset(self, *args: Any, **kwargs: Any) -> Any:
-        return self._env.reset(*args, **kwargs)
-
-    def step(self, action: int) -> Any:
-        return self._env.step(action)
-
-    def close(self) -> None:
-        close = getattr(self._env, "close", None)
-        if callable(close):
-            close()
-
-    def get_observation(self, player_index: int) -> Any:
-        return self._env.get_observation(player_index)
-
-    @property
-    def done(self) -> bool:
-        return getattr(self._env, "done", False)
-
-    @done.setter
-    def done(self, value: bool) -> None:
-        setattr(self._env, "done", value)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._env, name)
-
-
-class MahjongEnv:
+class MahjongEnvGUIWrapper:
     """Mahjong environment with a lightweight pygame GUI overlay."""
 
     def __init__(
         self,
         *args: Any,
+        env: _BaseMahjongEnv = None,
         window_size: Tuple[int, int] = (1024, 720),
         fps: int = 30,
         font_name: Optional[str] = None,
@@ -143,6 +75,7 @@ class MahjongEnv:
         fallback_fonts: Optional[Sequence[str]] = None,
         **kwargs: Any,
     ) -> None:
+        self._env = env
         self._window_size = window_size
         self._fps = max(1, fps)
         self._font_name = font_name
@@ -207,10 +140,6 @@ class MahjongEnv:
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
         self._ensure_gui()
-        self._env = _MahjongEnvInterface(*args, **kwargs)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._env, name)
 
     # ------------------------------------------------------------------
     # Overridden gym.Env interface
@@ -227,7 +156,7 @@ class MahjongEnv:
         self._step_once_requested = False
         self._score_pause_active = False
         self._score_pause_pending = False
-        self._last_phase_is_score_last = getattr(self._env, "phase", "")
+        self._last_phase_is_score_last = self._env.phase
         self._riichi_states = []
         self._riichi_pending = []
         self._discard_counts = []
@@ -275,6 +204,13 @@ class MahjongEnv:
         self._clock = None
         self._quit_requested = True
         self._env.close()
+    
+    def action_masks(self) -> Any:
+        return self._env.action_masks()
+
+    @property
+    def phase(self) -> bool:
+        return getattr(self._env, "phase", "")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -944,12 +880,12 @@ class MahjongEnv:
         start_x = play_rect.centerx + total_height // 2
         y = play_rect.centery + margin_y
 
-        tile = self.dora_indicator[-1] // 4
+        tile = self._env.dora_indicator[-1] // 4
 
         for i in range(stack_size):
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
-            if i < len(self.dora_indicator):
-                surface = self._get_tile_surface(self.dora_indicator[i], wall_tile, True, 0)
+            if i < len(self._env.dora_indicator):
+                surface = self._get_tile_surface(self._env.dora_indicator[i], wall_tile, True, 0)
             else:
                 surface = self._get_face_down_surface(wall_tile, 0)
             self._screen.blit(surface, (x, y))
@@ -1430,7 +1366,7 @@ class MahjongEnv:
     # ------------------------------------------------------------------
     # Support context manager style usage
     # ------------------------------------------------------------------
-    def __enter__(self) -> "MahjongEnv":
+    def __enter__(self) -> "MahjongEnvGUIWrapper":
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:
