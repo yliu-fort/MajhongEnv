@@ -4,14 +4,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
 
 import gymnasium as gym
 import numpy as np
-from mahjong_wrapper import MahjongEnv
+from mahjong_env import MahjongEnv
+from mahjong_wrapper import MahjongEnvGUIWrapper
 from agent.random_discard_agent import RandomDiscardAgent
 from agent.rule_based_agent import RuleBasedAgent
 from agent.visual_agent import VisualAgent
 
 def evaluate_model(episodes=100):
     # 创建环境
-    env = MahjongEnv(num_players=4)
+    env = MahjongEnvGUIWrapper(env=MahjongEnv(num_players=4))
     agent = VisualAgent(env, backbone="resnet50")
     
     # 加载训练好的模型
