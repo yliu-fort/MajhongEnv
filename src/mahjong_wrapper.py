@@ -11,44 +11,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
         "pygame is required for the MahjongEnv GUI wrapper; install pygame to continue"
     ) from exc
 
-from mahjong_env import MahjongEnv as _BaseMahjongEnv
-
-_ALT_TILE_SYMBOLS: Tuple[str, ...] = (
-    "1m",
-    "2m",
-    "3m",
-    "4m",
-    "5m",
-    "6m",
-    "7m",
-    "8m",
-    "9m",
-    "1p",
-    "2p",
-    "3p",
-    "4p",
-    "5p",
-    "6p",
-    "7p",
-    "8p",
-    "9p",
-    "1s",
-    "2s",
-    "3s",
-    "4s",
-    "5s",
-    "6s",
-    "7s",
-    "8s",
-    "9s",
-    "Ea",
-    "So",
-    "We",
-    "No",
-    "Wh",
-    "Gr",
-    "Re",
-)
+from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -98,12 +61,13 @@ class _RenderPayload:
     info: dict[str, Any]
 
 
-class MahjongEnv(_BaseMahjongEnv):
+class MahjongEnvGUIWrapper:
     """Mahjong environment with a lightweight pygame GUI overlay."""
 
     def __init__(
         self,
         *args: Any,
+        env: _BaseMahjongEnv = None,
         window_size: Tuple[int, int] = (1024, 720),
         fps: int = 30,
         font_name: Optional[str] = None,
@@ -111,6 +75,7 @@ class MahjongEnv(_BaseMahjongEnv):
         fallback_fonts: Optional[Sequence[str]] = None,
         **kwargs: Any,
     ) -> None:
+        self._env = env
         self._window_size = window_size
         self._fps = max(1, fps)
         self._font_name = font_name
@@ -175,19 +140,23 @@ class MahjongEnv(_BaseMahjongEnv):
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
         self._ensure_gui()
-        super().__init__(*args, **kwargs)
 
     # ------------------------------------------------------------------
     # Overridden gym.Env interface
     # ------------------------------------------------------------------
-    def reset(self, *args: Any, **kwargs: Any):  # type: ignore[override]
+    def reset(self, *args: Any, **kwargs: Any):
         self._process_events()
-        observation = super().reset(*args, **kwargs)
-        self._last_payload = _RenderPayload(action=None, reward=0.0, done=self.done, info={})
+        observation = self._env.reset(*args, **kwargs)
+        self._last_payload = _RenderPayload(
+            action=None,
+            reward=0.0,
+            done=self._env.done,
+            info={},
+        )
         self._step_once_requested = False
         self._score_pause_active = False
         self._score_pause_pending = False
-        self._last_phase_is_score_last = getattr(self, "phase", "")
+        self._last_phase_is_score_last = self._env.phase
         self._riichi_states = []
         self._riichi_pending = []
         self._discard_counts = []
@@ -195,11 +164,11 @@ class MahjongEnv(_BaseMahjongEnv):
         self._render()
         return observation
 
-    def step(self, action: int):  # type: ignore[override]
+    def step(self, action: int):
         self._process_events()
         if self._quit_requested:
-            observation = self.get_observation(self.current_player)
-            self.done = True
+            observation = self._env.get_observation(self._env.current_player)
+            self._env.done = True
             info = {"terminated_by_gui": True}
             self._last_payload = _RenderPayload(action=None, reward=0.0, done=True, info=info)
             self._render()
@@ -211,7 +180,7 @@ class MahjongEnv(_BaseMahjongEnv):
                 (not self._auto_advance and not self._step_once_requested)
                 or self._score_pause_active
             )
-            and not getattr(self, "done", False)
+            and not self._env.done
         ):
             self._process_events()
             self._render()
@@ -221,7 +190,7 @@ class MahjongEnv(_BaseMahjongEnv):
         if self._step_once_requested:
             self._step_once_requested = False
 
-        observation, reward, done, info = super().step(action)
+        observation, reward, done, info = self._env.step(action)
         self._last_payload = _RenderPayload(action=action, reward=reward, done=done, info=info)
         self._render()
         return observation, reward, done, info
@@ -234,6 +203,14 @@ class MahjongEnv(_BaseMahjongEnv):
         self._font = None
         self._clock = None
         self._quit_requested = True
+        self._env.close()
+    
+    def action_masks(self) -> Any:
+        return self._env.action_masks()
+
+    @property
+    def phase(self) -> bool:
+        return getattr(self._env, "phase", "")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -341,7 +318,10 @@ class MahjongEnv(_BaseMahjongEnv):
                 self._score_pause_pending = False
     
     def _score_last(self):
-        return getattr(self, "phase", "") == "score" and self.current_player == self.num_players - 1
+        return (
+            getattr(self._env, "phase", "") == "score"
+            and self._env.current_player == self._env.num_players - 1
+        )
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -468,9 +448,9 @@ class MahjongEnv(_BaseMahjongEnv):
         return self._face_down_cache[cache_key]
 
     def _get_discard_tiles(self, player_idx: int) -> list[int]:
-        if player_idx >= len(getattr(self, "discard_pile_seq", [])):
+        if player_idx >= len(getattr(self._env, "discard_pile_seq", [])):
             return []
-        return [t for t in self.discard_pile_seq[player_idx]]
+        return [t for t in self._env.discard_pile_seq[player_idx]]
 
     def _ensure_riichi_tracking_capacity(self, count: int) -> None:
         count = max(0, count)
@@ -487,9 +467,9 @@ class MahjongEnv(_BaseMahjongEnv):
                 self._riichi_declarations.pop(idx, None)
 
     def _update_riichi_state(self) -> None:
-        riichi_flags = list(getattr(self, "riichi", []))
-        discard_seq = list(getattr(self, "discard_pile_seq", []))
-        num_players = max(len(riichi_flags), len(discard_seq), getattr(self, "num_players", 0))
+        riichi_flags = list(getattr(self._env, "riichi", []))
+        discard_seq = list(getattr(self._env, "discard_pile_seq", []))
+        num_players = max(len(riichi_flags), len(discard_seq), getattr(self._env, "num_players", 0))
         if num_players <= 0:
             self._riichi_states = []
             self._riichi_pending = []
@@ -543,16 +523,16 @@ class MahjongEnv(_BaseMahjongEnv):
         for idx in range(num_players):
             reveal[idx] = idx == 0
 
-        if getattr(self, "phase", "") != "score":
+        if getattr(self._env, "phase", "") != "score":
             return reveal
 
-        agari = getattr(self, "agari", None)
+        agari = getattr(self._env, "agari", None)
         if agari:
             for winner in self._extract_winner_indices(agari):
                 if 0 <= winner < num_players:
                     reveal[winner] = True
         else:
-            tenpai_flags = list(getattr(self, "tenpai", []))
+            tenpai_flags = list(getattr(self._env, "tenpai", []))
             for idx in range(num_players):
                 if idx < len(tenpai_flags) and tenpai_flags[idx]:
                     reveal[idx] = True
@@ -593,7 +573,7 @@ class MahjongEnv(_BaseMahjongEnv):
         if self._header_font is None or self._small_font is None or self._font is None:
             return center_rect
 
-        round_data = getattr(self, "round", [0, 0])
+        round_data = getattr(self._env, "round", [0, 0])
         round_index = round_data[0] if isinstance(round_data[0], int) else 0
         wind_names = ["East", "South", "West", "North"]
         wind = wind_names[(round_index // 4) % 4]
@@ -607,8 +587,8 @@ class MahjongEnv(_BaseMahjongEnv):
         self._screen.blit(title_surface, title_rect)
 
         honba = round_data[1] if len(round_data) > 1 and isinstance(round_data[1], int) else 0
-        riichi = getattr(self, "num_riichi", 0)
-        tiles_remaining = len(getattr(self, "deck", []))
+        riichi = getattr(self._env, "num_riichi", 0)
+        tiles_remaining = len(getattr(self._env, "deck", []))
         counter_texts = (
             f"Honba {honba}",
             f"Riichi {riichi}",
@@ -630,8 +610,8 @@ class MahjongEnv(_BaseMahjongEnv):
             3: (center_rect.left - 18, center_rect.centery),
         }
 
-        scores = getattr(self, "scores", [])
-        current_player = getattr(self, "current_player", 0)
+        scores = getattr(self._env, "scores", [])
+        current_player = getattr(self._env, "current_player", 0)
         for idx, position in score_positions.items():
             if idx >= len(scores):
                 continue
@@ -694,7 +674,7 @@ class MahjongEnv(_BaseMahjongEnv):
         if surface is None:
             return
 
-        melds = getattr(self, "melds", [])
+        melds = getattr(self._env, "melds", [])
         if player >= len(melds):
             return
 
@@ -756,14 +736,17 @@ class MahjongEnv(_BaseMahjongEnv):
         spacing = tile_size[0] + 6
         draw_gap = 0 # or spacing // 2
 
-        hands = getattr(self, "hands", [])
+        hands = getattr(self._env, "hands", [])
         hand_tiles = list(hands[player_idx]) if player_idx < len(hands) else []
         if sort_hand:
-            if getattr(self, "phase", []) in ["draw","kan_draw"] and self.current_player == player_idx:
+            if (
+                getattr(self._env, "phase", []) in ["draw", "kan_draw"]
+                and self._env.current_player == player_idx
+            ):
                 hand_tiles = sorted(hand_tiles[:-1]) + [hand_tiles[-1]]
             else:
                 hand_tiles = sorted(hand_tiles)
-        riichi_flags = list(getattr(self, "riichi", []))
+        riichi_flags = list(getattr(self._env, "riichi", []))
         in_riichi = player_idx < len(riichi_flags) and riichi_flags[player_idx]
 
         x = area.centerx - 7*(tile_size[0] + 6)
@@ -829,7 +812,7 @@ class MahjongEnv(_BaseMahjongEnv):
         if self._screen is None:
             return
 
-        num_players = getattr(self, "num_players", 0)
+        num_players = getattr(self._env, "num_players", 0)
         if num_players <= 0:
             return
 
@@ -897,12 +880,12 @@ class MahjongEnv(_BaseMahjongEnv):
         start_x = play_rect.centerx + total_height // 2
         y = play_rect.centery + margin_y
 
-        tile = self.dora_indicator[-1] // 4
+        tile = self._env.dora_indicator[-1] // 4
 
         for i in range(stack_size):
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
-            if i < len(self.dora_indicator):
-                surface = self._get_tile_surface(self.dora_indicator[i], wall_tile, True, 0)
+            if i < len(self._env.dora_indicator):
+                surface = self._get_tile_surface(self._env.dora_indicator[i], wall_tile, True, 0)
             else:
                 surface = self._get_face_down_surface(wall_tile, 0)
             self._screen.blit(surface, (x, y))
@@ -911,8 +894,8 @@ class MahjongEnv(_BaseMahjongEnv):
         if self._small_font is None:
             return
 
-        num_players = getattr(self, "num_players", 0)
-        seat_names = list(getattr(self, "seat_names", []))
+        num_players = getattr(self._env, "num_players", 0)
+        seat_names = list(getattr(self._env, "seat_names", []))
         if len(seat_names) < num_players:
             seat_names.extend(["NoName"] * (num_players - len(seat_names)))
 
@@ -929,7 +912,7 @@ class MahjongEnv(_BaseMahjongEnv):
             rect = surface.get_rect(center=label_positions[idx])
             self._screen.blit(surface, rect)
 
-        dealer = getattr(self, "oya", 0)
+        dealer = getattr(self._env, "oya", 0)
         if dealer >= min(4, num_players):
             return
 
@@ -953,7 +936,9 @@ class MahjongEnv(_BaseMahjongEnv):
             return
 
         margin = 16
-        phase_text = f"Phase: {self.phase}  |  Current Player: P{self.current_player}"
+        phase_text = (
+            f"Phase: {self._env.phase}  |  Current Player: P{self._env.current_player}"
+        )
         phase_surface = self._small_font.render(phase_text, True, self._accent_color)
         self._screen.blit(phase_surface, (margin, margin))
 
@@ -1070,25 +1055,25 @@ class MahjongEnv(_BaseMahjongEnv):
         effective_side = available_side if available_side > 0 else min_dimension
         max_text_width = max(50, effective_side - padding * 2)
 
-        round_data = getattr(self, "round", [0, 0])
+        round_data = getattr(self._env, "round", [0, 0])
         round_index = round_data[0] if isinstance(round_data[0], int) else 0
         wind_names = ["East", "South", "West", "North"]
         wind = wind_names[(round_index // 4) % 4]
         hand_number = round_index % 4 + 1
         honba = round_data[1] if len(round_data) > 1 and isinstance(round_data[1], int) else 0
-        riichi_sticks = getattr(self, "num_riichi", 0)
-        kyoutaku = getattr(self, "num_kyoutaku", 0)
+        riichi_sticks = getattr(self._env, "num_riichi", 0)
+        kyoutaku = getattr(self._env, "num_kyoutaku", 0)
 
         info_lines: list[str] = [
             f"{wind} {hand_number} | Honba {honba} | Riichi {riichi_sticks} | Kyoutaku {kyoutaku}"
         ]
 
-        seat_names = list(getattr(self, "seat_names", []))
-        num_players = getattr(self, "num_players", 0)
+        seat_names = list(getattr(self._env, "seat_names", []))
+        num_players = getattr(self._env, "num_players", 0)
         if len(seat_names) < num_players:
             seat_names.extend([f"P{idx}" for idx in range(len(seat_names), num_players)])
 
-        agari = getattr(self, "agari", None)
+        agari = getattr(self._env, "agari", None)
         message_lines: list[str] = []
         if agari:
             winner = agari.get("who", -1)
@@ -1113,7 +1098,7 @@ class MahjongEnv(_BaseMahjongEnv):
             han = ten[2] if len(ten) > 2 else 0
             message_lines.append(f"{han} Han | {fu} Fu | {total} Points")
         else:
-            tenpai_flags = list(getattr(self, "tenpai", []))
+            tenpai_flags = list(getattr(self._env, "tenpai", []))
             tenpai_players = [
                 seat_names[idx]
                 for idx, is_tenpai in enumerate(tenpai_flags)
@@ -1158,13 +1143,13 @@ class MahjongEnv(_BaseMahjongEnv):
             message_width = max(self._small_font.size(line)[0] for line in message_lines)
             content_width = max(content_width, message_width)
 
-        scores = list(getattr(self, "scores", []))
+        scores = list(getattr(self._env, "scores", []))
         if len(scores) < num_players:
             scores.extend([0] * (num_players - len(scores)))
-        score_deltas = list(getattr(self, "score_deltas", []))
+        score_deltas = list(getattr(self._env, "score_deltas", []))
         if len(score_deltas) < num_players:
             score_deltas.extend([0] * (num_players - len(score_deltas)))
-        dealer = getattr(self, "oya", -1)
+        dealer = getattr(self._env, "oya", -1)
 
         def ordinal(value: int) -> str:
             suffix = "th"
@@ -1381,7 +1366,7 @@ class MahjongEnv(_BaseMahjongEnv):
     # ------------------------------------------------------------------
     # Support context manager style usage
     # ------------------------------------------------------------------
-    def __enter__(self) -> "MahjongEnv":
+    def __enter__(self) -> "MahjongEnvGUIWrapper":
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:

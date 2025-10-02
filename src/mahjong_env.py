@@ -1369,109 +1369,6 @@ class MahjongEnvBase(gym.Env):
         """将136张牌表示转换为4x34表示。"""
         return self.tiles_bool_to_4x34(self.tiles_136_to_bool(tiles_136))
     
-    def action_map(action_grp):
-        return action_grp
-
-
-class MahjongEnv34(MahjongEnvBase):
-    """
-    一个简化的麻将环境示例。
-    """
-    def __init__(self, num_players=4, num_rounds=4):
-        super(MahjongEnv34, self).__init__(num_players=num_players, num_rounds=num_rounds)
-
-        # 定义动作空间
-        # 维度1: 0 ~ 13: 切出14张手牌中的哪一张
-        # 维度2: 0, 1: 取消/确认
-        self.action_space = spaces.MultiDiscrete([14, 2])
- 
-        # 定义状态空间 (仅示例，具体需要你根据状态表示来定)
-        # 比如这里假设每个玩家手中最多 14 张牌，每张牌取值 0~33 (共 34 张类型)
-        # 加上其他上下文信息(如场风、圈风、剩余牌数等)，也可以用多维向量或 Box 
-        # 这里只是给出一个极简示例
-        #self.observation_space = spaces.Box(
-        #    low=0, high=135, shape=(14,), dtype=np.int32
-        #)
-        self.observation_space = spaces.Dict(
-            {
-                "player": spaces.Discrete(4),
-                "round": spaces.MultiDiscrete([MahjongEnvBase.MAX_ROUND, MahjongEnvBase.MAX_HONBA]),
-                "hands": spaces.Box(low=-1, high=135, shape=(14,), dtype=np.int32),
-                "discard_pile": spaces.Box(low=0, high=4, shape=(34, 4), dtype=np.int32),
-                "last_discarded_tile": spaces.Box(low=-1, high=135, shape=(1,), dtype=np.int32),
-                "melds": spaces.Box(low=0, high=4, shape=(34, 4), dtype=np.int32),
-                "dora_indicator": spaces.Box(low=-1, high=135, shape=(5,), dtype=np.int32),
-                "phase": spaces.Discrete(12),  
-            }
-        )
-
-        self.reset()
-
-    def get_observation(self, player):
-        """根据当前玩家，返回相应的状态表示。"""
-        return self.logger.snapshot_before_discard(player), {'who':player}
-    
-    def action_masks(self) -> list[bool]:
-        match self.phase:
-            case "discard":
-                if self.riichi[self.current_player]:
-                    # 立直后只能打最后摸到的牌
-                    return [i == len(self.hands[self.current_player]) - 1 for i in range(14)] + [False, False]
-                else:
-                    return [0 <= tile < 136 for tile in self.hands[self.current_player]] + \
-                            [False]*(14 - len(self.hands[self.current_player])) + [False, False]
-
-            case "pon"|"kan"|"chi":
-                # 先判断是否正在“从手牌里选哪几张来组合吃/碰/杠”
-                if self.is_selecting_tiles_for_claim:
-                    # 这里的 selected_tiles 可能是已经在 UI 或者其它逻辑里选了一些牌的记录
-                    possible_mask = self.get_claim_tile_mask(
-                        self.claims[0]["tile"],
-                        self.selected_tiles,
-                        self.hands[self.current_player],
-                        self.phase
-                    )
-                    assert len(possible_mask) == 14, f"len(possible_mask)={len(possible_mask)}"
-                    return possible_mask + [False, False]
-                else:
-                    return [False] * 14 + [True, True]
-            
-            case "ron"|"tsumo"|"ryuukyoku":
-                return [False] * 14 + [True, True]
-            
-            case "ankan":
-                mask = [False] * 14
-                hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
- 
-                for tile, count in Counter(hands_34).items():
-                    if count >= 4:
-                        for i, t in enumerate(hands_34):
-                            if t == tile:
-                                mask[i] = True
-
-                return mask + [True, True]
-
-            case "chakan":
-                mask = [False] * 14
-                hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
- 
-                for m in self.melds[self.current_player]:
-                    if m["type"] == "pon":
-                        tile = m["claimed_tile"] // 4
-                        for i, t in enumerate(hands_34):
-                            if t == tile:
-                                mask[i] = True
-
-                return mask + [True, True]
-            
-            case "riichi":
-                # 立直时只能打能使手牌听牌的牌
-                assert len(self.hands[self.current_player]) == 14, "立直时手牌必须是14张"
-                shantens = self.hand_checker.check_shantens(self.hands[self.current_player])
-                return [s <= 0 for s in shantens] + [True, True]
-
-        return [False] * 16
-    
     def action_map(self, action_grp):
         return action_grp
 
@@ -1609,6 +1506,7 @@ class MahjongEnv(MahjongEnvBase):
             return _hand_index(tile_34), True
 
         return payload, confirm
+
 
 if __name__ == "__main__":
     # 创建环境
