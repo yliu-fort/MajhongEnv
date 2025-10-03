@@ -17,6 +17,8 @@ except ImportError:
 from mahjong_features import RiichiResNetFeatures, NUM_ACTIONS, NUM_FEATURES, NUM_TILES, get_action_from_index, get_action_index
 from .random_discard_agent import RandomDiscardAgent
 
+NUM_ACTIONS = 253
+
 def tid136_to_t34(tid: int) -> int:
     return tid // 4
 
@@ -114,7 +116,7 @@ class VisualAgent:
                 if logits.device.type != "cpu":
                     logits = logits.cpu()
                 logits = logits.numpy().squeeze()
-                legal_mask = np.asarray(self.env.action_masks())
+                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # 253-dim
                 return pred
@@ -131,15 +133,13 @@ class VisualAgent:
                 if logits.device.type != "cpu":
                     logits = logits.cpu()
                 logits = logits.numpy().squeeze()
-                legal_mask = np.asarray(self.env.action_masks())
+                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # 253-dim
-                #return pred
-            
+                
                 temp = 0.1
                 probs = np.exp(temp*(logits - np.max(logits)))
                 probs /= probs.sum()
-                #print(probs[-1])
                 if probs[-1] < 0.6:
                     return int(logits[:-1].argmax()) # 253-dim
                 return pred
@@ -155,7 +155,7 @@ class VisualAgent:
                 if logits.device.type != "cpu":
                     logits = logits.cpu()
                 logits = logits.numpy().squeeze()
-                legal_mask = np.asarray(self.env.action_masks())
+                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # 253-dim
 

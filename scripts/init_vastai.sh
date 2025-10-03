@@ -32,3 +32,9 @@ echo "cd $REPO_DIR"
 
 cd $REPO_DIR
 nohup python dataset_builder_web.py > log.out 2>&1 &
+
+#nohup bash -c '
+#PID=78218
+#while kill -0 "$PID" 2>/dev/null; do sleep 1; done
+#exec bash /workspace/init2.sh
+#' >/var/log/init2.nohup.log 2>&1 &
