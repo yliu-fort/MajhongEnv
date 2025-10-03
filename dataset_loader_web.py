@@ -73,8 +73,7 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
     legal_mask = [(bits >> i) & 1 for i in range(NUM_TILES)]
 
     # Legal actions mask: 34 bytes (262 little-endian bits)
-    num_bytes = (NUM_ACTIONS+7) // 8
-    legal_actions_bytes = take(num_bytes)
+    legal_actions_bytes = take((NUM_ACTIONS+7)//8)
     legal_actions_mask_bits = np.unpackbits(legal_actions_bytes, bitorder="little")
     legal_actions_mask = legal_actions_mask_bits[:NUM_ACTIONS].astype(int).tolist()
 
@@ -122,7 +121,7 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
     shantens = take(NUM_TILES).tolist()
     ukeires = take(NUM_TILES).tolist()
 
-    label = int(take(1)[0])
+    label = int.from_bytes(take(2).tolist(),"little")
 
     state = RiichiState(
         hand_counts=hand.astype(int).tolist(),
@@ -156,7 +155,6 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
     )
 
     return state, label, legal_actions_mask
-
 
 
 class DecodeHelper:
@@ -311,7 +309,7 @@ def build_riichi_dataloader(
     cf_guidance_p: float,
 ):
     ds = make_loader(
-        os.path.join(root, "webdataset/train/discard/riichi-{000000..004035}.tar"),
+        os.path.join(root, "webdataset/train/discard/riichi-{000000..005395}.tar"),
         batch_size=batch_size,
         num_workers=num_workers,
         shard_shuffle=False,
