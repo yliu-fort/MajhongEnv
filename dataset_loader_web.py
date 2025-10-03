@@ -11,7 +11,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, Tuple, List, Optional
 from probe import probe_map
 
-from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX, NUM_FEATURES
+from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX, NUM_FEATURES, NUM_ACTIONS
 
 
 # Resize targets are anisotropic; historically the height 224 pairs with width 65.
@@ -72,10 +72,11 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int, List]:
     bits = int.from_bytes(legal_bytes, "little")
     legal_mask = [(bits >> i) & 1 for i in range(NUM_TILES)]
 
-    # Legal actions mask: 32 bytes (253 little-endian bits)
-    legal_actions_bytes = take(32)
+    # Legal actions mask: 34 bytes (262 little-endian bits)
+    num_bytes = (NUM_ACTIONS+7) // 8
+    legal_actions_bytes = take(num_bytes)
     legal_actions_mask_bits = np.unpackbits(legal_actions_bytes, bitorder="little")
-    legal_actions_mask = legal_actions_mask_bits[:253].astype(int).tolist()
+    legal_actions_mask = legal_actions_mask_bits[:NUM_ACTIONS].astype(int).tolist()
 
     # Last tiles (uint16 little-endian with -1 offset)
     u16 = v[off:off+6].view(dtype="<u2")

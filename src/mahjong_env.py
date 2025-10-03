@@ -8,7 +8,7 @@ from mahjong_tiles_print_style import tile_printout, tiles_printout
 from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
 from agent.random_discard_agent import RandomDiscardAgent
-from mahjong_features import get_action_index, get_action_from_index
+from mahjong_features import get_action_index, get_action_from_index, NUM_ACTIONS
 
 class MahjongEnvBase(gym.Env):
     """
@@ -741,7 +741,7 @@ class MahjongEnvBase(gym.Env):
                         self.logger.add_meld(player, new_meld)
                 elif confirm:
                     self.is_selecting_tiles_for_claim = True
-                    # Pre-fill with selected tiles for 253-dim action set
+                    # Pre-fill with selected tiles for NUM_ACTIONS-dim action set
                     if isinstance(action, tuple):
                         hand = self.hands[player]
                         for tile_34 in action:
@@ -1381,8 +1381,8 @@ class MahjongEnv(MahjongEnvBase):
         super(MahjongEnv, self).__init__(num_players=num_players, num_rounds=num_rounds)
 
         # 定义动作空间
-        # 维度1: 0 ~ 252: 253-dim action space
-        self.action_space = spaces.MultiDiscrete([253,])
+        # 维度1: 0 ~ 252: NUM_ACTIONS-dim action space
+        self.action_space = spaces.MultiDiscrete([NUM_ACTIONS,])
  
         # 定义状态空间 (仅示例，具体需要你根据状态表示来定)
 
@@ -1395,7 +1395,7 @@ class MahjongEnv(MahjongEnvBase):
     def action_masks(self) -> list[bool]:
         match self.phase:
             case "discard":
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 if self.riichi[self.current_player]:
                     # 立直后只能打最后摸到的牌
                     mask[self.hands[self.current_player][-1]//4]=True
@@ -1405,7 +1405,7 @@ class MahjongEnv(MahjongEnvBase):
                 return mask
 
             case "chi":
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 claimed_t34 = self.claims[0]["tile"]//4
                 rank = claimed_t34 % 9
                 hand_34 = [False] * 34
@@ -1424,13 +1424,13 @@ class MahjongEnv(MahjongEnvBase):
                 return mask
 
             case "pon"|"kan":
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 mask[get_action_index((self.claims[0]["tile"]//4,0), self.phase)]=True
                 mask[get_action_index(None, "cancel")]=True
                 return mask
                 
             case "ron":
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 # furiten justification
                 if not (self.furiten_0[self.current_player] or self.furiten_1[self.current_player]):
                     mask[get_action_index(None, self.phase)]=True
@@ -1438,14 +1438,14 @@ class MahjongEnv(MahjongEnvBase):
                 return mask
 
             case "tsumo"|"ryuukyoku":
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 mask[get_action_index(None, self.phase)]=True
                 mask[get_action_index(None, "cancel")]=True
                 return mask
 
             case "ankan":
                 # TODO: ankan after riichi should not change the machii
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
  
                 for tile, count in Counter(hands_34).items():
@@ -1457,7 +1457,7 @@ class MahjongEnv(MahjongEnvBase):
                 return mask
 
             case "chakan":
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
  
                 for m in self.melds[self.current_player]:
@@ -1470,7 +1470,7 @@ class MahjongEnv(MahjongEnvBase):
                 return mask
             
             case "riichi":
-                mask = [False] * 253
+                mask = [False] * NUM_ACTIONS
                 # 立直时只能打能使手牌听牌的牌
                 shantens = self.hand_checker.check_shantens(self.hands[self.current_player])
                 discard_for_riichi = [t//4 for i, t in enumerate(self.hands[self.current_player]) if shantens[i] <= 0]
@@ -1479,7 +1479,7 @@ class MahjongEnv(MahjongEnvBase):
                 mask[get_action_index(None, "cancel")]=True
                 return mask
 
-        return [False] * 253
+        return [False] * NUM_ACTIONS
     
     def action_map(self, action_grp: int):
         payload, confirm = get_action_from_index(action_grp)

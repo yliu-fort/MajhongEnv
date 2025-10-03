@@ -4,7 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 import unittest
 import torch
 from typing import Dict
-from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
+from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX, NUM_ACTIONS
 from dataset_builder_web import encode_record, decode_record
 
 
@@ -43,7 +43,7 @@ def _decode_record(raw: bytes) -> Dict:
     dora = take(5).astype(np.uint8)
     aka_flags = int(take(1)[0])
     legal_mask = take(5).copy()  # 解 bitmask 留给后处理
-    legal_actions = take(32).copy()  # 解 bitmask 留给后处理
+    legal_actions = take((NUM_ACTIONS+7)//8).copy()  # 解 bitmask 留给后处理
     # uint16 小端：用 view
     rest = v[off:].view(np.uint8)
     last_draw = int(np.frombuffer(rest[:2].tobytes(), dtype="<u2")[0]) - 1
@@ -130,7 +130,7 @@ def _build_sample_state_dict():
         "aka5p": True,
         "aka5s": False,
         "legal_discards_mask": [1 if i in (0, 9, 18, 27, 33) else 0 for i in range(NUM_TILES)],
-        "legal_actions_mask": [1 if i in (0, 9, 14, 18, 27, 33) else 0 for i in range(253)],
+        "legal_actions_mask": [1 if i in (0, 9, 14, 18, 27, 33) else 0 for i in range(NUM_ACTIONS)],
         "last_draw_136": 120,
         "last_discarded_tile_136": 55,
         "last_discarder": 3,

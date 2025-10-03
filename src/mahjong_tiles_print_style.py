@@ -91,7 +91,12 @@ def get_action_printouts():
 
     pouts.append("自摸")
 
+    # cancel
     pouts.append("取消")
+
+    # cancel (action group specific)
+    for s in ["立直","吃","碰","杠","暗杠","加杠","流局","荣和","自摸"]:
+        pouts.append("取消"+s)
 
     return pouts
 
@@ -101,7 +106,7 @@ if __name__ == "__main__":
     print('--------------------------------')
     print(MahjongTileStyle.get_tiles_printout(range(136)))
     print('--------------------------------')
-    print("\n".join(get_all_actions()))
-    print(len(get_all_actions()))
+    print("\n".join(get_action_printouts()))
+    print(len(get_action_printouts()))
 
     

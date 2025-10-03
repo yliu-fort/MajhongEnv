@@ -14,7 +14,7 @@ try:
 except ImportError:
     timm = None
 
-from mahjong_features import RiichiResNetFeatures, NUM_FEATURES, NUM_TILES, get_action_from_index, get_action_index
+from mahjong_features import RiichiResNetFeatures, NUM_ACTIONS, NUM_FEATURES, NUM_TILES, get_action_from_index, get_action_index
 from .random_discard_agent import RandomDiscardAgent
 
 def tid136_to_t34(tid: int) -> int:
@@ -64,7 +64,7 @@ class VisualAgent:
     def __init__(self, env: gym.Env, backbone: str = "resnet18", device = None):
         self.env = env
         self._device = _select_device(device)
-        self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = 253, pretrained = False)
+        self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_ACTIONS, pretrained = False)
         self.model.to(self._device)
         self.extractor = RiichiResNetFeatures()
         self._alt_model = RandomDiscardAgent(env)
@@ -117,14 +117,8 @@ class VisualAgent:
                 legal_mask = np.asarray(self.env.action_masks())
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # 253-dim
+                return pred
                 
-                temp = 15
-                probs = np.exp(temp*(logits - np.max(logits)))
-                probs /= probs.sum()
-                if probs[-1] < 0.1: # naki is significantly better
-                    return pred
-                else:
-                    return 252
 
         if self.env and (self.env.phase == "riichi"):
             # 推理时获取动作
@@ -140,14 +134,15 @@ class VisualAgent:
                 legal_mask = np.asarray(self.env.action_masks())
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # 253-dim
-                
-                temp = 15
+                #return pred
+            
+                temp = 0.1
                 probs = np.exp(temp*(logits - np.max(logits)))
                 probs /= probs.sum()
-                if probs[-1] < 0.1: # naki is significantly better
-                    return pred
-                else:
-                    return 252
+                #print(probs[-1])
+                if probs[-1] < 0.6:
+                    return int(logits[:-1].argmax()) # 253-dim
+                return pred
                 
         if self.env and (self.env.phase == "discard"):
             # 推理时获取动作

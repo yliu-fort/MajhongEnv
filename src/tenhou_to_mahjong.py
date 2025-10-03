@@ -94,7 +94,7 @@ except Exception:
         aka5s: bool = False
         legal_discards_mask: Optional[Sequence[int]] = None
 '''
-from mahjong_features import RiichiState, PlayerPublic, NUM_TILES
+from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, NUM_ACTIONS
 from shanten_dp import compute_ukeire_advanced
 from mahjong_features import get_action_index
 
@@ -481,7 +481,7 @@ class TenhouRoundTracker:
         
         # legal actions
         total_tiles = sum(counts)
-        legal_actions = [False] * 253
+        legal_actions = [False] * NUM_ACTIONS
         meld_counts_self_arr = self.meld_counts[who]
         in_riichi = self.riichi_flag[who]
         can_declare_riichi = ((not in_riichi) or (self.discard_for_riichi[who])) and (self.menzen[who])
@@ -499,12 +499,14 @@ class TenhouRoundTracker:
                 if ready_for_riichi:
                     riichi_idx = get_action_index(tile, "riichi")
                     legal_actions[riichi_idx] = True
+                    legal_actions[get_action_index(None, ("pass", "riichi"))] = True
 
                 if cnt >= 4:
                     #open_kan_idx = get_action_index((tile, 0), "kan") # No implementation for 大明杠
                     #legal_actions[open_kan_idx] = True
                     closed_kan_idx = get_action_index((tile, None), "kan")
                     legal_actions[closed_kan_idx] = True
+                    legal_actions[get_action_index(None, ("pass", "ankan"))] = True
 
                 if in_riichi:
                     continue
@@ -512,6 +514,7 @@ class TenhouRoundTracker:
                 if meld_counts_self_arr[tile] >= 3:
                     chakan_idx = get_action_index((tile, 0), "chakan")
                     legal_actions[chakan_idx] = True
+                    legal_actions[get_action_index(None, ("pass", "chakan"))] = True
 
         elif total_tiles % 3 == 1:  # opponent just discarded
             last_tile_136 = self.last_discarded_tile_136
@@ -528,10 +531,12 @@ class TenhouRoundTracker:
                 if count_last >= 2 and last_tile != -1:
                     pon_idx = get_action_index((last_tile, 0), "pon")
                     legal_actions[pon_idx] = True
+                    legal_actions[get_action_index(None, ("pass", "pon"))] = True
 
                 if count_last >= 3 and last_tile != -1:
                     kan_idx = get_action_index((last_tile, 0), "kan")
                     legal_actions[kan_idx] = True
+                    legal_actions[get_action_index(None, ("pass", "kan"))] = True
 
                 if last_tile != -1 and ((discarder + 1) % 4) == who and last_tile < 27:
                     suit = last_tile // 9
@@ -554,8 +559,9 @@ class TenhouRoundTracker:
                             continue
                         chi_idx = get_action_index((base, called), "chi")
                         legal_actions[chi_idx] = True
-                pass_idx = get_action_index(None, "pass")
-                legal_actions[pass_idx] = True
+                        legal_actions[get_action_index(None, ("pass", "chi"))] = True
+                #pass_idx = get_action_index(None, "pass")
+                #legal_actions[pass_idx] = True
 
         # end of implementation for calculation for legal actions
 
@@ -638,14 +644,13 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                     continue
                 state = tracker.snapshot_before_action(p)
                 legal_mask = [i for i in state.legal_actions_mask]
-                chi_mask, pon_mask, kan_mask = [False]*253, [False]*253, [False]*253
+                chi_mask, pon_mask, kan_mask = [False]*NUM_ACTIONS, [False]*NUM_ACTIONS, [False]*NUM_ACTIONS
                 chi_mask[68:113]=legal_mask[68:113]
                 pon_mask[113:147]=legal_mask[113:147]
                 kan_mask[147:181]=legal_mask[147:181]
-                action = get_action_index(None, "pass")
-                chi_mask[action]=True
-                pon_mask[action]=True
-                kan_mask[action]=True
+                chi_mask[get_action_index(None, ("pass","chi"))]=True
+                pon_mask[get_action_index(None, ("pass","pon"))]=True
+                kan_mask[get_action_index(None, ("pass","kan"))]=True
                 meta = {
                     "round_index": tracker.round_index,
                     "oya": tracker.oya,
@@ -656,17 +661,17 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                 if sum(kan_mask) > 1:
                     state = tracker.snapshot_before_action(p)
                     state.legal_actions_mask = kan_mask
-                    yield (state, p, action, meta)
+                    yield (state, p, get_action_index(None, ("pass","kan")), meta)
                     action_idx += 1
                 if sum(pon_mask) > 1:
                     state = tracker.snapshot_before_action(p)
                     state.legal_actions_mask = pon_mask
-                    yield (state, p, action, meta)
+                    yield (state, p, get_action_index(None, ("pass","pon")), meta)
                     action_idx += 1
                 if sum(chi_mask) > 1:
                     state = tracker.snapshot_before_action(p)
                     state.legal_actions_mask = chi_mask
-                    yield (state, p, action, meta)
+                    yield (state, p, get_action_index(None, ("pass","chi")), meta)
                     action_idx += 1
             tracker.draw(who, tid)
         elif raw and raw[0] in "DEFG" and raw[1:].isdigit():
@@ -688,60 +693,60 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                     "action_idx": action_idx,
                 }
                 if tracker.discard_for_riichi[who]:
-                    state.legal_actions_mask = [False]*253
+                    state.legal_actions_mask = [False]*NUM_ACTIONS
                     state.legal_actions_mask[34:68]=legal_mask[34:68]
-                    state.legal_actions_mask[-1]=True
+                    state.legal_actions_mask[get_action_index(None, ("pass","riichi"))]=True
                     assert state.legal_actions_mask[action] == True, "Riichi: Action is not valid!"
                     yield (state, who, action, meta)
                     action_idx += 1
                     if can_chakan:
                         state = tracker.snapshot_before_action(who)
-                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask = [False]*NUM_ACTIONS
                         state.legal_actions_mask[181:215]=legal_mask[181:215]
                         state.legal_actions_mask[-1]=True
-                        action = get_action_index(None, "pass")
+                        action = get_action_index(None, ("pass","chakan"))
                         assert state.legal_actions_mask[action] == True, "Chakan: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1
                     if can_ankan:
                         state = tracker.snapshot_before_action(who)
-                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask = [False]*NUM_ACTIONS
                         state.legal_actions_mask[215:249]=legal_mask[215:249]
                         state.legal_actions_mask[-1]=True
-                        action = get_action_index(None, "pass")
+                        action = get_action_index(None, ("pass","ankan"))
                         assert state.legal_actions_mask[action] == True, "Ankan: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1
                 else:
-                    state.legal_actions_mask = [False]*253
+                    state.legal_actions_mask = [False]*NUM_ACTIONS
                     state.legal_actions_mask[:34]=legal_mask[:34]
                     assert state.legal_actions_mask[action] == True, "Discard: Action is not valid!"
                     yield (state, who, action, meta)
                     action_idx += 1
                     if can_riichi:
                         state = tracker.snapshot_before_action(who)
-                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask = [False]*NUM_ACTIONS
                         state.legal_actions_mask[34:68]=legal_mask[34:68]
-                        state.legal_actions_mask[-1]=True
-                        action = get_action_index(None, "pass")
+                        action = get_action_index(None, ("pass","riichi"))
+                        state.legal_actions_mask[action]=True
                         assert state.legal_actions_mask[action] == True, "Riichi: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1
                     if can_chakan:
                         state = tracker.snapshot_before_action(who)
-                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask = [False]*NUM_ACTIONS
                         state.legal_actions_mask[181:215]=legal_mask[181:215]
-                        state.legal_actions_mask[-1]=True
-                        action = get_action_index(None, "pass")
+                        action = get_action_index(None, ("pass","chakan"))
+                        state.legal_actions_mask[action]=True
                         assert state.legal_actions_mask[action] == True, "Chakan: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1
                     if can_ankan:
                         state = tracker.snapshot_before_action(who)
-                        state.legal_actions_mask = [False]*253
+                        state.legal_actions_mask = [False]*NUM_ACTIONS
                         state.legal_actions_mask[215:249]=legal_mask[215:249]
-                        state.legal_actions_mask[-1]=True
-                        action = get_action_index(None, "pass")
+                        action = get_action_index(None, ("pass","ankan"))
+                        state.legal_actions_mask[action]=True
                         assert state.legal_actions_mask[action] == True, "Ankan: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1

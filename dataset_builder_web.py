@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from tqdm import tqdm
 import sqlite3
 
-from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX
+from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX, NUM_ACTIONS
 #from dataset_builder_zarr import count_xmls_in_database, fetch_xmls_from_database
 from tenhou_to_mahjong import iter_discard_states
 
@@ -33,10 +33,10 @@ def pack_34bits(mask_iterable):  # 34个0/1 -> 5字节
         bits |= (int(m) & 1) << i
     return (bits & ((1<<40)-1)).to_bytes(5, "little")
 
-def pack_253bits(mask_iterable):  # 253个0/1 -> 32字节
-    out = bytearray((253 + 7) // 8)
+def pack_action_bits(mask_iterable):  # 262个0/1 -> 34字节
+    out = bytearray((NUM_ACTIONS + 7) // 8)
     for i, m in enumerate(mask_iterable):
-        if i >= 253:
+        if i >= NUM_ACTIONS:
             break
         if int(m) & 1:
             out[i >> 3] |= 1 << (i & 7)
@@ -103,9 +103,9 @@ def encode_record(s: "RiichiState-like-dict", label)->bytes:
 
     legal_actions = s.get("legal_actions_mask")
     if legal_actions is None:
-        b.extend(b"\x00"*32)
+        b.extend(b"\x00"*((NUM_ACTIONS+7)//8))
     else:
-        b.extend(pack_253bits(legal_actions))
+        b.extend(pack_action_bits(legal_actions))
 
     # last tiles
     b.extend(pack_uint16_offset(s.get("last_draw_136", -1)).tobytes())
@@ -179,10 +179,10 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
     bits = int.from_bytes(legal_bytes, "little")
     legal_mask = [(bits >> i) & 1 for i in range(NUM_TILES)]
 
-    # Legal actions mask: 32 bytes (253 little-endian bits)
-    legal_actions_bytes = take(32)
+    # Legal actions mask: 34 bytes (262 little-endian bits)
+    legal_actions_bytes = take((NUM_ACTIONS+7)//8)
     legal_actions_mask_bits = np.unpackbits(legal_actions_bytes, bitorder="little")
-    legal_actions_mask = legal_actions_mask_bits[:253].astype(int).tolist()
+    legal_actions_mask = legal_actions_mask_bits[:NUM_ACTIONS].astype(int).tolist()
 
     # Last tiles (uint16 little-endian with -1 offset)
     u16 = v[off:off+6].view(dtype="<u2")
@@ -290,7 +290,7 @@ class WebDatasetShardWriter:
         self._count = 0
 
     def write(self, state: Dict[str, Any], label: int, meta: Optional[Dict[str, Any]]=None) -> bool:
-        if not (0 <= int(label) < 253):
+        if not (0 <= int(label) < NUM_ACTIONS):
             return False
 
         sample = {
