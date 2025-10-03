@@ -123,7 +123,7 @@ def encode_record(s: "RiichiState-like-dict", label)->bytes:
     u8arr(s.get("ukeires"), NUM_TILES)
 
     # label
-    b.extend(np.asarray([int(label)], dtype=np.uint8).tobytes())
+    b.extend(np.asarray([int(label)], dtype=np.uint16).tobytes())
 
     return bytes(b)
 
@@ -228,7 +228,7 @@ def decode_record(raw: bytes)->Tuple[RiichiState, int]:
     shantens = take(NUM_TILES).tolist()
     ukeires = take(NUM_TILES).tolist()
 
-    label = int(take(1)[0])
+    label = int.from_bytes(take(2).tolist(),"little")
 
     state = RiichiState(
         hand_counts=hand.astype(int).tolist(),

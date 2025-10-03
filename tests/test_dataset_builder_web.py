@@ -130,7 +130,7 @@ def _build_sample_state_dict():
         "aka5p": True,
         "aka5s": False,
         "legal_discards_mask": [1 if i in (0, 9, 18, 27, 33) else 0 for i in range(NUM_TILES)],
-        "legal_actions_mask": [1 if i in (0, 9, 14, 18, 27, 33) else 0 for i in range(NUM_ACTIONS)],
+        "legal_actions_mask": [1 if i in (0, 9, 14, 18, 27, 33, 260) else 0 for i in range(NUM_ACTIONS)],
         "last_draw_136": 120,
         "last_discarded_tile_136": 55,
         "last_discarder": 3,
@@ -144,7 +144,7 @@ def _build_sample_state_dict():
 class TestWebDatasetEncoderDecoder(unittest.TestCase):
     def test_encode_decode_roundtrip_basic(self):
         s = _build_sample_state_dict()
-        raw = encode_record(s,14)
+        raw = encode_record(s,260)
 
         # Decode variant 1 (tensor dict)
         d1 = _decode_record(raw)
@@ -217,5 +217,5 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert d2.remaining_counts == s["remaining_counts"], "d2 remaining_counts mismatch"
         assert d2.shantens == s["shantens"], "d2 shantens mismatch"
         assert d2.ukeires == s["ukeires"], "d2 ukeires mismatch"
-        assert label == 14
+        assert label == 260, f"label={label}"
         assert mask[label] == True, str(sum(mask))
