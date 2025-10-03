@@ -703,8 +703,8 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                         state = tracker.snapshot_before_action(who)
                         state.legal_actions_mask = [False]*NUM_ACTIONS
                         state.legal_actions_mask[181:215]=legal_mask[181:215]
-                        state.legal_actions_mask[-1]=True
                         action = get_action_index(None, ("pass","chakan"))
+                        state.legal_actions_mask[action]=True
                         assert state.legal_actions_mask[action] == True, "Chakan: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1
@@ -712,8 +712,8 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
                         state = tracker.snapshot_before_action(who)
                         state.legal_actions_mask = [False]*NUM_ACTIONS
                         state.legal_actions_mask[215:249]=legal_mask[215:249]
-                        state.legal_actions_mask[-1]=True
                         action = get_action_index(None, ("pass","ankan"))
+                        state.legal_actions_mask[action]=True
                         assert state.legal_actions_mask[action] == True, "Ankan: Action is not valid!"
                         yield (state, who, action, meta)
                         action_idx += 1
