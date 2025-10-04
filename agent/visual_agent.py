@@ -17,7 +17,6 @@ except ImportError:
 from mahjong_features import RiichiResNetFeatures, NUM_ACTIONS, NUM_FEATURES, NUM_TILES, get_action_from_index, get_action_index
 from .random_discard_agent import RandomDiscardAgent
 
-NUM_ACTIONS = 253
 
 def tid136_to_t34(tid: int) -> int:
     return tid // 4
@@ -140,6 +139,114 @@ class VisualAgent:
                 temp = 0.1
                 probs = np.exp(temp*(logits - np.max(logits)))
                 probs /= probs.sum()
+                #print([(i, p) for i, p in enumerate(probs) if legal_mask[i]==True])
+                print(probs[legal_mask==True])
+                if probs[253] < 0.9:
+                    probs[253]=0.0
+                    return int(probs.argmax()) # 253-dim
+                return pred
+                
+        if self.env and (self.env.phase == "discard"):
+            # 推理时获取动作
+            with torch.no_grad():
+                out = self.extractor(observation[0])
+                x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
+                x = _resize_batch(x)
+                self.model.eval()
+                logits = self.model(x).detach()
+                if logits.device.type != "cpu":
+                    logits = logits.cpu()
+                logits = logits.numpy().squeeze()
+                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
+                logits += -1e9*(1-legal_mask) # mask to valid logits
+                pred = int(logits.argmax()) # 253-dim
+
+                return pred
+                        
+        # if preds not in action_masks, return a random choice from action_masks.
+        return self._alt_model.predict(observation)
+
+
+class VisualAgent_v1:
+    def __init__(self, env: gym.Env, backbone: str = "resnet18", device = None):
+        self.env = env
+        self._device = _select_device(device)
+        self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = 253, pretrained = False)
+        self.model.to(self._device)
+        self.extractor = RiichiResNetFeatures()
+        self._alt_model = RandomDiscardAgent(env)
+        self._ema = True
+
+    def train(self, total_timesteps=100000):
+        pass
+ 
+    def save_model(self, path="resnet_mahjong"):
+        pass
+ 
+    def load_model(self, path="resnet18"):
+        ckpt = torch.load(path, map_location=self._device, weights_only=False)
+        if self._ema and ckpt["ema"]: 
+            ema_weights = {
+            k: v.clone().detach()
+            for k, v in ckpt["ema"]["shadow"].items()
+            }
+            self.model.load_state_dict(ema_weights, strict=False)
+        else:
+            self.model.load_state_dict(ckpt["model"], strict=True)
+        self.model.to(self._device)
+
+    
+    def predict(self, observation):
+        legal_mask = np.asarray(self.env.action_masks())
+        if sum(legal_mask) == 0:
+            return 252
+        if sum(legal_mask) == 1:
+            return np.where(legal_mask==1)[0]
+        
+        # 如果当前状态是和牌状态，直接返回和牌动作
+        if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):
+            return get_action_index(None, self.env.phase)
+        
+        if self.env and (self.env.phase in ["kan", "chakan", "ankan"]):
+            return 252
+
+        if self.env and (self.env.phase in ["chi", "pon", "kan", "chakan", "ankan"]):
+            # 推理时获取动作
+            with torch.no_grad():
+                out = self.extractor(observation[0])
+                x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
+                x = _resize_batch(x)
+                self.model.eval()
+                logits = self.model(x).detach()
+                if logits.device.type != "cpu":
+                    logits = logits.cpu()
+                logits = logits.numpy().squeeze()
+                legal_mask = np.asarray(self.env.action_masks())[:253]
+                legal_mask[-1]=True
+                logits += -1e9*(1-legal_mask) # mask to valid logits
+                pred = int(logits.argmax()) # 253-dim
+                return pred
+                
+
+        if self.env and (self.env.phase == "riichi"):
+            # 推理时获取动作
+            with torch.no_grad():
+                out = self.extractor(observation[0])
+                x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
+                x = _resize_batch(x)
+                self.model.eval()
+                logits = self.model(x).detach()
+                if logits.device.type != "cpu":
+                    logits = logits.cpu()
+                logits = logits.numpy().squeeze()
+                legal_mask = np.asarray(self.env.action_masks())[:253]
+                legal_mask[-1]=True
+                logits += -1e9*(1-legal_mask) # mask to valid logits
+                pred = int(logits.argmax()) # 253-dim
+                
+                temp = 0.1
+                probs = np.exp(temp*(logits - np.max(logits)))
+                probs /= probs.sum()
                 if probs[-1] < 0.6:
                     return int(logits[:-1].argmax()) # 253-dim
                 return pred
@@ -155,7 +262,7 @@ class VisualAgent:
                 if logits.device.type != "cpu":
                     logits = logits.cpu()
                 logits = logits.numpy().squeeze()
-                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
+                legal_mask = np.asarray(self.env.action_masks())[:253]
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # 253-dim
 
