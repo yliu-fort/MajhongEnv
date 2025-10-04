@@ -1420,13 +1420,13 @@ class MahjongEnv(MahjongEnvBase):
                 if 2 <= rank <= 8:
                     has_required_tiles = hand_34[claimed_t34-2] > 0 and hand_34[claimed_t34-1] > 0
                     mask[get_action_index((self.claims[0]["tile"]//4-2,2), self.phase)]=has_required_tiles
-                mask[get_action_index(None, "cancel")]=True
+                mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
 
             case "pon"|"kan":
                 mask = [False] * NUM_ACTIONS
                 mask[get_action_index((self.claims[0]["tile"]//4,0), self.phase)]=True
-                mask[get_action_index(None, "cancel")]=True
+                mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
                 
             case "ron":
@@ -1434,13 +1434,13 @@ class MahjongEnv(MahjongEnvBase):
                 # furiten justification
                 if not (self.furiten_0[self.current_player] or self.furiten_1[self.current_player]):
                     mask[get_action_index(None, self.phase)]=True
-                mask[get_action_index(None, "cancel")]=True
+                mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
 
             case "tsumo"|"ryuukyoku":
                 mask = [False] * NUM_ACTIONS
                 mask[get_action_index(None, self.phase)]=True
-                mask[get_action_index(None, "cancel")]=True
+                mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
 
             case "ankan":
@@ -1453,7 +1453,7 @@ class MahjongEnv(MahjongEnvBase):
                         for i, t in enumerate(hands_34):
                             if t == tile:
                                 mask[get_action_index((t,None), "kan")]=True
-                mask[get_action_index(None, "cancel")]=True
+                mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
 
             case "chakan":
@@ -1466,7 +1466,7 @@ class MahjongEnv(MahjongEnvBase):
                         for i, t in enumerate(hands_34):
                             if t == tile:
                                 mask[get_action_index((t,0), "chakan")]=True
-                mask[get_action_index(None, "cancel")]=True
+                mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
             
             case "riichi":
@@ -1476,7 +1476,7 @@ class MahjongEnv(MahjongEnvBase):
                 discard_for_riichi = [t//4 for i, t in enumerate(self.hands[self.current_player]) if shantens[i] <= 0]
                 for t34 in discard_for_riichi:
                     mask[get_action_index(t34, "riichi")]=True
-                mask[get_action_index(None, "cancel")]=True
+                mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
 
         return [False] * NUM_ACTIONS
