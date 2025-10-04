@@ -9,7 +9,7 @@ from torchvision import transforms
 import webdataset as wds
 from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, Tuple, List, Optional
-from probe import probe_map
+#from probe import probe_map
 
 from mahjong_features import RiichiResNetFeatures, RiichiState, PlayerPublic, NUM_TILES, RIVER_LEN, HAND_LEN, DORA_MAX, NUM_FEATURES, NUM_ACTIONS
 
@@ -328,13 +328,16 @@ def build_riichi_dataloader(
 
 if __name__ == "__main__":
     loader = make_loader(
-        "../MajhongEnv/output/webdataset/train/discard/riichi-{000000..000007}.tar",
+        "../MajhongEnv/output/webdataset/train/discard/riichi-{000000..000004}.tar",
         batch_size=16,
-        num_workers=1,
-        shard_shuffle=True,
+        num_workers=4,
+        shard_shuffle=False,
         class_conditional = True,
         prefetch_factor=2
     )
+    # TODO: calculate and display statistics (distribution) of label (y) using seaborn
     for i, batch in enumerate(loader):
         x, y, m = batch
         print(i, x.shape, y.shape, m.shape)
+    
+    
