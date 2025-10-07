@@ -1,0 +1,202 @@
+#:kivy 2.1.0
+#:import dp kivy.metrics.dp
+
+<PlayerPanel>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: self.minimum_height
+    padding: dp(8)
+    spacing: dp(4)
+    display_name: ''
+    hand_text: ''
+    discard_text: ''
+    meld_text: ''
+    score_text: ''
+    score_delta_text: ''
+    wind_text: ''
+    riichi: False
+    is_current: False
+    dealer: False
+    canvas.before:
+        Color:
+            rgba: (0.15, 0.20, 0.30, 0.85) if not self.dealer else (0.25, 0.28, 0.40, 0.95)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(10)]
+        Color:
+            rgba: (0.50, 0.75, 0.95, 1) if self.is_current else (0.25, 0.35, 0.55, 1)
+        Line:
+            rounded_rectangle: (*self.pos, *self.size, dp(10))
+            width: dp(1.2)
+        Color:
+            rgba: (0.85, 0.45, 0.45, 1) if self.riichi else (0, 0, 0, 0)
+        Line:
+            points: [self.x + dp(6), self.top - dp(6), self.x + dp(26), self.top - dp(6)]
+            width: dp(2)
+    Label:
+        text: root.display_name
+        bold: True
+        color: (0.92, 0.96, 1, 1)
+        size_hint_y: None
+        height: self.texture_size[1]
+        text_size: self.width, None
+        halign: 'left'
+    Label:
+        text: root.hand_text
+        font_size: '16sp'
+        color: (0.92, 0.96, 1, 1)
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
+        text_size: self.width, None
+        halign: 'left'
+    Label:
+        text: root.discard_text
+        font_size: '14sp'
+        color: (0.78, 0.84, 0.96, 1)
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
+        text_size: self.width, None
+        halign: 'left'
+    Label:
+        text: root.meld_text
+        font_size: '13sp'
+        color: (0.75, 0.85, 0.95, 1)
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(18)
+        text_size: self.width, None
+        halign: 'left'
+    Label:
+        text: f"Score: {root.score_text}" if root.score_text else ''
+        font_size: '14sp'
+        color: (0.88, 0.94, 0.99, 1)
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(18)
+        text_size: self.width, None
+        halign: 'left'
+    Label:
+        text: f"Δ {root.score_delta_text}" if root.score_delta_text else ''
+        font_size: '13sp'
+        color: (0.95, 0.70, 0.70, 1) if root.score_delta_text and not root.score_delta_text.startswith('+') else (0.70, 0.95, 0.80, 1)
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(16)
+        text_size: self.width, None
+        halign: 'left'
+    Label:
+        text: root.wind_text
+        font_size: '12sp'
+        color: (0.70, 0.82, 0.92, 1)
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(14)
+        text_size: self.width, None
+        halign: 'left'
+
+<MahjongRoot>:
+    orientation: 'vertical'
+    spacing: dp(12)
+    padding: dp(12)
+    status_text: ''
+    phase_text: ''
+    round_text: ''
+    dora_text: ''
+    ura_text: ''
+    log_text: ''
+    auto_advance: True
+    pause_on_score: False
+    score_pause_active: False
+    wrapper: None
+    BoxLayout:
+        size_hint_y: None
+        height: dp(52)
+        spacing: dp(8)
+        ToggleButton:
+            text: 'Auto'
+            size_hint_x: None
+            width: dp(120)
+            state: 'down' if root.auto_advance else 'normal'
+            on_release: root.on_toggle_auto()
+        Button:
+            text: 'Step'
+            size_hint_x: None
+            width: dp(120)
+            disabled: root.auto_advance
+            on_release: root.on_step()
+        ToggleButton:
+            text: 'Pause on Score'
+            size_hint_x: None
+            width: dp(160)
+            state: 'down' if root.pause_on_score else 'normal'
+            on_release: root.on_toggle_pause()
+        Button:
+            text: 'Reset'
+            size_hint_x: None
+            width: dp(120)
+            on_release: root.on_reset()
+        Label:
+            text: f"Phase: {root.phase_text}"
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+        Label:
+            text: root.round_text
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+    Label:
+        text: '[Paused for score] ' + root.status_text if root.score_pause_active else root.status_text
+        markup: True
+        size_hint_y: None
+        height: dp(28)
+        halign: 'left'
+        valign: 'middle'
+        text_size: self.size
+        color: (0.92, 0.96, 1, 1)
+    GridLayout:
+        cols: 2
+        spacing: dp(10)
+        size_hint_y: None
+        height: self.minimum_height
+        PlayerPanel:
+            id: player0
+        PlayerPanel:
+            id: player1
+        PlayerPanel:
+            id: player2
+        PlayerPanel:
+            id: player3
+    BoxLayout:
+        size_hint_y: None
+        height: dp(68)
+        spacing: dp(12)
+        Label:
+            text: root.dora_text
+            halign: 'left'
+            valign: 'top'
+            text_size: self.size
+            color: (0.85, 0.94, 1, 1)
+        Label:
+            text: root.ura_text
+            halign: 'left'
+            valign: 'top'
+            text_size: self.size
+            color: (0.78, 0.88, 0.98, 1)
+    ScrollView:
+        size_hint_y: 0.3
+        do_scroll_x: False
+        do_scroll_y: True
+        bar_width: dp(8)
+        scroll_type: ['bars', 'content']
+        GridLayout:
+            cols: 1
+            size_hint_y: None
+            height: self.minimum_height
+            padding: 0, dp(4)
+            spacing: dp(2)
+            Label:
+                text: root.log_text
+                size_hint_y: None
+                height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
+                text_size: self.width, None
+                halign: 'left'
+                valign: 'top'
+                color: (0.78, 0.88, 1, 1)
