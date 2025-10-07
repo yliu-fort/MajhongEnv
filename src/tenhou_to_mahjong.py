@@ -389,11 +389,12 @@ class TenhouRoundTracker:
         # nuki ignored for 4P
 
     def reach(self, who: int, step: int):
-        if step == 2:
+        if step == 1:
+            self.discard_for_riichi[who] = True
+        elif step == 2:
             self.riichi_flag[who] = True
             self.riichi_sticks += 1
             self.riichi_turn[who] = self.discards_total // 4
-            self.discard_for_riichi[who] = True
 
     def add_dora(self, tid: int):
         self.dora_inds_t34.append(tid136_to_t34(tid))
@@ -678,7 +679,7 @@ def iter_discard_states(xml: TagLike, iter_nakis = True, iter_end_states: bool =
             who = "DEFG".index(raw[0])
             tid = int(raw[1:])
             # 如果不在立直或者在打出立直宣言牌， 返回动作
-            if not tracker.riichi_flag[who] or tracker.discard_for_riichi[who]:
+            if not tracker.riichi_flag[who]:
                 state = tracker.snapshot_before_action(who)
                 legal_mask = [i for i in state.legal_actions_mask]
                 can_riichi = sum(legal_mask[34:68]) > 0
@@ -844,7 +845,7 @@ _DEF_PREVIEW = 5000
 def _main(argv: Sequence[str]) -> int:
     import argparse
     p = argparse.ArgumentParser(description="Tenhou → RiichiState converter")
-    p.add_argument("--xml", type=str, default="data/debug0.xml", help="Path to Tenhou mjlog XML")
+    p.add_argument("--xml", type=str, default="data/debug2.xml", help="Path to Tenhou mjlog XML")
     p.add_argument("--preview", type=int, default=_DEF_PREVIEW, help="Print first N samples")
     p.add_argument("--dump", type=str, default=None, help="Path to dump pickle of lightweight dicts")
     args = p.parse_args(argv[1:])
