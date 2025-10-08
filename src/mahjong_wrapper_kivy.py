@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence, Tuple
 
 try:
     from kivy.clock import Clock
     from kivy.lang import Builder
     from kivy.properties import (
         BooleanProperty,
+        ListProperty,
+        NumericProperty,
         ObjectProperty,
         StringProperty,
     )
     from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.widget import Widget
+    from kivy.metrics import dp
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
     raise RuntimeError(
         "kivy is required for the MahjongEnv Kivy GUI wrapper; install kivy to continue"
@@ -21,6 +25,17 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 from mahjong_features import get_action_from_index
 from mahjong_tiles_print_style import tile_printout, tiles_printout
+
+
+COLOR_BACKGROUND = [12 / 255.0, 30 / 255.0, 60 / 255.0, 1.0]
+COLOR_PLAY_AREA = [24 / 255.0, 60 / 255.0, 90 / 255.0, 1.0]
+COLOR_PLAY_AREA_BORDER = [40 / 255.0, 90 / 255.0, 130 / 255.0, 1.0]
+COLOR_PANEL = [5 / 255.0, 5 / 255.0, 5 / 255.0, 0.9]
+COLOR_PANEL_BORDER = [90 / 255.0, 120 / 255.0, 160 / 255.0, 1.0]
+COLOR_ACCENT = [170 / 255.0, 230 / 255.0, 255 / 255.0, 1.0]
+COLOR_TEXT = [235 / 255.0, 235 / 255.0, 235 / 255.0, 1.0]
+COLOR_MUTED = [170 / 255.0, 190 / 255.0, 210 / 255.0, 1.0]
+COLOR_DANGER = [220 / 255.0, 120 / 255.0, 120 / 255.0, 1.0]
 
 
 _KV_PATH = Path(__file__).resolve().with_name("mahjong_gui.kv")
@@ -50,6 +65,7 @@ class PlayerPanel(BoxLayout):
     """Panel widget used to present one player's state."""
 
     display_name = StringProperty("")
+    seat_label = StringProperty("")
     hand_text = StringProperty("")
     discard_text = StringProperty("")
     meld_text = StringProperty("")
@@ -59,9 +75,14 @@ class PlayerPanel(BoxLayout):
     riichi = BooleanProperty(False)
     is_current = BooleanProperty(False)
     dealer = BooleanProperty(False)
+    accent_color = ListProperty(list(COLOR_ACCENT))
+    text_color = ListProperty(list(COLOR_TEXT))
+    muted_text_color = ListProperty(list(COLOR_MUTED))
+    danger_color = ListProperty(list(COLOR_DANGER))
 
     def update_from_dict(self, data: dict[str, Any]) -> None:
         self.display_name = data.get("name", "")
+        self.seat_label = data.get("seat_label", "")
         self.hand_text = data.get("hand", "")
         self.discard_text = data.get("discards", "")
         self.meld_text = data.get("melds", "")
@@ -73,19 +94,164 @@ class PlayerPanel(BoxLayout):
         self.dealer = bool(data.get("dealer", False))
 
 
+class MahjongTable(Widget):
+    """Central table canvas showing the play-field and round information."""
+
+    background_color = ListProperty(list(COLOR_BACKGROUND))
+    play_area_color = ListProperty(list(COLOR_PLAY_AREA))
+    play_area_border = ListProperty(list(COLOR_PLAY_AREA_BORDER))
+    panel_color = ListProperty(list(COLOR_PANEL))
+    panel_border = ListProperty(list(COLOR_PANEL_BORDER))
+    accent_color = ListProperty(list(COLOR_ACCENT))
+    text_color = ListProperty(list(COLOR_TEXT))
+    muted_text_color = ListProperty(list(COLOR_MUTED))
+    danger_color = ListProperty(list(COLOR_DANGER))
+    play_area_pos = ListProperty([0.0, 0.0])
+    play_area_size = ListProperty([0.0, 0.0])
+    center_panel_pos = ListProperty([0.0, 0.0])
+    center_panel_size = ListProperty([0.0, 0.0])
+    score_positions = ListProperty([[0.0, 0.0] for _ in range(4)])
+    label_positions = ListProperty([[0.0, 0.0] for _ in range(4)])
+    score_strings = ListProperty(["", "", "", ""])
+    score_colors = ListProperty([])
+    seat_labels = ListProperty([])
+    dealer = NumericProperty(-1)
+    current_player = NumericProperty(-1)
+    dealer_marker_pos = ListProperty([0.0, 0.0])
+    dealer_marker_visible = BooleanProperty(False)
+    round_label = StringProperty("")
+    honba_text = StringProperty("")
+    riichi_text = StringProperty("")
+    tiles_text = StringProperty("")
+    dora_text = StringProperty("")
+    ura_text = StringProperty("")
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.bind(size=self._update_layout, pos=self._update_layout)
+        self.bind(dealer=self._update_layout)
+        Clock.schedule_once(lambda _: self._update_layout(), 0)
+
+    def _update_layout(self, *_: Any) -> None:
+        width = float(max(1, int(self.width)))
+        height = float(max(1, int(self.height)))
+        margin = dp(24)
+        min_dim = max(0.0, min(width, height))
+        available = max(0.0, min_dim - margin * 2)
+        play_side = max(dp(240), available)
+        max_side = max(0.0, min_dim - margin)
+        if max_side > 0:
+            play_side = min(play_side, max_side)
+        play_side = min(play_side, min_dim)
+        center_x = self.x + width / 2.0
+        center_y = self.y + height / 2.0
+        play_x = center_x - play_side / 2.0
+        play_y = center_y - play_side / 2.0
+        self.play_area_pos = [play_x, play_y]
+        self.play_area_size = [play_side, play_side]
+
+        center_size = max(dp(140), play_side * 0.24)
+        center_pos = [center_x - center_size / 2.0, center_y - center_size / 2.0]
+        self.center_panel_pos = center_pos
+        self.center_panel_size = [center_size, center_size]
+
+        self.score_positions = [
+            [center_x, center_pos[1] - dp(14)],
+            [center_pos[0] + center_size + dp(18), center_y],
+            [center_x, center_pos[1] + center_size + dp(14)],
+            [center_pos[0] - dp(18), center_y],
+        ]
+
+        self.label_positions = [
+            [play_x + dp(40), play_y - dp(28)],
+            [play_x + play_side + dp(40), center_y],
+            [play_x + play_side - dp(40), play_y + play_side + dp(28)],
+            [play_x - dp(40), center_y],
+        ]
+
+        offsets = [
+            (0.0, -dp(22)),
+            (-dp(22), 0.0),
+            (0.0, dp(22)),
+            (dp(22), 0.0),
+        ]
+        dealer = int(self.dealer)
+        if 0 <= dealer < len(offsets):
+            base_x, base_y = self.label_positions[dealer]
+            off_x, off_y = offsets[dealer]
+            self.dealer_marker_pos = [base_x + off_x, base_y + off_y]
+            self.dealer_marker_visible = True
+        else:
+            self.dealer_marker_visible = False
+
+
+class MahjongBoard(BoxLayout):
+    """Composite widget combining player panels and the Mahjong table."""
+
+    def apply_state(
+        self,
+        players: Sequence[dict[str, Any]],
+        board_info: dict[str, Any],
+        dora_text: str,
+        ura_text: str,
+    ) -> None:
+        order = [0, 1, 2, 3]
+        ids_map = [
+            self.ids.get("south_panel"),
+            self.ids.get("east_panel"),
+            self.ids.get("north_panel"),
+            self.ids.get("west_panel"),
+        ]
+        for idx, panel in zip(order, ids_map):
+            if panel is None:
+                continue
+            player_data = players[idx] if idx < len(players) else {}
+            panel.update_from_dict(player_data)
+            panel.opacity = 1.0 if player_data else 0.25
+
+        table = self.ids.get("table")
+        if table is None:
+            return
+
+        table.round_label = board_info.get("round_label", "")
+        table.honba_text = f"Honba {board_info.get('honba', 0)}"
+        table.riichi_text = f"Riichi {board_info.get('riichi_sticks', 0)}"
+        table.tiles_text = f"Tiles {board_info.get('tiles_remaining', 0)}"
+        table.dora_text = dora_text
+        table.ura_text = ura_text
+        table.seat_labels = list(board_info.get("seat_names", []))[:4]
+        table.dealer = int(board_info.get("dealer", -1))
+        table.current_player = int(board_info.get("current_player", -1))
+
+        scores = [int(s) for s in board_info.get("scores", [])[:4]]
+        score_strings = []
+        score_colors = []
+        for idx in range(4):
+            if idx < len(scores):
+                score_strings.append(f"{scores[idx]:5d}")
+                if idx == table.current_player:
+                    score_colors.append(list(table.accent_color))
+                else:
+                    score_colors.append(list(table.text_color))
+            else:
+                score_strings.append("")
+                score_colors.append(list(table.muted_text_color))
+        table.score_strings = score_strings
+        table.score_colors = score_colors
+
+
 class MahjongRoot(BoxLayout):
     """Root widget hosting the Mahjong GUI."""
 
     wrapper = ObjectProperty(None, allownone=True)
     status_text = StringProperty("")
     phase_text = StringProperty("")
-    round_text = StringProperty("")
-    dora_text = StringProperty("")
-    ura_text = StringProperty("")
+    reward_text = StringProperty("")
     log_text = StringProperty("")
     auto_advance = BooleanProperty(True)
     pause_on_score = BooleanProperty(False)
     score_pause_active = BooleanProperty(False)
+    episode_done = BooleanProperty(False)
 
     def on_toggle_auto(self) -> None:
         if self.wrapper is not None:
@@ -99,36 +265,36 @@ class MahjongRoot(BoxLayout):
         if self.wrapper is not None:
             self.wrapper.toggle_pause_on_score()
 
-    def on_reset(self) -> None:
-        if self.wrapper is not None:
-            self.wrapper.reset()
-
     # ------------------------------------------------------------------
     # UI update helpers
     # ------------------------------------------------------------------
     def update_state(self, state: dict[str, Any]) -> None:
-        self.status_text = state.get("status_text", "")
-        self.phase_text = state.get("phase_text", "")
-        self.round_text = state.get("round_text", "")
-        self.dora_text = state.get("dora_text", "")
-        self.ura_text = state.get("ura_text", "")
         self.auto_advance = bool(state.get("auto_advance", True))
         self.pause_on_score = bool(state.get("pause_on_score", False))
         self.score_pause_active = bool(state.get("score_pause_active", False))
+        self.phase_text = state.get("phase_line") or state.get("phase_text", "")
+        self.reward_text = state.get("reward_line") or ""
+        self.episode_done = bool(state.get("done", False))
+
+        status_text = state.get("status_text", "")
+        if self.score_pause_active:
+            status_text = status_text or "Paused for score calculation"
+            status_text = f"[Paused for score] {status_text}" if status_text else "[Paused for score]"
+        self.status_text = status_text
 
         log_lines = state.get("log_lines", [])
-        if log_lines:
-            self.log_text = "\n".join(log_lines)
-        else:
-            self.log_text = ""
+        self.log_text = "\n".join(log_lines) if log_lines else ""
 
+        board_state = state.get("board", {})
         players = state.get("players", [])
-        for idx in range(4):
-            panel = self.ids.get(f"player{idx}")
-            if panel is None:
-                continue
-            panel_state = players[idx] if idx < len(players) else {}
-            panel.update_from_dict(panel_state)
+        board_widget = self.ids.get("board")
+        if board_widget is not None:
+            board_widget.apply_state(
+                players,
+                board_state,
+                state.get("dora_text", ""),
+                state.get("ura_text", ""),
+            )
 
 
 class MahjongEnvKivyWrapper:
@@ -311,6 +477,12 @@ class MahjongEnvKivyWrapper:
         dealer = getattr(self._env, "oya", -1)
         current = getattr(self._env, "current_player", -1)
         winds = ["East", "South", "West", "North"]
+        seat_names = list(getattr(self._env, "seat_names", []))
+        min_labels = max(4, num_players)
+        if len(seat_names) < min_labels:
+            seat_names.extend(
+                [f"Seat {idx + 1}" for idx in range(len(seat_names), min_labels)]
+            )
 
         for idx in range(num_players):
             hand_tiles = hands[idx] if idx < len(hands) else []
@@ -334,20 +506,44 @@ class MahjongEnvKivyWrapper:
                     "is_current": idx == current,
                     "dealer": idx == dealer,
                     "wind": f"Seat wind: {winds[idx % len(winds)]}",
+                    "seat_label": seat_names[idx] if idx < len(seat_names) else "",
                 }
             )
 
-        round_text = self._format_round_text()
         dora_text = self._format_indicator_text("Dora", getattr(self._env, "dora_indicator", []))
         ura_text = self._format_indicator_text("Ura", getattr(self._env, "ura_indicator", []))
         status_text = self._status_text
         if self._pause_on_score and self._score_pause_active:
             status_text = status_text or "Paused for score calculation"
 
+        round_label, honba = self._extract_round_state()
+        board_state = {
+            "round_label": round_label,
+            "honba": honba,
+            "riichi_sticks": int(getattr(self._env, "num_riichi", 0)),
+            "tiles_remaining": int(len(getattr(self._env, "deck", []))),
+            "scores": [int(round(value * 100)) for value in scores[:4]],
+            "seat_names": seat_names[:4],
+            "dealer": int(dealer),
+            "current_player": int(current),
+        }
+
+        phase = getattr(self._env, "phase", "")
+        phase_line = (
+            f"Phase: {phase}  |  Current Player: P{current}"
+            if current >= 0
+            else f"Phase: {phase}"
+        )
+        reward_line = (
+            f"Action: {self._last_payload.action}  Reward: {self._last_payload.reward:.2f}"
+        )
+
         return {
             "players": players,
-            "phase_text": getattr(self._env, "phase", ""),
-            "round_text": round_text,
+            "board": board_state,
+            "phase_text": phase,
+            "phase_line": phase_line,
+            "reward_line": reward_line,
             "dora_text": dora_text,
             "ura_text": ura_text,
             "status_text": status_text,
@@ -355,6 +551,7 @@ class MahjongEnvKivyWrapper:
             "pause_on_score": self._pause_on_score,
             "score_pause_active": self._score_pause_active,
             "log_lines": list(self._log_messages),
+            "done": self._last_payload.done,
         }
 
     def _format_player_name(self, idx: int, dealer: int) -> str:
@@ -409,19 +606,27 @@ class MahjongEnvKivyWrapper:
         except Exception:
             return f"{label}: {' '.join(str(t) for t in tiles)}"
 
-    def _format_round_text(self) -> str:
+    def _extract_round_state(self) -> Tuple[str, int]:
         round_info = getattr(self._env, "round", [-1, 0])
         if not isinstance(round_info, Sequence) or len(round_info) < 2:
-            return ""
-        round_index = int(round_info[0])
-        honba = int(round_info[1])
-        if round_index < 0:
-            return "East 1 | Honba 0"
+            return ("East 1", 0)
+        try:
+            round_index = int(round_info[0])
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            round_index = 0
+        try:
+            honba = int(round_info[1])
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            honba = 0
         winds = ["East", "South", "West", "North"]
         num_players = max(1, getattr(self._env, "num_players", 4))
         wind_idx = (round_index // num_players) % len(winds)
         hand_number = (round_index % num_players) + 1
-        return f"{winds[wind_idx]} {hand_number} | Honba {honba}"
+        return (f"{winds[wind_idx]} {hand_number}", honba)
+
+    def _format_round_text(self) -> str:
+        round_label, honba = self._extract_round_state()
+        return f"{round_label} | Honba {honba}"
 
     def _describe_action(self, action: Optional[int]) -> str:
         if action is None:

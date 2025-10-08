@@ -3,200 +3,408 @@
 
 <PlayerPanel>:
     orientation: 'vertical'
-    size_hint_y: None
-    height: self.minimum_height
-    padding: dp(8)
-    spacing: dp(4)
-    display_name: ''
-    hand_text: ''
-    discard_text: ''
-    meld_text: ''
-    score_text: ''
-    score_delta_text: ''
-    wind_text: ''
-    riichi: False
-    is_current: False
-    dealer: False
+    size_hint: None, None
+    width: dp(300)
+    height: max(self.minimum_height, dp(160))
+    padding: dp(12)
+    spacing: dp(6)
     canvas.before:
         Color:
-            rgba: (0.15, 0.20, 0.30, 0.85) if not self.dealer else (0.25, 0.28, 0.40, 0.95)
+            rgba: (0.05, 0.07, 0.10, 0.95) if not self.dealer else (0.08, 0.10, 0.16, 0.98)
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(10)]
+            radius: [dp(12)]
         Color:
-            rgba: (0.50, 0.75, 0.95, 1) if self.is_current else (0.25, 0.35, 0.55, 1)
+            rgba: self.accent_color if self.is_current else self.muted_text_color
         Line:
-            rounded_rectangle: (*self.pos, *self.size, dp(10))
-            width: dp(1.2)
+            rounded_rectangle: (*self.pos, *self.size, dp(12))
+            width: dp(1.4)
         Color:
-            rgba: (0.85, 0.45, 0.45, 1) if self.riichi else (0, 0, 0, 0)
+            rgba: self.accent_color if self.riichi else (0, 0, 0, 0)
         Line:
-            points: [self.x + dp(6), self.top - dp(6), self.x + dp(26), self.top - dp(6)]
+            points: [self.x + dp(12), self.top - dp(12), self.right - dp(12), self.top - dp(12)]
             width: dp(2)
     Label:
-        text: root.display_name
-        bold: True
-        color: (0.92, 0.96, 1, 1)
-        size_hint_y: None
-        height: self.texture_size[1]
-        text_size: self.width, None
-        halign: 'left'
-    Label:
-        text: root.hand_text
-        font_size: '16sp'
-        color: (0.92, 0.96, 1, 1)
-        size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
-        text_size: self.width, None
-        halign: 'left'
-    Label:
-        text: root.discard_text
-        font_size: '14sp'
-        color: (0.78, 0.84, 0.96, 1)
-        size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
-        text_size: self.width, None
-        halign: 'left'
-    Label:
-        text: root.meld_text
-        font_size: '13sp'
-        color: (0.75, 0.85, 0.95, 1)
-        size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(18)
-        text_size: self.width, None
-        halign: 'left'
-    Label:
-        text: f"Score: {root.score_text}" if root.score_text else ''
-        font_size: '14sp'
-        color: (0.88, 0.94, 0.99, 1)
-        size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(18)
-        text_size: self.width, None
-        halign: 'left'
-    Label:
-        text: f"Δ {root.score_delta_text}" if root.score_delta_text else ''
-        font_size: '13sp'
-        color: (0.95, 0.70, 0.70, 1) if root.score_delta_text and not root.score_delta_text.startswith('+') else (0.70, 0.95, 0.80, 1)
+        text: root.seat_label
+        color: root.muted_text_color
+        font_size: '12sp'
         size_hint_y: None
         height: self.texture_size[1] if self.texture_size[1] > 0 else dp(16)
         text_size: self.width, None
         halign: 'left'
+        valign: 'middle'
+    BoxLayout:
+        size_hint_y: None
+        height: dp(26)
+        spacing: dp(6)
+        Label:
+            text: root.display_name
+            color: root.text_color
+            bold: True
+            text_size: self.width, None
+            halign: 'left'
+            valign: 'middle'
+        Label:
+            text: 'Dealer' if root.dealer else ''
+            color: root.accent_color
+            size_hint_x: None
+            width: dp(72)
+            text_size: self.size
+            halign: 'right'
+            valign: 'middle'
+    Label:
+        text: root.hand_text
+        font_size: '16sp'
+        color: root.text_color
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(26)
+        text_size: self.width, None
+        halign: 'left'
+        valign: 'middle'
+    Label:
+        text: root.discard_text
+        font_size: '14sp'
+        color: root.muted_text_color
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(24)
+        text_size: self.width, None
+        halign: 'left'
+        valign: 'middle'
+    Label:
+        text: root.meld_text
+        font_size: '13sp'
+        color: root.muted_text_color
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
+        text_size: self.width, None
+        halign: 'left'
+        valign: 'middle'
+    BoxLayout:
+        size_hint_y: None
+        height: dp(22)
+        spacing: dp(8)
+        Label:
+            text: f"Score: {root.score_text}" if root.score_text else 'Score: -'
+            color: root.text_color
+            text_size: self.width, None
+            halign: 'left'
+            valign: 'middle'
+        Label:
+            text: f"Δ {root.score_delta_text}" if root.score_delta_text else 'Δ 0'
+            color: root.danger_color if root.score_delta_text and not root.score_delta_text.startswith('+') else (root.accent_color if root.score_delta_text and root.score_delta_text.startswith('+') else root.muted_text_color)
+            size_hint_x: None
+            width: dp(90)
+            text_size: self.size
+            halign: 'right'
+            valign: 'middle'
     Label:
         text: root.wind_text
         font_size: '12sp'
-        color: (0.70, 0.82, 0.92, 1)
+        color: root.muted_text_color
         size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(14)
+        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(16)
         text_size: self.width, None
         halign: 'left'
+        valign: 'middle'
 
-<MahjongRoot>:
+<MahjongTable>:
+    canvas.before:
+        Color:
+            rgba: root.background_color
+        Rectangle:
+            pos: self.pos
+            size: self.size
+        Color:
+            rgba: root.play_area_color
+        RoundedRectangle:
+            pos: root.play_area_pos
+            size: root.play_area_size
+            radius: [dp(16)]
+        Color:
+            rgba: root.play_area_border
+        Line:
+            rounded_rectangle: (*root.play_area_pos, *root.play_area_size, dp(16))
+            width: dp(3)
+    canvas.after:
+        Color:
+            rgba: root.panel_color
+        RoundedRectangle:
+            pos: root.center_panel_pos
+            size: root.center_panel_size
+            radius: [dp(12)]
+        Color:
+            rgba: root.panel_border
+        Line:
+            rounded_rectangle: (*root.center_panel_pos, *root.center_panel_size, dp(12))
+            width: dp(2)
+        Color:
+            rgba: root.accent_color if root.dealer_marker_visible else (0, 0, 0, 0)
+        Line:
+            circle: (root.dealer_marker_pos[0], root.dealer_marker_pos[1], dp(10))
+            width: dp(2)
+    RelativeLayout:
+        size_hint: None, None
+        size: root.center_panel_size
+        pos: root.center_panel_pos
+        Label:
+            text: root.round_label
+            color: root.text_color
+            font_size: '22sp'
+            bold: True
+            size_hint: None, None
+            pos_hint: {'center_x': 0.5, 'center_y': 0.84}
+            text_size: self.width, None
+            halign: 'center'
+            valign: 'top'
+        Label:
+            text: root.honba_text
+            color: root.muted_text_color
+            font_size: '14sp'
+            size_hint: None, None
+            pos_hint: {'center_x': 0.5, 'center_y': 0.66}
+            text_size: self.width, None
+            halign: 'center'
+        Label:
+            text: root.riichi_text
+            color: root.muted_text_color
+            font_size: '14sp'
+            size_hint: None, None
+            pos_hint: {'center_x': 0.5, 'center_y': 0.50}
+            text_size: self.width, None
+            halign: 'center'
+        Label:
+            text: root.tiles_text
+            color: root.muted_text_color
+            font_size: '14sp'
+            size_hint: None, None
+            pos_hint: {'center_x': 0.5, 'center_y': 0.34}
+            text_size: self.width, None
+            halign: 'center'
+        Label:
+            text: root.dora_text
+            color: root.text_color
+            font_size: '13sp'
+            size_hint: None, None
+            pos_hint: {'center_x': 0.5, 'center_y': 0.18}
+            text_size: self.width, None
+            halign: 'center'
+        Label:
+            text: root.ura_text
+            color: root.muted_text_color
+            font_size: '13sp'
+            size_hint: None, None
+            pos_hint: {'center_x': 0.5, 'center_y': 0.06}
+            text_size: self.width, None
+            halign: 'center'
+    Label:
+        text: root.score_strings[0] if len(root.score_strings) > 0 else ''
+        color: root.score_colors[0] if len(root.score_colors) > 0 else root.text_color
+        size_hint: None, None
+        center_x: root.score_positions[0][0]
+        center_y: root.score_positions[0][1]
+        text_size: self.texture_size
+    Label:
+        text: root.score_strings[1] if len(root.score_strings) > 1 else ''
+        color: root.score_colors[1] if len(root.score_colors) > 1 else root.text_color
+        size_hint: None, None
+        center_x: root.score_positions[1][0]
+        center_y: root.score_positions[1][1]
+        text_size: self.texture_size
+    Label:
+        text: root.score_strings[2] if len(root.score_strings) > 2 else ''
+        color: root.score_colors[2] if len(root.score_colors) > 2 else root.text_color
+        size_hint: None, None
+        center_x: root.score_positions[2][0]
+        center_y: root.score_positions[2][1]
+        text_size: self.texture_size
+    Label:
+        text: root.score_strings[3] if len(root.score_strings) > 3 else ''
+        color: root.score_colors[3] if len(root.score_colors) > 3 else root.text_color
+        size_hint: None, None
+        center_x: root.score_positions[3][0]
+        center_y: root.score_positions[3][1]
+        text_size: self.texture_size
+    Label:
+        text: root.seat_labels[0] if len(root.seat_labels) > 0 else ''
+        color: root.muted_text_color
+        size_hint: None, None
+        center_x: root.label_positions[0][0]
+        center_y: root.label_positions[0][1]
+        text_size: self.texture_size
+    Label:
+        text: root.seat_labels[1] if len(root.seat_labels) > 1 else ''
+        color: root.muted_text_color
+        size_hint: None, None
+        center_x: root.label_positions[1][0]
+        center_y: root.label_positions[1][1]
+        text_size: self.texture_size
+    Label:
+        text: root.seat_labels[2] if len(root.seat_labels) > 2 else ''
+        color: root.muted_text_color
+        size_hint: None, None
+        center_x: root.label_positions[2][0]
+        center_y: root.label_positions[2][1]
+        text_size: self.texture_size
+    Label:
+        text: root.seat_labels[3] if len(root.seat_labels) > 3 else ''
+        color: root.muted_text_color
+        size_hint: None, None
+        center_x: root.label_positions[3][0]
+        center_y: root.label_positions[3][1]
+        text_size: self.texture_size
+
+<MahjongBoard>:
     orientation: 'vertical'
     spacing: dp(12)
     padding: dp(12)
-    status_text: ''
-    phase_text: ''
-    round_text: ''
-    dora_text: ''
-    ura_text: ''
-    log_text: ''
-    auto_advance: True
-    pause_on_score: False
-    score_pause_active: False
-    wrapper: None
     BoxLayout:
-        size_hint_y: None
-        height: dp(52)
-        spacing: dp(8)
-        ToggleButton:
-            text: 'Auto'
-            size_hint_x: None
-            width: dp(120)
-            state: 'down' if root.auto_advance else 'normal'
-            on_release: root.on_toggle_auto()
-        Button:
-            text: 'Step'
-            size_hint_x: None
-            width: dp(120)
-            disabled: root.auto_advance
-            on_release: root.on_step()
-        ToggleButton:
-            text: 'Pause on Score'
-            size_hint_x: None
-            width: dp(160)
-            state: 'down' if root.pause_on_score else 'normal'
-            on_release: root.on_toggle_pause()
-        Button:
-            text: 'Reset'
-            size_hint_x: None
-            width: dp(120)
-            on_release: root.on_reset()
-        Label:
-            text: f"Phase: {root.phase_text}"
-            halign: 'left'
-            valign: 'middle'
-            text_size: self.size
-        Label:
-            text: root.round_text
-            halign: 'right'
-            valign: 'middle'
-            text_size: self.size
-    Label:
-        text: '[Paused for score] ' + root.status_text if root.score_pause_active else root.status_text
-        markup: True
-        size_hint_y: None
-        height: dp(28)
-        halign: 'left'
-        valign: 'middle'
-        text_size: self.size
-        color: (0.92, 0.96, 1, 1)
-    GridLayout:
-        cols: 2
-        spacing: dp(10)
-        size_hint_y: None
-        height: self.minimum_height
-        PlayerPanel:
-            id: player0
-        PlayerPanel:
-            id: player1
-        PlayerPanel:
-            id: player2
-        PlayerPanel:
-            id: player3
+        size_hint_y: 0.24
+        AnchorLayout:
+            anchor_x: 'center'
+            anchor_y: 'center'
+            PlayerPanel:
+                id: north_panel
+                size_hint: None, None
+                width: min(root.width * 0.68, dp(720))
+                height: min(self.minimum_height, self.parent.height - dp(12))
     BoxLayout:
-        size_hint_y: None
-        height: dp(68)
+        size_hint_y: 0.52
         spacing: dp(12)
+        AnchorLayout:
+            size_hint_x: 0.27
+            anchor_x: 'center'
+            anchor_y: 'center'
+            PlayerPanel:
+                id: west_panel
+                size_hint: None, None
+                width: min(root.width * 0.28, dp(340))
+                height: min(self.minimum_height, self.parent.height - dp(16))
+        MahjongTable:
+            id: table
+            size_hint: 0.46, 1
+        AnchorLayout:
+            size_hint_x: 0.27
+            anchor_x: 'center'
+            anchor_y: 'center'
+            PlayerPanel:
+                id: east_panel
+                size_hint: None, None
+                width: min(root.width * 0.28, dp(340))
+                height: min(self.minimum_height, self.parent.height - dp(16))
+    BoxLayout:
+        size_hint_y: 0.24
+        AnchorLayout:
+            anchor_x: 'center'
+            anchor_y: 'center'
+            PlayerPanel:
+                id: south_panel
+                size_hint: None, None
+                width: min(root.width * 0.76, dp(780))
+                height: min(self.minimum_height, self.parent.height - dp(12))
+
+<MahjongRoot>:
+    orientation: 'vertical'
+    spacing: dp(16)
+    padding: dp(16)
+    canvas.before:
+        Color:
+            rgba: 12/255., 30/255., 60/255., 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        size_hint_y: None
+        height: dp(48)
+        padding: 0, 0, 0, dp(4)
         Label:
-            text: root.dora_text
-            halign: 'left'
-            valign: 'top'
+            text: root.phase_text
+            color: 170/255., 230/255., 1, 1
+            bold: True
             text_size: self.size
-            color: (0.85, 0.94, 1, 1)
-        Label:
-            text: root.ura_text
             halign: 'left'
-            valign: 'top'
-            text_size: self.size
-            color: (0.78, 0.88, 0.98, 1)
-    ScrollView:
-        size_hint_y: 0.3
-        do_scroll_x: False
-        do_scroll_y: True
-        bar_width: dp(8)
-        scroll_type: ['bars', 'content']
-        GridLayout:
-            cols: 1
-            size_hint_y: None
-            height: self.minimum_height
-            padding: 0, dp(4)
-            spacing: dp(2)
+            valign: 'middle'
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_x: None
+            width: dp(280)
             Label:
-                text: root.log_text
+                text: root.reward_text
+                color: 235/255., 235/255., 235/255., 1
                 size_hint_y: None
-                height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
-                text_size: self.width, None
+                height: dp(26)
+                text_size: self.size
+                halign: 'right'
+                valign: 'middle'
+            Label:
+                text: 'Episode finished' if root.episode_done else ''
+                color: 220/255., 120/255., 120/255., 1
+                size_hint_y: None
+                height: dp(20)
+                text_size: self.size
+                halign: 'right'
+                valign: 'middle'
+    MahjongBoard:
+        id: board
+        size_hint_y: 0.6
+    BoxLayout:
+        size_hint_y: 0.24
+        spacing: dp(16)
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_x: 0.68
+            Label:
+                text: root.status_text
+                color: 235/255., 235/255., 235/255., 1
+                size_hint_y: None
+                height: dp(28)
+                text_size: self.size
                 halign: 'left'
-                valign: 'top'
-                color: (0.78, 0.88, 1, 1)
+                valign: 'middle'
+            ScrollView:
+                do_scroll_x: False
+                do_scroll_y: True
+                bar_width: dp(8)
+                scroll_type: ['bars', 'content']
+                GridLayout:
+                    cols: 1
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: 0, dp(6)
+                    spacing: dp(4)
+                    Label:
+                        text: root.log_text
+                        color: 200/255., 220/255., 240/255., 1
+                        size_hint_y: None
+                        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
+                        text_size: self.width, None
+                        halign: 'left'
+                        valign: 'top'
+        AnchorLayout:
+            size_hint_x: 0.32
+            anchor_x: 'right'
+            anchor_y: 'bottom'
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint: None, None
+                width: dp(220)
+                height: dp(190)
+                spacing: dp(10)
+                ToggleButton:
+                    text: 'Pause on Score'
+                    size_hint_y: None
+                    height: dp(54)
+                    state: 'down' if root.pause_on_score else 'normal'
+                    on_release: root.on_toggle_pause()
+                ToggleButton:
+                    text: 'Auto Next'
+                    size_hint_y: None
+                    height: dp(54)
+                    state: 'down' if root.auto_advance else 'normal'
+                    on_release: root.on_toggle_auto()
+                Button:
+                    text: 'Next'
+                    size_hint_y: None
+                    height: dp(54)
+                    disabled: root.auto_advance
+                    on_release: root.on_step()
