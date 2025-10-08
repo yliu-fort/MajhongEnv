@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence, Tuple
+from typing import Any, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
@@ -175,6 +175,11 @@ class MahjongEnvKivyWrapper:
         font_size: int = 18,
         fallback_fonts: Optional[Sequence[str]] = None,
         root_widget: Optional[MahjongRoot] = None,
+        tile_texture_size: Optional[Tuple[int, int]] = None,
+        tile_texture_use_tile_metrics: bool = False,
+        tile_texture_background: Optional[
+            Union[str, Sequence[float], Sequence[int]]
+        ] = None,
         **kwargs: Any,
     ) -> None:
         self._env = env or _BaseMahjongEnv(*args, **kwargs)
@@ -226,6 +231,20 @@ class MahjongEnvKivyWrapper:
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
 
+        if tile_texture_size is not None:
+            width, height = tile_texture_size
+            self._tile_texture_explicit_size: Optional[Tuple[int, int]] = (
+                max(1, int(width)),
+                max(1, int(height)),
+            )
+        else:
+            self._tile_texture_explicit_size = None
+        self._tile_texture_auto_size = bool(tile_texture_use_tile_metrics)
+        self._tile_texture_background = self._normalize_tile_texture_background(
+            tile_texture_background
+        )
+        self._current_texture_render_size: Optional[Tuple[int, int]] = None
+
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
         self._auto_advance = True
         self._pause_on_score = False
@@ -237,7 +256,7 @@ class MahjongEnvKivyWrapper:
         self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
         self._step_event = threading.Event()
         self._scheduled = False
-        self._load_tile_assets()
+        self._load_tile_assets(self._tile_texture_explicit_size)
         self._connect_controls()
 
         self._clock_event = Clock.schedule_interval(self._on_frame, 1.0 / self._fps)
@@ -319,7 +338,56 @@ class MahjongEnvKivyWrapper:
         self._root.step_button.bind(on_release=lambda *_: self._trigger_step_once())
         self._root.pause_button.bind(on_release=lambda *_: self._toggle_pause())
 
-    def _load_tile_assets(self) -> None:
+    def _normalize_tile_texture_background(
+        self,
+        color: Optional[Union[str, Sequence[float], Sequence[int]]],
+    ) -> Optional[str]:
+        if color is None:
+            return None
+        if isinstance(color, str):
+            return color
+        try:
+            components = list(color)  # type: ignore[arg-type]
+        except TypeError as exc:  # pragma: no cover - defensive
+            raise TypeError(
+                "tile_texture_background must be a string or a numeric sequence"
+            ) from exc
+        if len(components) not in (3, 4):
+            raise ValueError(
+                "tile_texture_background sequence must contain 3 or 4 components"
+            )
+
+        channels: list[int] = []
+        for component in components:
+            try:
+                value = float(component)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "tile_texture_background components must be numeric"
+                ) from exc
+            if 0.0 <= value <= 1.0:
+                channel = int(round(value * 255))
+            else:
+                channel = int(round(value))
+            channel = max(0, min(channel, 255))
+            channels.append(channel)
+
+        hex_value = "".join(f"{channel:02x}" for channel in channels)
+        return f"#{hex_value}"
+
+    def _load_tile_assets(self, target_size: Optional[Tuple[int, int]] = None) -> None:
+        if target_size is None:
+            target_size = self._tile_texture_explicit_size
+        if target_size is not None:
+            width, height = target_size
+            sanitized_size: Optional[Tuple[int, int]] = (
+                max(1, int(width)),
+                max(1, int(height)),
+            )
+        else:
+            sanitized_size = None
+        self._current_texture_render_size = sanitized_size
+
         self._raw_tile_textures.clear()
         if not self._asset_root.exists():
             return
@@ -330,8 +398,14 @@ class MahjongEnvKivyWrapper:
                 continue
             texture = None
             if svg2png is not None:
+                svg_kwargs: dict[str, Any] = {"url": str(path)}
+                if sanitized_size is not None:
+                    svg_kwargs["output_width"] = sanitized_size[0]
+                    svg_kwargs["output_height"] = sanitized_size[1]
+                if self._tile_texture_background is not None:
+                    svg_kwargs["background_color"] = self._tile_texture_background
                 try:
-                    png_bytes = svg2png(url=str(path))
+                    png_bytes = svg2png(**svg_kwargs)
                 except Exception:
                     png_bytes = None
                 else:
@@ -424,6 +498,18 @@ class MahjongEnvKivyWrapper:
             "wall": tile_size,
             "meld": tile_size,
         }
+        self._update_auto_tile_texture_size()
+
+    def _update_auto_tile_texture_size(self) -> None:
+        if not self._tile_texture_auto_size:
+            return
+        base_size = self._tile_metrics.get("south_hand")
+        if not base_size:
+            return
+        target_size = (max(1, int(base_size[0])), max(1, int(base_size[1])))
+        if self._current_texture_render_size == target_size:
+            return
+        self._load_tile_assets(target_size)
 
     def _ensure_riichi_tracking_capacity(self, count: int) -> None:
         count = max(0, count)
