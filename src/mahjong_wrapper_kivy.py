@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence, Tuple
 
@@ -24,9 +25,9 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
 try:  # pragma: no cover - optional dependency
-    from kivy_garden.svg import Svg
+    from cairosvg import svg2png
 except Exception:  # pragma: no cover - optional dependency
-    Svg = None
+    svg2png = None
 
 import threading
 
@@ -328,12 +329,18 @@ class MahjongEnvKivyWrapper:
             if not path.exists():
                 continue
             texture = None
-            if Svg is not None:
+            if svg2png is not None:
                 try:
-                    svg = Svg(str(path))
-                    texture = svg.texture
+                    png_bytes = svg2png(url=str(path))
                 except Exception:
-                    texture = None
+                    png_bytes = None
+                else:
+                    try:
+                        buffer = BytesIO(png_bytes)
+                        image = CoreImage(buffer, ext="png")
+                        texture = image.texture
+                    except Exception:
+                        texture = None
             if texture is None:
                 try:
                     image = CoreImage(str(path))
