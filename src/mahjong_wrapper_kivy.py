@@ -218,6 +218,7 @@ class MahjongEnvKivyWrapper:
         self._danger_color = (220 / 255.0, 120 / 255.0, 120 / 255.0, 1)
         self._face_down_color = (18 / 255.0, 18 / 255.0, 22 / 255.0, 1)
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
+        self._tile_texture_background = "#FFFFFF"
 
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
@@ -240,9 +241,7 @@ class MahjongEnvKivyWrapper:
         else:
             self._tile_texture_explicit_size = None
         self._tile_texture_auto_size = bool(tile_texture_use_tile_metrics)
-        self._tile_texture_background = self._normalize_tile_texture_background(
-            tile_texture_background
-        )
+        
         self._current_texture_render_size: Optional[Tuple[int, int]] = None
 
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
@@ -337,43 +336,6 @@ class MahjongEnvKivyWrapper:
         self._root.auto_button.bind(on_release=lambda *_: self._toggle_auto())
         self._root.step_button.bind(on_release=lambda *_: self._trigger_step_once())
         self._root.pause_button.bind(on_release=lambda *_: self._toggle_pause())
-
-    def _normalize_tile_texture_background(
-        self,
-        color: Optional[Union[str, Sequence[float], Sequence[int]]],
-    ) -> Optional[str]:
-        if color is None:
-            return None
-        if isinstance(color, str):
-            return color
-        try:
-            components = list(color)  # type: ignore[arg-type]
-        except TypeError as exc:  # pragma: no cover - defensive
-            raise TypeError(
-                "tile_texture_background must be a string or a numeric sequence"
-            ) from exc
-        if len(components) not in (3, 4):
-            raise ValueError(
-                "tile_texture_background sequence must contain 3 or 4 components"
-            )
-
-        channels: list[int] = []
-        for component in components:
-            try:
-                value = float(component)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    "tile_texture_background components must be numeric"
-                ) from exc
-            if 0.0 <= value <= 1.0:
-                channel = int(round(value * 255))
-            else:
-                channel = int(round(value))
-            channel = max(0, min(channel, 255))
-            channels.append(channel)
-
-        hex_value = "".join(f"{channel:02x}" for channel in channels)
-        return f"#{hex_value}"
 
     def _load_tile_assets(self, target_size: Optional[Tuple[int, int]] = None) -> None:
         if target_size is None:
