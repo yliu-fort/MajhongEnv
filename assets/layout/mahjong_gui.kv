@@ -1,0 +1,119 @@
+#:kivy 2.1.0
+#:import dp kivy.metrics.dp
+
+<MahjongRootLayout>:
+    board: board
+    status_label: status_label
+    auto_button: auto_btn
+    step_button: step_btn
+    pause_button: pause_btn
+    canvas.before:
+        Color:
+            rgba: 12/255., 30/255., 60/255., 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    MahjongBoardWidget:
+        id: board
+        size_hint: None, None
+        width: min(root.width * 0.92, root.height * 0.92)
+        height: min(root.width * 0.92, root.height * 0.92)
+        pos: root.center_x - self.width / 2, root.center_y - self.height / 2
+        canvas.before:
+            Color:
+                rgba: 24/255., 60/255., 90/255., 1
+            Rectangle:
+                size: (self.width * 0.86, self.height * 0.86)
+                pos: (self.center_x - (self.width * 0.86) / 2, self.center_y - (self.height * 0.86) / 2)
+            Color:
+                rgba: 40/255., 90/255., 130/255., 1
+            Line:
+                rectangle: (self.center_x - (self.width * 0.86) / 2, self.center_y - (self.height * 0.86) / 2, self.width * 0.86, self.height * 0.86)
+            Color:
+                rgba: 5/255., 5/255., 5/255., 0.92
+            Rectangle:
+                size: (self.width * 0.24, self.height * 0.24)
+                pos: (self.center_x - (self.width * 0.24) / 2, self.center_y - (self.height * 0.24) / 2)
+            Color:
+                rgba: 90/255., 120/255., 160/255., 1
+            Line:
+                rectangle: (self.center_x - (self.width * 0.24) / 2, self.center_y - (self.height * 0.24) / 2, self.width * 0.24, self.height * 0.24)
+            Color:
+                rgba: 18/255., 18/255., 22/255., 1
+            Rectangle:
+                size: (self.width * 0.18, dp(24))
+                pos: (self.center_x - (self.width * 0.18) / 2, self.center_y + self.height * 0.12)
+            Color:
+                rgba: 40/255., 90/255., 130/255., 0.45
+            PushMatrix:
+                Translate:
+                    x: self.center_x
+                    y: self.center_y
+            Rectangle:
+                size: (self.width * 0.70, self.height * 0.24)
+                pos: (-self.width * 0.35, -self.height * 0.50)
+            PopMatrix
+            PushMatrix:
+                Translate:
+                    x: self.center_x
+                    y: self.center_y
+                Rotate:
+                    angle: 90
+            Rectangle:
+                size: (self.width * 0.70, self.height * 0.24)
+                pos: (-self.width * 0.35, -self.height * 0.50)
+            PopMatrix
+            PushMatrix:
+                Translate:
+                    x: self.center_x
+                    y: self.center_y
+                Rotate:
+                    angle: 180
+            Rectangle:
+                size: (self.width * 0.70, self.height * 0.24)
+                pos: (-self.width * 0.35, -self.height * 0.50)
+            PopMatrix
+            PushMatrix:
+                Translate:
+                    x: self.center_x
+                    y: self.center_y
+                Rotate:
+                    angle: 270
+            Rectangle:
+                size: (self.width * 0.70, self.height * 0.24)
+                pos: (-self.width * 0.35, -self.height * 0.50)
+            PopMatrix
+    Label:
+        id: status_label
+        text: ''
+        size_hint: None, None
+        width: dp(260)
+        height: self.texture_size[1] + dp(16)
+        text_size: (self.width - dp(16), None)
+        halign: 'left'
+        valign: 'top'
+        padding: dp(8), dp(8)
+        color: 235/255., 235/255., 235/255., 1
+        x: dp(16)
+        top: root.height - dp(16)
+    Button:
+        id: auto_btn
+        text: 'Auto'
+        size_hint: None, None
+        size: dp(160), dp(44)
+        pos: root.width - self.width - dp(16), dp(16) + 2 * (dp(44) + dp(10))
+        on_release: root.controller.toggle_auto() if root.controller else None
+    Button:
+        id: step_btn
+        text: 'Step'
+        size_hint: None, None
+        size: dp(160), dp(44)
+        pos: root.width - self.width - dp(16), dp(16) + (dp(44) + dp(10))
+        on_release: root.controller.request_step() if root.controller else None
+    Button:
+        id: pause_btn
+        text: 'Pause on Score'
+        size_hint: None, None
+        size: dp(160), dp(44)
+        pos: root.width - self.width - dp(16), dp(16)
+        on_release: root.controller.toggle_pause_on_score() if root.controller else None
