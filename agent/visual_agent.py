@@ -103,7 +103,7 @@ class VisualAgent:
         if self.env and (self.env.phase in ["kan", "chakan", "ankan"]):
             return 252
 
-        if self.env and (self.env.phase in ["chi", "pon", "kan", "chakan", "ankan"]):
+        if self.env and (self.env.phase in ["discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"]):
             # 推理时获取动作
             with torch.no_grad():
                 out = self.extractor(observation[0])
@@ -118,44 +118,7 @@ class VisualAgent:
                 logits += -1e9*(1-legal_mask) # mask to valid logits
                 pred = int(logits.argmax()) # 253-dim
                 return pred
-                
 
-        if self.env and (self.env.phase == "riichi"):
-            # 推理时获取动作
-            with torch.no_grad():
-                observation[0].riichi_sticks += 1 # Workaround to handle inconsistency between generated data and rl env.
-                out = self.extractor(observation[0])
-                observation[0].riichi_sticks -= 1
-                x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
-                x = _resize_batch(x)
-                self.model.eval()
-                logits = self.model(x).detach()
-                if logits.device.type != "cpu":
-                    logits = logits.cpu()
-                logits = logits.numpy().squeeze()
-                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
-                logits += -1e9*(1-legal_mask) # mask to valid logits
-                pred = int(logits.argmax()) # 253-dim
-                
-                return pred
-                
-                
-        if self.env and (self.env.phase == "discard"):
-            # 推理时获取动作
-            with torch.no_grad():
-                out = self.extractor(observation[0])
-                x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
-                x = _resize_batch(x)
-                self.model.eval()
-                logits = self.model(x).detach()
-                if logits.device.type != "cpu":
-                    logits = logits.cpu()
-                logits = logits.numpy().squeeze()
-                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
-                logits += -1e9*(1-legal_mask) # mask to valid logits
-                pred = int(logits.argmax()) # 253-dim
-
-                return pred
                         
         # if preds not in action_masks, return a random choice from action_masks.
         return self._alt_model.predict(observation)
