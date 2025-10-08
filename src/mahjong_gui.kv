@@ -53,33 +53,92 @@
             text_size: self.size
             halign: 'right'
             valign: 'middle'
-    Label:
-        text: root.hand_text
-        font_size: '16sp'
-        color: root.text_color
+    BoxLayout:
         size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(26)
-        text_size: self.width, None
-        halign: 'left'
-        valign: 'middle'
-    Label:
-        text: root.discard_text
-        font_size: '14sp'
-        color: root.muted_text_color
+        height: dp(72)
+        spacing: dp(6)
+        Label:
+            text: 'Hand:'
+            color: root.text_color
+            font_size: '15sp'
+            size_hint_x: None
+            width: dp(56)
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+        ScrollView:
+            do_scroll_x: True
+            do_scroll_y: False
+            bar_width: dp(4)
+            size_hint: 1, None
+            height: dp(60)
+            TileStrip:
+                id: hand_strip
+                tiles: root.hand_tiles
+                placeholder_text: root.hand_placeholder if root.hand_placeholder else '-'
+                muted_text_color: root.muted_text_color
+                tile_size: [dp(42), dp(60)]
+                size_hint_y: None
+                height: dp(60)
+                size_hint_x: None
+                width: max(self.minimum_width, 1)
+    BoxLayout:
         size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(24)
-        text_size: self.width, None
-        halign: 'left'
-        valign: 'middle'
-    Label:
-        text: root.meld_text
-        font_size: '13sp'
-        color: root.muted_text_color
+        height: dp(68)
+        spacing: dp(6)
+        Label:
+            text: 'Discards:'
+            color: root.muted_text_color
+            font_size: '14sp'
+            size_hint_x: None
+            width: dp(72)
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+        ScrollView:
+            do_scroll_x: True
+            do_scroll_y: False
+            bar_width: dp(4)
+            size_hint: 1, None
+            height: dp(56)
+            TileStrip:
+                id: discard_strip
+                tiles: root.discard_tiles
+                placeholder_text: root.discard_placeholder if root.discard_placeholder else '-'
+                muted_text_color: root.muted_text_color
+                tile_size: [dp(38), dp(54)]
+                size_hint_y: None
+                height: dp(54)
+                size_hint_x: None
+                width: max(self.minimum_width, 1)
+    BoxLayout:
+        orientation: 'vertical'
         size_hint_y: None
-        height: self.texture_size[1] if self.texture_size[1] > 0 else dp(20)
-        text_size: self.width, None
-        halign: 'left'
-        valign: 'middle'
+        height: max(dp(70), meld_list.height + dp(24))
+        spacing: dp(4)
+        Label:
+            text: 'Melds:'
+            color: root.muted_text_color
+            font_size: '13sp'
+            size_hint_y: None
+            height: dp(20)
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+        ScrollView:
+            do_scroll_x: False
+            do_scroll_y: True
+            bar_width: dp(4)
+            size_hint: 1, None
+            height: max(dp(50), meld_list.height)
+            MeldList:
+                id: meld_list
+                melds: root.melds_data
+                placeholder_text: root.meld_placeholder if root.meld_placeholder else 'Melds: -'
+                muted_text_color: root.muted_text_color
+                tile_size: [dp(36), dp(52)]
+                size_hint_y: None
+                height: self.minimum_height
     BoxLayout:
         size_hint_y: None
         height: dp(22)
@@ -181,22 +240,54 @@
             pos_hint: {'center_x': 0.5, 'center_y': 0.34}
             text_size: self.width, None
             halign: 'center'
-        Label:
-            text: root.dora_text
-            color: root.text_color
-            font_size: '13sp'
+        BoxLayout:
+            orientation: 'vertical'
             size_hint: None, None
-            pos_hint: {'center_x': 0.5, 'center_y': 0.18}
-            text_size: self.width, None
-            halign: 'center'
-        Label:
-            text: root.ura_text
-            color: root.muted_text_color
-            font_size: '13sp'
+            width: dp(140)
+            height: dp(64)
+            pos_hint: {'center_x': 0.5, 'center_y': 0.22}
+            spacing: dp(4)
+            Label:
+                text: 'Dora'
+                color: root.text_color
+                font_size: '13sp'
+                size_hint_y: None
+                height: dp(18)
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+            TileStrip:
+                tiles: root.dora_tiles
+                placeholder_text: root.dora_text if root.dora_text else '-'
+                muted_text_color: root.text_color
+                tile_size: [dp(28), dp(40)]
+                size_hint: None, None
+                height: dp(40)
+                width: max(self.minimum_width, dp(40))
+        BoxLayout:
+            orientation: 'vertical'
             size_hint: None, None
-            pos_hint: {'center_x': 0.5, 'center_y': 0.06}
-            text_size: self.width, None
-            halign: 'center'
+            width: dp(140)
+            height: dp(64)
+            pos_hint: {'center_x': 0.5, 'center_y': 0.08}
+            spacing: dp(4)
+            Label:
+                text: 'Ura'
+                color: root.muted_text_color
+                font_size: '13sp'
+                size_hint_y: None
+                height: dp(18)
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+            TileStrip:
+                tiles: root.ura_tiles
+                placeholder_text: root.ura_text if root.ura_text else '-'
+                muted_text_color: root.muted_text_color
+                tile_size: [dp(24), dp(36)]
+                size_hint: None, None
+                height: dp(36)
+                width: max(self.minimum_width, dp(36))
     Label:
         text: root.score_strings[0] if len(root.score_strings) > 0 else ''
         color: root.score_colors[0] if len(root.score_colors) > 0 else root.text_color

@@ -14,7 +14,20 @@ try:
         ObjectProperty,
         StringProperty,
     )
+    from kivy.graphics import (
+        Color,
+        Line,
+        PopMatrix,
+        PushMatrix,
+        RoundedRectangle,
+        Rotate,
+        Scale,
+        Translate,
+    )
+    from kivy.graphics.svg import Svg
     from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.floatlayout import FloatLayout
+    from kivy.uix.label import Label
     from kivy.uix.widget import Widget
     from kivy.metrics import dp
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
@@ -42,6 +55,50 @@ _KV_PATH = Path(__file__).resolve().with_name("mahjong_gui.kv")
 _KV_LOADED = False
 
 
+_ASSET_ROOT = Path(__file__).resolve().parent.parent / "assets" / "tiles"
+_DEFAULT_TILE_SET = "Regular"
+
+_TILE_SYMBOLS: Tuple[str, ...] = (
+    "Man1",
+    "Man2",
+    "Man3",
+    "Man4",
+    "Man5",
+    "Man6",
+    "Man7",
+    "Man8",
+    "Man9",
+    "Pin1",
+    "Pin2",
+    "Pin3",
+    "Pin4",
+    "Pin5",
+    "Pin6",
+    "Pin7",
+    "Pin8",
+    "Pin9",
+    "Sou1",
+    "Sou2",
+    "Sou3",
+    "Sou4",
+    "Sou5",
+    "Sou6",
+    "Sou7",
+    "Sou8",
+    "Sou9",
+    "Ton",
+    "Nan",
+    "Shaa",
+    "Pei",
+    "Haku",
+    "Hatsu",
+    "Chun",
+    "Man5-Dora",
+    "Pin5-Dora",
+    "Sou5-Dora",
+)
+
+
 def load_kivy_layout() -> None:
     """Ensure the Kivy .kv layout used by the Mahjong GUI is loaded."""
 
@@ -61,14 +118,298 @@ class _RenderPayload:
     info: dict[str, Any]
 
 
+def _tile_symbol_from_136(tile_136: int) -> str:
+    tile_34 = tile_136 // 4 if tile_136 >= 0 else 0
+    if tile_136 == 16:
+        tile_34 = 34
+    elif tile_136 == 52:
+        tile_34 = 35
+    elif tile_136 == 88:
+        tile_34 = 36
+    tile_34 = max(0, min(tile_34, len(_TILE_SYMBOLS) - 1))
+    return _TILE_SYMBOLS[tile_34]
+
+
+def _tile_label_from_136(tile_136: int) -> str:
+    if tile_136 < 0:
+        return ""
+    try:
+        return tile_printout(tile_136).strip()
+    except Exception:
+        return str(tile_136)
+
+
+class TileFace(FloatLayout):
+    """Widget that renders a Mahjong tile using SVG or a placeholder."""
+
+    tile_id = NumericProperty(-1)
+    face_up = BooleanProperty(True)
+    orientation = NumericProperty(0)
+    tile_set = StringProperty(_DEFAULT_TILE_SET)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.size_hint = kwargs.get("size_hint", (None, None))
+        self._label = Label(
+            text="",
+            color=(0.1, 0.1, 0.1, 1.0),
+            halign="center",
+            valign="middle",
+            size_hint=(1.0, 1.0),
+        )
+        self._label.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+        if self._label.parent is None:
+            self.add_widget(self._label)
+        self._current_svg: Optional[Svg] = None
+        self._update_trigger = Clock.create_trigger(self._refresh_canvas)
+        self.bind(
+            tile_id=self._update_trigger,
+            face_up=self._update_trigger,
+            orientation=self._update_trigger,
+            tile_set=self._update_trigger,
+            pos=self._update_trigger,
+            size=self._update_trigger,
+        )
+        Clock.schedule_once(lambda _dt: self._refresh_canvas(), 0)
+
+    # ------------------------------------------------------------------
+    def _tile_asset_path(self) -> Optional[Path]:
+        if not self.face_up:
+            back_path = _ASSET_ROOT / _DEFAULT_TILE_SET / "Back.svg"
+            return back_path if back_path.exists() else None
+        symbol = _tile_symbol_from_136(self.tile_id)
+        candidate = _ASSET_ROOT / self.tile_set / f"{symbol}.svg"
+        if candidate.exists():
+            return candidate
+        return None
+
+    def _placeholder_color(self) -> tuple[float, float, float, float]:
+        if not self.face_up:
+            return (18 / 255.0, 18 / 255.0, 22 / 255.0, 1.0)
+        symbol = _tile_symbol_from_136(self.tile_id)
+        suit = symbol[-1] if symbol[-1] in {"m", "p", "s"} else symbol[-1:].lower()
+        palette = {
+            "m": (210 / 255.0, 90 / 255.0, 90 / 255.0, 1.0),
+            "p": (90 / 255.0, 150 / 255.0, 225 / 255.0, 1.0),
+            "s": (90 / 255.0, 190 / 255.0, 120 / 255.0, 1.0),
+        }
+        return palette.get(suit, (220 / 255.0, 210 / 255.0, 150 / 255.0, 1.0))
+
+    def _draw_placeholder(self) -> None:
+        label = _tile_label_from_136(self.tile_id) if self.face_up else ""
+        self._label.text = label
+        radius = dp(6)
+        Color(*self._placeholder_color())
+        RoundedRectangle(pos=(0, 0), size=self.size, radius=[radius])
+        Color(245 / 255.0, 245 / 255.0, 245 / 255.0, 1.0)
+        Line(rounded_rectangle=(0, 0, self.width, self.height, radius), width=dp(1.4))
+
+    def _draw_svg(self, path: Path) -> None:
+        try:
+            svg = Svg(str(path))
+        except Exception:
+            self._draw_placeholder()
+            return
+
+        width = max(1.0, float(svg.width or 1.0))
+        height = max(1.0, float(svg.height or 1.0))
+        scale_x = self.width / width
+        scale_y = self.height / height
+        scale = min(scale_x, scale_y)
+        offset_x = (self.width - width * scale) / 2.0
+        offset_y = (self.height - height * scale) / 2.0
+        PushMatrix()
+        Translate(offset_x, offset_y)
+        Scale(scale, scale, 1.0)
+        self._current_svg = svg
+        self.canvas.before.add(svg)
+        PopMatrix()
+        self._label.text = ""
+
+    def _refresh_canvas(self, *_: Any) -> None:
+        self.canvas.before.clear()
+        with self.canvas.before:
+            PushMatrix()
+            Translate(self.x + self.width / 2.0, self.y + self.height / 2.0)
+            angle = (self.orientation or 0) % 360
+            if angle:
+                Rotate(angle=angle)
+            Translate(-self.width / 2.0, -self.height / 2.0)
+            asset = self._tile_asset_path()
+            if asset is not None:
+                self._draw_svg(asset)
+            else:
+                self._draw_placeholder()
+            PopMatrix()
+
+
+class TileStrip(BoxLayout):
+    """Layout that renders a horizontal strip of Mahjong tiles."""
+
+    tiles = ListProperty([])
+    tile_size = ListProperty([dp(42), dp(60)])
+    placeholder_text = StringProperty("")
+    muted_text_color = ListProperty(list(COLOR_MUTED))
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("orientation", "horizontal")
+        kwargs.setdefault("spacing", dp(4))
+        kwargs.setdefault("size_hint_y", None)
+        super().__init__(**kwargs)
+        self.height = self.tile_size[1]
+        self.size_hint_x = kwargs.get("size_hint_x", None)
+        self.bind(
+            tiles=self._refresh_tiles,
+            tile_size=self._on_tile_size,
+            placeholder_text=self._refresh_tiles,
+            minimum_width=self._update_width,
+        )
+        Clock.schedule_once(lambda _dt: self._refresh_tiles(), 0)
+
+    def _update_width(self, *_: Any) -> None:
+        if self.size_hint_x is None:
+            self.width = max(self.minimum_width, 1)
+
+    def _on_tile_size(self, *_: Any) -> None:
+        self.height = self.tile_size[1]
+        for child in self.children:
+            if isinstance(child, TileFace):
+                child.size = (self.tile_size[0], self.tile_size[1])
+        self._refresh_tiles()
+
+    def _normalize_tiles(self) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for entry in list(self.tiles or []):
+            if isinstance(entry, dict):
+                tile_id = int(entry.get("tile", -1))
+                face_up = bool(entry.get("face_up", True))
+                orientation = int(entry.get("orientation", 0))
+            else:
+                try:
+                    tile_id = int(entry)
+                except (TypeError, ValueError):
+                    tile_id = -1
+                face_up = True
+                orientation = 0
+            normalized.append(
+                {
+                    "tile": tile_id,
+                    "face_up": face_up,
+                    "orientation": orientation,
+                }
+            )
+        return normalized
+
+    def _refresh_tiles(self, *_: Any) -> None:
+        self.clear_widgets()
+        tiles = self._normalize_tiles()
+        if not tiles:
+            if self.placeholder_text:
+                label = Label(
+                    text=self.placeholder_text,
+                    color=self.muted_text_color,
+                    halign="left",
+                    valign="middle",
+                    size_hint=(None, None),
+                    height=self.tile_size[1],
+                )
+                label.bind(
+                    texture_size=lambda inst, value: setattr(
+                        inst, "size", (max(self.tile_size[0], value[0]), self.tile_size[1])
+                    )
+                )
+                self.add_widget(label)
+            self._update_width()
+            return
+
+        for tile in tiles:
+            widget = TileFace(
+                tile_id=tile.get("tile", -1),
+                face_up=tile.get("face_up", True),
+                orientation=tile.get("orientation", 0),
+            )
+            widget.size_hint = (None, None)
+            widget.size = (self.tile_size[0], self.tile_size[1])
+            self.add_widget(widget)
+        self._update_width()
+
+
+class MeldList(BoxLayout):
+    """Displays melds using horizontal tile strips."""
+
+    melds = ListProperty([])
+    placeholder_text = StringProperty("Melds: -")
+    muted_text_color = ListProperty(list(COLOR_MUTED))
+    tile_size = ListProperty([dp(38), dp(54)])
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("orientation", "vertical")
+        kwargs.setdefault("spacing", dp(4))
+        kwargs.setdefault("size_hint_y", None)
+        super().__init__(**kwargs)
+        self.bind(
+            melds=self._refresh_melds,
+            tile_size=self._refresh_melds,
+            placeholder_text=self._refresh_melds,
+            minimum_height=self.setter("height"),
+        )
+        Clock.schedule_once(lambda _dt: self._refresh_melds(), 0)
+
+    def _refresh_melds(self, *_: Any) -> None:
+        self.clear_widgets()
+        melds = list(self.melds or [])
+        if not melds:
+            label = Label(
+                text=self.placeholder_text,
+                color=self.muted_text_color,
+                size_hint_y=None,
+                height=dp(20),
+                halign="left",
+                valign="middle",
+            )
+            label.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], None)))
+            self.add_widget(label)
+            return
+
+        for meld in melds:
+            row = BoxLayout(
+                orientation="horizontal",
+                spacing=dp(6),
+                size_hint_y=None,
+                height=self.tile_size[1],
+            )
+            label_text = meld.get("label", "")
+            label_widget = Label(
+                text=label_text,
+                color=self.muted_text_color,
+                size_hint_x=None,
+                width=dp(120),
+                halign="left",
+                valign="middle",
+            )
+            label_widget.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+            row.add_widget(label_widget)
+            strip = TileStrip(
+                tiles=meld.get("tiles", []),
+                tile_size=self.tile_size,
+                placeholder_text="",
+            )
+            strip.size_hint = (1, None)
+            strip.height = self.tile_size[1]
+            row.add_widget(strip)
+            self.add_widget(row)
+
 class PlayerPanel(BoxLayout):
     """Panel widget used to present one player's state."""
 
     display_name = StringProperty("")
     seat_label = StringProperty("")
     hand_text = StringProperty("")
+    hand_placeholder = StringProperty("-")
     discard_text = StringProperty("")
+    discard_placeholder = StringProperty("-")
     meld_text = StringProperty("")
+    meld_placeholder = StringProperty("Melds: -")
     score_text = StringProperty("")
     score_delta_text = StringProperty("")
     wind_text = StringProperty("")
@@ -79,19 +420,30 @@ class PlayerPanel(BoxLayout):
     text_color = ListProperty(list(COLOR_TEXT))
     muted_text_color = ListProperty(list(COLOR_MUTED))
     danger_color = ListProperty(list(COLOR_DANGER))
+    hand_tiles = ListProperty([])
+    discard_tiles = ListProperty([])
+    melds_data = ListProperty([])
 
     def update_from_dict(self, data: dict[str, Any]) -> None:
         self.display_name = data.get("name", "")
         self.seat_label = data.get("seat_label", "")
-        self.hand_text = data.get("hand", "")
-        self.discard_text = data.get("discards", "")
-        self.meld_text = data.get("melds", "")
+        self.hand_text = data.get("hand_text") or data.get("hand", "")
+        self.hand_placeholder = data.get("hand_placeholder", self.hand_text or "-")
+        self.discard_text = data.get("discard_text") or data.get("discards", "")
+        self.discard_placeholder = data.get(
+            "discard_placeholder", self.discard_text or "-"
+        )
+        self.meld_text = data.get("meld_text") or data.get("melds", "")
+        self.meld_placeholder = data.get("meld_placeholder", self.meld_text or "Melds: -")
         self.score_text = data.get("score", "")
         self.score_delta_text = data.get("score_delta", "")
         self.wind_text = data.get("wind", "")
         self.riichi = bool(data.get("riichi", False))
         self.is_current = bool(data.get("is_current", False))
         self.dealer = bool(data.get("dealer", False))
+        self.hand_tiles = list(data.get("hand_tiles", []))
+        self.discard_tiles = list(data.get("discard_tiles", []))
+        self.melds_data = list(data.get("melds_data", []))
 
 
 class MahjongTable(Widget):
@@ -125,6 +477,8 @@ class MahjongTable(Widget):
     tiles_text = StringProperty("")
     dora_text = StringProperty("")
     ura_text = StringProperty("")
+    dora_tiles = ListProperty([])
+    ura_tiles = ListProperty([])
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -192,8 +546,6 @@ class MahjongBoard(BoxLayout):
         self,
         players: Sequence[dict[str, Any]],
         board_info: dict[str, Any],
-        dora_text: str,
-        ura_text: str,
     ) -> None:
         order = [0, 1, 2, 3]
         ids_map = [
@@ -217,8 +569,10 @@ class MahjongBoard(BoxLayout):
         table.honba_text = f"Honba {board_info.get('honba', 0)}"
         table.riichi_text = f"Riichi {board_info.get('riichi_sticks', 0)}"
         table.tiles_text = f"Tiles {board_info.get('tiles_remaining', 0)}"
-        table.dora_text = dora_text
-        table.ura_text = ura_text
+        table.dora_text = board_info.get("dora_text", "")
+        table.ura_text = board_info.get("ura_text", "")
+        table.dora_tiles = list(board_info.get("dora_tiles", []))
+        table.ura_tiles = list(board_info.get("ura_tiles", []))
         table.seat_labels = list(board_info.get("seat_names", []))[:4]
         table.dealer = int(board_info.get("dealer", -1))
         table.current_player = int(board_info.get("current_player", -1))
@@ -289,12 +643,7 @@ class MahjongRoot(BoxLayout):
         players = state.get("players", [])
         board_widget = self.ids.get("board")
         if board_widget is not None:
-            board_widget.apply_state(
-                players,
-                board_state,
-                state.get("dora_text", ""),
-                state.get("ura_text", ""),
-            )
+            board_widget.apply_state(players, board_state)
 
 
 class MahjongEnvKivyWrapper:
@@ -484,6 +833,8 @@ class MahjongEnvKivyWrapper:
                 [f"Seat {idx + 1}" for idx in range(len(seat_names), min_labels)]
             )
 
+        reveal_flags = self._compute_hand_reveal_flags(num_players)
+
         for idx in range(num_players):
             hand_tiles = hands[idx] if idx < len(hands) else []
             discard_tiles = discards[idx] if idx < len(discards) else []
@@ -491,15 +842,32 @@ class MahjongEnvKivyWrapper:
             score_value = scores[idx] if idx < len(scores) else 0
             delta_value = deltas[idx] if idx < len(deltas) else 0
             riichi = riichi_flags[idx] if idx < len(riichi_flags) else False
+            reveal_hand = reveal_flags[idx] if idx < len(reveal_flags) else (idx == 0)
+
+            ordered_hand = self._order_hand_tiles(hand_tiles, idx, reveal_hand)
+            hand_entries = self._build_tile_entries(ordered_hand, reveal_hand)
+            discard_entries = self._build_tile_entries(discard_tiles, True)
+            meld_entries = self._build_meld_entries(meld_list)
+
+            hand_text = self._format_tiles(ordered_hand if reveal_hand else hand_tiles)
+            discard_text = self._format_tiles(discard_tiles, sort=False)
+            meld_text = self._format_melds(meld_list)
 
             players.append(
                 {
                     "name": self._format_player_name(idx, dealer),
-                    "hand": self._format_tiles(hand_tiles),
-                    "discards": f"Discards: {self._format_tiles(discard_tiles, sort=False)}"
-                    if discard_tiles
-                    else "Discards: -",
-                    "melds": self._format_melds(meld_list),
+                    "hand": hand_text,
+                    "hand_text": hand_text,
+                    "hand_tiles": hand_entries,
+                    "hand_placeholder": "-" if not hand_entries else "",
+                    "discards": f"Discards: {discard_text}" if discard_text else "Discards: -",
+                    "discard_text": discard_text,
+                    "discard_tiles": discard_entries,
+                    "discard_placeholder": "-" if not discard_entries else "",
+                    "melds": meld_text,
+                    "meld_text": meld_text,
+                    "melds_data": meld_entries,
+                    "meld_placeholder": meld_text if not meld_entries else "",
                     "score": f"{int(round(score_value * 100)):,}",
                     "score_delta": self._format_delta(delta_value),
                     "riichi": riichi,
@@ -510,8 +878,12 @@ class MahjongEnvKivyWrapper:
                 }
             )
 
-        dora_text = self._format_indicator_text("Dora", getattr(self._env, "dora_indicator", []))
-        ura_text = self._format_indicator_text("Ura", getattr(self._env, "ura_indicator", []))
+        dora_tiles_raw = list(getattr(self._env, "dora_indicator", []))
+        ura_tiles_raw = list(getattr(self._env, "ura_indicator", []))
+        dora_tiles = self._build_tile_entries(dora_tiles_raw, True)
+        ura_tiles = self._build_tile_entries(ura_tiles_raw, True)
+        dora_text = self._format_indicator_text("Dora", dora_tiles_raw)
+        ura_text = self._format_indicator_text("Ura", ura_tiles_raw)
         status_text = self._status_text
         if self._pause_on_score and self._score_pause_active:
             status_text = status_text or "Paused for score calculation"
@@ -526,6 +898,10 @@ class MahjongEnvKivyWrapper:
             "seat_names": seat_names[:4],
             "dealer": int(dealer),
             "current_player": int(current),
+            "dora_tiles": dora_tiles,
+            "ura_tiles": ura_tiles,
+            "dora_text": dora_text,
+            "ura_text": ura_text,
         }
 
         phase = getattr(self._env, "phase", "")
@@ -544,8 +920,6 @@ class MahjongEnvKivyWrapper:
             "phase_text": phase,
             "phase_line": phase_line,
             "reward_line": reward_line,
-            "dora_text": dora_text,
-            "ura_text": ura_text,
             "status_text": status_text,
             "auto_advance": self._auto_advance,
             "pause_on_score": self._pause_on_score,
@@ -587,6 +961,74 @@ class MahjongEnvKivyWrapper:
                 meld_texts.append(f"Meld ({status}): {tile_text}")
         return "\n".join(meld_texts)
 
+    def _order_hand_tiles(
+        self, hand_tiles: Sequence[int], player_idx: int, reveal: bool
+    ) -> list[int]:
+        tiles = list(hand_tiles or [])
+        if not tiles:
+            return []
+        if not reveal:
+            return tiles
+        phase = getattr(self._env, "phase", "")
+        current_player = getattr(self._env, "current_player", -1)
+        if phase in {"draw", "kan_draw"} and current_player == player_idx:
+            ordered = sorted(tiles[:-1]) + tiles[-1:]
+        else:
+            ordered = sorted(tiles)
+        return ordered
+
+    def _build_tile_entries(
+        self, tiles: Sequence[int], face_up: bool
+    ) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for tile in tiles or []:
+            try:
+                tile_id = int(tile)
+            except (TypeError, ValueError):
+                tile_id = -1
+            entries.append({"tile": tile_id, "face_up": face_up})
+        return entries
+
+    def _build_meld_entries(
+        self, meld_list: Sequence[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        meld_entries: list[dict[str, Any]] = []
+        for meld in meld_list or []:
+            tiles = list(reversed(list(meld.get("m", []))))
+            opened = bool(meld.get("opened", True))
+            meld_type = meld.get("type", "")
+            claimed_tile = meld.get("claimed_tile")
+            sideways_index: Optional[int] = None
+            if claimed_tile is not None:
+                try:
+                    sideways_index = tiles.index(claimed_tile)
+                except ValueError:
+                    sideways_index = None
+            tile_entries: list[dict[str, Any]] = []
+            total_tiles = len(tiles)
+            for idx, tile in enumerate(tiles):
+                orientation = 0
+                if sideways_index is not None and idx == sideways_index:
+                    orientation = 90
+                face_up = opened
+                if not opened and meld_type == "kan" and total_tiles >= 4 and idx in {0, total_tiles - 1}:
+                    face_up = False
+                try:
+                    tile_id = int(tile)
+                except (TypeError, ValueError):
+                    tile_id = -1
+                tile_entries.append(
+                    {
+                        "tile": tile_id,
+                        "face_up": face_up,
+                        "orientation": orientation,
+                    }
+                )
+            status = "open" if opened else "closed"
+            label = f"{meld_type.title()} ({status})" if meld_type else f"Meld ({status})"
+            meld_entries.append({"tiles": tile_entries, "label": label})
+        return meld_entries
+
     def _format_delta(self, value: Any) -> str:
         try:
             numeric = float(value)
@@ -605,6 +1047,38 @@ class MahjongEnvKivyWrapper:
             return f"{label}: {tiles_printout(tiles).strip()}"
         except Exception:
             return f"{label}: {' '.join(str(t) for t in tiles)}"
+
+    def _extract_winner_indices(self, agari: Any) -> set[int]:
+        winners: set[int] = set()
+        if isinstance(agari, dict):
+            who = agari.get("who")
+            if isinstance(who, int):
+                winners.add(who)
+            elif isinstance(who, Iterable) and not isinstance(who, (str, bytes)):
+                for value in who:
+                    if isinstance(value, int):
+                        winners.add(value)
+        return winners
+
+    def _compute_hand_reveal_flags(self, num_players: int) -> list[bool]:
+        reveal = [False] * max(0, num_players)
+        for idx in range(num_players):
+            reveal[idx] = idx == 0
+
+        if getattr(self._env, "phase", "") != "score":
+            return reveal
+
+        agari = getattr(self._env, "agari", None)
+        if agari:
+            for winner in self._extract_winner_indices(agari):
+                if 0 <= winner < num_players:
+                    reveal[winner] = True
+        else:
+            tenpai_flags = list(getattr(self._env, "tenpai", []))
+            for idx in range(num_players):
+                if idx < len(tenpai_flags) and tenpai_flags[idx]:
+                    reveal[idx] = True
+        return reveal
 
     def _extract_round_state(self) -> Tuple[str, int]:
         round_info = getattr(self._env, "round", [-1, 0])
