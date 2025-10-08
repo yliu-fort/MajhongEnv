@@ -14,8 +14,9 @@ from typing import Any, Iterable, Optional, Sequence
 import threading
 
 try:  # pragma: no cover - the import itself is a runtime dependency guard
-    from kivy.app import App
+    from kivy.base import EventLoop
     from kivy.clock import Clock
+    from kivy.core.window import Window
     from kivy.lang import Builder
     from kivy.properties import BooleanProperty, ObjectProperty, StringProperty
     from kivy.uix.boxlayout import BoxLayout
@@ -86,7 +87,7 @@ class PlayerPanel(BoxLayout):
 
 
 class MahjongGUIRoot(BoxLayout):
-    """Root widget used by :class:`MahjongKivyApp`."""
+    """Root widget used by :class:`MahjongEnvKivyWrapper`."""
 
     controller = ObjectProperty(None, allownone=True)
     status_text = StringProperty("Initializing GUI…")
@@ -169,21 +170,6 @@ class MahjongGUIRoot(BoxLayout):
         self.update_controls(state)
 
 
-class MahjongKivyApp(App):
-    """Thin App wrapper so the GUI can live in a background thread."""
-
-    def __init__(self, controller: "MahjongEnvKivyWrapper", **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._controller = controller
-
-    def build(self) -> MahjongGUIRoot:  # type: ignore[override]
-        kv_path = Path(__file__).resolve().parent / "mahjong_gui.kv"
-        Builder.load_file(str(kv_path))
-        root = MahjongGUIRoot()
-        root.controller = self._controller
-        return root
-
-
 class MahjongEnvKivyWrapper:
     """Mahjong environment with a Kivy driven GUI overlay."""
 
@@ -211,9 +197,7 @@ class MahjongEnvKivyWrapper:
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
         self._lock = threading.RLock()
         self._control_event = threading.Event()
-        self._app_thread: Optional[threading.Thread] = None
-        self._root_ready = threading.Event()
-        self._app: Optional[MahjongKivyApp] = None
+        self._window_bound = False
         self._root: Optional[MahjongGUIRoot] = None
         self._ensure_app()
 
@@ -229,9 +213,11 @@ class MahjongEnvKivyWrapper:
         self._score_pause_pending = False
         self._last_phase_is_score_last = getattr(self._env, "phase", "")
         self._render()
+        self._pump_ui()
         return observation
 
     def step(self, action: int) -> tuple[Any, float, bool, dict[str, Any]]:
+        self._pump_ui()
         self._process_wait_loop()
         if self._quit_requested:
             observation = self._env.get_observation(self._env.current_player)
@@ -252,10 +238,11 @@ class MahjongEnvKivyWrapper:
     def close(self) -> None:
         self._quit_requested = True
         self._control_event.set()
-        if self._app is not None:
-            Clock.schedule_once(lambda _dt: self._app.stop())
-        if self._app_thread is not None and self._app_thread.is_alive():
-            self._app_thread.join(timeout=5.0)
+        self._pump_ui()
+        if self._root is not None and self._root.parent is not None:
+            Window.remove_widget(self._root)
+        self._root = None
+        self._pump_ui()
         self._env.close()
 
     def action_masks(self) -> Any:
@@ -310,39 +297,42 @@ class MahjongEnvKivyWrapper:
     def request_quit(self) -> None:
         self._quit_requested = True
         self._control_event.set()
-        if self._app is not None:
-            Clock.schedule_once(lambda _dt: self._app.stop(), 0)
+        self._pump_ui()
 
     def set_root(self, root: MahjongGUIRoot) -> None:
         self._root = root
-        self._root_ready.set()
         self._render()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
     def _ensure_app(self) -> None:
-        if self._app_thread is not None and self._app_thread.is_alive():
+        if self._root is not None:
             return
 
-        def _run_app() -> None:
-            self._app = MahjongKivyApp(controller=self)
-            try:
-                self._app.run()
-            finally:
-                self._quit_requested = True
-                self._control_event.set()
+        if not getattr(self.__class__, "_kv_loaded", False):
+            kv_path = Path(__file__).resolve().parent / "mahjong_gui.kv"
+            Builder.load_file(str(kv_path))
+            setattr(self.__class__, "_kv_loaded", True)
 
-        self._app_thread = threading.Thread(target=_run_app, name="MahjongKivyApp", daemon=True)
-        self._app_thread.start()
-        self._root_ready.wait(timeout=5.0)
+        EventLoop.ensure_window()
+        root = MahjongGUIRoot()
+        root.controller = self
+        if not self._window_bound:
+            Window.bind(on_request_close=self._on_window_close)
+            self._window_bound = True
+        if root.parent is None:
+            Window.add_widget(root)
+        self._root = root
+        self._pump_ui()
 
     def _process_wait_loop(self) -> None:
         while self._should_wait():
             self._render()
             wait_time = 1.0 / float(self._fps)
-            self._control_event.wait(timeout=wait_time)
-            self._control_event.clear()
+            self._pump_ui()
+            if self._control_event.wait(timeout=wait_time):
+                self._control_event.clear()
 
     def _should_wait(self) -> bool:
         if self._quit_requested or self._env.done:
@@ -361,6 +351,19 @@ class MahjongEnvKivyWrapper:
                 self._root.update_state(state)
 
         Clock.schedule_once(_apply_update, 0)
+        self._pump_ui()
+
+    def _pump_ui(self) -> None:
+        try:
+            Clock.tick()
+            EventLoop.idle()
+        except Exception:
+            pass
+
+    def _on_window_close(self, *_: Any) -> bool:
+        self._quit_requested = True
+        self._control_event.set()
+        return False
 
     # ------------------------------------------------------------------
     # State extraction helpers
