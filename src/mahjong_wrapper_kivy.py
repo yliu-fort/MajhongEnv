@@ -682,6 +682,7 @@ class MahjongEnvKivyWrapper:
         angle: int,
     ) -> None:
         tile_size = self._tile_metrics.get("south_hand", (40, 56))
+        meld_tile = self._tile_metrics.get("meld", tile_size)
         spacing = tile_size[0] + 6
         draw_gap = 0
 
@@ -746,7 +747,7 @@ class MahjongEnvKivyWrapper:
             )
 
         self._draw_discards(canvas, board, play_rect, player_idx, tile_size)
-        self._draw_melds(canvas, board, play_rect, player_idx, tile_size)
+        self._draw_melds(canvas, board, play_rect, player_idx, tile_size, meld_tile)
 
         canvas.add(PopMatrix())
 
@@ -788,16 +789,17 @@ class MahjongEnvKivyWrapper:
         board: MahjongBoardWidget,
         play_rect: _Rect,
         player_idx: int,
-        tile_size: Tuple[int, int],
+        hand_tile: Tuple[int, int],
+        meld_tile: Tuple[int, int],
     ) -> None:
         melds = getattr(self._env, "melds", [])
         if player_idx >= len(melds):
             return
-        area = _Rect(play_rect.width - 14 - (tile_size[0] * 4 + 12), 0, tile_size[0] * 4 + 12, play_rect.height)
-        area.top = play_rect.bottom - tile_size[1] - 14
+        margin_side = 14
+        max_meld_width = meld_tile[0] * 4 + 12
+        x = max(margin_side, play_rect.width - margin_side - max_meld_width)
+        y = play_rect.bottom - hand_tile[1] - 14
         spacing = 8
-        x = area.left
-        y = area.bottom
         for meld in melds[player_idx]:
             tiles = list(reversed([tile for tile in meld.get("m", [])]))
             opened = meld.get("opened", True)
@@ -826,15 +828,15 @@ class MahjongEnvKivyWrapper:
                     board,
                     play_rect,
                     tile,
-                    tile_size,
+                    meld_tile,
                     tile_face_up,
                     tile_orientation,
                     (cur_x, cur_y),
                 )
                 if sideways_index is not None and idx in {sideways_index - 1, sideways_index}:
-                    cur_x -= tile_size[1] + 4
+                    cur_x -= meld_tile[1] + 4
                 else:
-                    cur_x -= tile_size[0] + 4
+                    cur_x -= meld_tile[0] + 4
             x = cur_x - spacing
 
     def _draw_tile_grid(
