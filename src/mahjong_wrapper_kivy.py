@@ -1010,6 +1010,7 @@ class MahjongEnvKivyWrapper:
             canvas.add(PopMatrix())
             return
 
+        canvas.add(Color(1, 1, 1, 1))
         canvas.add(Rectangle(texture=texture, size=size, pos=(0, 0)))
         canvas.add(PopMatrix())
 
