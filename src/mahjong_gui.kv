@@ -1,0 +1,115 @@
+#:kivy 2.1.0
+#:import dp kivy.metrics.dp
+
+<PlayerPanel@BoxLayout>:
+    header_text: ""
+    status_text: ""
+    hand_text: ""
+    meld_text: ""
+    discard_text: ""
+    padding: dp(10)
+    spacing: dp(6)
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    canvas.before:
+        Color:
+            rgba: (0.08, 0.1, 0.14, 0.9)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [10]
+    Label:
+        text: root.header_text
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1]
+        halign: "left"
+        valign: "middle"
+    Label:
+        text: root.status_text
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1]
+        halign: "left"
+        valign: "middle"
+    Label:
+        text: root.hand_text
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1]
+        halign: "left"
+        valign: "middle"
+    Label:
+        text: root.meld_text
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1]
+        halign: "left"
+        valign: "middle"
+    Label:
+        text: root.discard_text
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1]
+        halign: "left"
+        valign: "middle"
+
+<MahjongGUIRoot>:
+    orientation: "vertical"
+    padding: dp(16)
+    spacing: dp(12)
+    BoxLayout:
+        id: control_bar
+        size_hint_y: None
+        height: dp(48)
+        spacing: dp(10)
+        Button:
+            id: auto_button
+            text: root.auto_button_text
+            on_release: root.on_toggle_auto()
+        Button:
+            id: step_button
+            text: "Step"
+            disabled: root.step_button_disabled
+            on_release: root.on_step_once()
+        Button:
+            id: pause_button
+            text: root.pause_button_text
+            on_release: root.on_toggle_pause()
+        Button:
+            id: quit_button
+            text: "Quit"
+            on_release: root.on_quit()
+    Label:
+        id: status_label
+        text: root.status_text
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1] + dp(8)
+        halign: "left"
+        valign: "middle"
+    ScrollView:
+        size_hint_y: 0.25
+        do_scroll_x: False
+        Label:
+            id: info_label
+            text: root.info_text
+            text_size: self.width, None
+            size_hint_y: None
+            height: self.texture_size[1]
+            halign: "left"
+            valign: "top"
+    GridLayout:
+        id: players_grid
+        cols: 2
+        spacing: dp(12)
+        size_hint_y: 1
+        PlayerPanel:
+            id: player0
+        PlayerPanel:
+            id: player1
+        PlayerPanel:
+            id: player2
+        PlayerPanel:
+            id: player3
