@@ -1,0 +1,92 @@
+#:kivy 2.1.0
+
+<MahjongRoot>:
+    board: board
+    status_label: status_label
+    reward_label: reward_label
+    done_label: done_label
+    pause_button: pause_button
+    auto_button: auto_button
+    step_button: step_button
+    canvas.before:
+        Color:
+            rgba: 12/255.0, 30/255.0, 60/255.0, 1
+        Rectangle:
+            size: self.size
+            pos: self.pos
+    MahjongBoardWidget:
+        id: board
+        size_hint: None, None
+        width: min(root.width, root.height)
+        height: min(root.width, root.height)
+        pos: (root.center_x - self.width / 2, root.center_y - self.height / 2)
+    Label:
+        id: status_label
+        text: ""
+        halign: 'left'
+        valign: 'top'
+        text_size: self.width, None
+        size_hint: None, None
+        size: max(240, self.texture_size[0]), self.texture_size[1]
+        pos: 16, root.height - self.height - 16
+        color: 170/255.0, 190/255.0, 210/255.0, 1
+    Label:
+        id: reward_label
+        text: ""
+        halign: 'right'
+        valign: 'top'
+        text_size: None, None
+        size_hint: None, None
+        size: self.texture_size
+        pos: root.width - self.width - 16, root.height - self.height - 16
+        color: 235/255.0, 235/255.0, 235/255.0, 1
+    Label:
+        id: done_label
+        text: ""
+        halign: 'right'
+        valign: 'top'
+        text_size: None, None
+        size_hint: None, None
+        size: self.texture_size
+        pos: root.width - self.width - 16, reward_label.y - self.height - 4
+        color: 220/255.0, 120/255.0, 120/255.0, 1
+    Button:
+        id: step_button
+        text: "Next"
+        size_hint: None, None
+        size: 160, 44
+        pos: root.width - self.width - 16, 16
+        background_normal: ''
+        background_color: 5/255.0, 5/255.0, 5/255.0, 1
+    Button:
+        id: auto_button
+        text: "Auto Next: ON"
+        size_hint: None, None
+        size: 160, 44
+        pos: step_button.x, step_button.top + 10
+        background_normal: ''
+        background_color: 5/255.0, 5/255.0, 5/255.0, 1
+    Button:
+        id: pause_button
+        text: "Pause on Score: OFF"
+        size_hint: None, None
+        size: 160, 44
+        pos: auto_button.x, auto_button.top + 10
+        background_normal: ''
+        background_color: 5/255.0, 5/255.0, 5/255.0, 1
+
+<MahjongBoardWidget>:
+    canvas.before:
+        Color:
+            rgba: 24/255.0, 60/255.0, 90/255.0, 1
+        RoundedRectangle:
+            size: self.size
+            pos: self.pos
+            radius: [16, 16, 16, 16]
+    canvas.after:
+        Color:
+            rgba: 40/255.0, 90/255.0, 130/255.0, 1
+        Line:
+            rounded_rectangle: (*self.pos, *self.size, 16)
+            width: 3
+
