@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence, Tuple
+from typing import Any, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
@@ -24,9 +25,9 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
 try:  # pragma: no cover - optional dependency
-    from kivy_garden.svg import Svg
+    from cairosvg import svg2png
 except Exception:  # pragma: no cover - optional dependency
-    Svg = None
+    svg2png = None
 
 import threading
 
@@ -174,6 +175,11 @@ class MahjongEnvKivyWrapper:
         font_size: int = 18,
         fallback_fonts: Optional[Sequence[str]] = None,
         root_widget: Optional[MahjongRoot] = None,
+        tile_texture_size: Optional[Tuple[int, int]] = None,
+        tile_texture_use_tile_metrics: bool = False,
+        tile_texture_background: Optional[
+            Union[str, Sequence[float], Sequence[int]]
+        ] = None,
         **kwargs: Any,
     ) -> None:
         self._env = env or _BaseMahjongEnv(*args, **kwargs)
@@ -212,6 +218,7 @@ class MahjongEnvKivyWrapper:
         self._danger_color = (220 / 255.0, 120 / 255.0, 120 / 255.0, 1)
         self._face_down_color = (18 / 255.0, 18 / 255.0, 22 / 255.0, 1)
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
+        self._tile_texture_background = "#FFFFFF"
 
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
@@ -225,6 +232,18 @@ class MahjongEnvKivyWrapper:
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
 
+        if tile_texture_size is not None:
+            width, height = tile_texture_size
+            self._tile_texture_explicit_size: Optional[Tuple[int, int]] = (
+                max(1, int(width)),
+                max(1, int(height)),
+            )
+        else:
+            self._tile_texture_explicit_size = None
+        self._tile_texture_auto_size = bool(tile_texture_use_tile_metrics)
+        
+        self._current_texture_render_size: Optional[Tuple[int, int]] = None
+
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
         self._auto_advance = True
         self._pause_on_score = False
@@ -236,7 +255,7 @@ class MahjongEnvKivyWrapper:
         self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
         self._step_event = threading.Event()
         self._scheduled = False
-        self._load_tile_assets()
+        self._load_tile_assets(self._tile_texture_explicit_size)
         self._connect_controls()
 
         self._clock_event = Clock.schedule_interval(self._on_frame, 1.0 / self._fps)
@@ -318,7 +337,19 @@ class MahjongEnvKivyWrapper:
         self._root.step_button.bind(on_release=lambda *_: self._trigger_step_once())
         self._root.pause_button.bind(on_release=lambda *_: self._toggle_pause())
 
-    def _load_tile_assets(self) -> None:
+    def _load_tile_assets(self, target_size: Optional[Tuple[int, int]] = None) -> None:
+        if target_size is None:
+            target_size = self._tile_texture_explicit_size
+        if target_size is not None:
+            width, height = target_size
+            sanitized_size: Optional[Tuple[int, int]] = (
+                max(1, int(width)),
+                max(1, int(height)),
+            )
+        else:
+            sanitized_size = None
+        self._current_texture_render_size = sanitized_size
+
         self._raw_tile_textures.clear()
         if not self._asset_root.exists():
             return
@@ -328,12 +359,24 @@ class MahjongEnvKivyWrapper:
             if not path.exists():
                 continue
             texture = None
-            if Svg is not None:
+            if svg2png is not None:
+                svg_kwargs: dict[str, Any] = {"url": str(path)}
+                if sanitized_size is not None:
+                    svg_kwargs["output_width"] = sanitized_size[0]
+                    svg_kwargs["output_height"] = sanitized_size[1]
+                if self._tile_texture_background is not None:
+                    svg_kwargs["background_color"] = self._tile_texture_background
                 try:
-                    svg = Svg(str(path))
-                    texture = svg.texture
+                    png_bytes = svg2png(**svg_kwargs)
                 except Exception:
-                    texture = None
+                    png_bytes = None
+                else:
+                    try:
+                        buffer = BytesIO(png_bytes)
+                        image = CoreImage(buffer, ext="png")
+                        texture = image.texture
+                    except Exception:
+                        texture = None
             if texture is None:
                 try:
                     image = CoreImage(str(path))
@@ -417,6 +460,18 @@ class MahjongEnvKivyWrapper:
             "wall": tile_size,
             "meld": tile_size,
         }
+        self._update_auto_tile_texture_size()
+
+    def _update_auto_tile_texture_size(self) -> None:
+        if not self._tile_texture_auto_size:
+            return
+        base_size = self._tile_metrics.get("south_hand")
+        if not base_size:
+            return
+        target_size = (max(1, int(base_size[0])), max(1, int(base_size[1])))
+        if self._current_texture_render_size == target_size:
+            return
+        self._load_tile_assets(target_size)
 
     def _ensure_riichi_tracking_capacity(self, count: int) -> None:
         count = max(0, count)
@@ -834,7 +889,7 @@ class MahjongEnvKivyWrapper:
                     (cur_x, cur_y),
                 )
                 if sideways_index is not None and idx in {sideways_index - 1, sideways_index}:
-                    cur_x -= meld_tile[1] + 4
+                    cur_x -= (meld_tile[0]+meld_tile[1])/2 + 4
                 else:
                     cur_x -= meld_tile[0] + 4
             x = cur_x - spacing
@@ -867,7 +922,9 @@ class MahjongEnvKivyWrapper:
             if row != row_prev:
                 x = x0
             elif orientation_map and idx - 1 in orientation_map:
-                x += tile_size[1] + spacing
+                x += (tile_size[0]+tile_size[1])/2 + spacing
+            elif orientation_map and idx in orientation_map:
+                x += (tile_size[0]+tile_size[1])/2 + spacing
             else:
                 x += tile_size[0] + spacing
             y = area.top + row * (tile_size[1] + spacing)
@@ -917,7 +974,8 @@ class MahjongEnvKivyWrapper:
             canvas.add(PopMatrix())
             return
 
-        canvas.add(Rectangle(texture=texture, size=size, pos=(0, 0)))
+        canvas.add(Color(1, 1, 1, 1))
+        canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
         canvas.add(PopMatrix())
 
     def _draw_tile_placeholder(

@@ -9,7 +9,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.lang import Builder
 
-from agent.random_discard_agent import RandomDiscardAgent
+from agent.visual_agent import VisualAgent
 from mahjong_env import MahjongEnv
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
 
@@ -25,7 +25,8 @@ class MahjongKivyApp(App):
 
         self.env = MahjongEnv(num_players=4)
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
-        self.agent = RandomDiscardAgent(self.env)
+        self.agent = VisualAgent(self.env, backbone="resnet50")
+        self.agent.load_model("model_weights/latest.pt")
         self._observation = self.wrapper.reset()
 
         interval = 1.0 / max(1, self.wrapper.fps)
