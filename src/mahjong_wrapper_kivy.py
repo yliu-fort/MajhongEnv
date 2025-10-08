@@ -568,6 +568,8 @@ class MahjongEnvKivyWrapper:
         self._draw_center_panel(canvas, board, play_rect)
         self._draw_dead_wall(canvas, board, play_rect)
         self._draw_player_areas(canvas, board, play_rect)
+        if self._score_last():
+            self._draw_score_panel(canvas, board, play_rect)
         self._draw_status_labels()
         self._update_control_buttons()
 
@@ -582,6 +584,33 @@ class MahjongEnvKivyWrapper:
             base_x + rect.left + x,
             base_y + rect.top + rect.height - y - height,
         )
+
+    def _wrap_text(
+        self, text: str, max_width: float, font_size: Optional[float] = None
+    ) -> list[str]:
+        if not text:
+            return []
+        max_width = max(10.0, float(max_width))
+        effective_size = float(font_size if font_size is not None else self._font_size)
+        words = str(text).split()
+        lines: list[str] = []
+        current = ""
+
+        def measure_width(candidate: str) -> float:
+            label = CoreLabel(text=candidate, font_size=effective_size)
+            label.refresh()
+            return label.texture.size[0] if label.texture is not None else 0.0
+
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if measure_width(candidate) <= max_width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
 
     def _draw_center_panel(
         self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
@@ -665,6 +694,336 @@ class MahjongEnvKivyWrapper:
             )
             canvas.add(Color(*color))
             canvas.add(Rectangle(texture=label.texture, size=label.texture.size, pos=(px, py)))
+
+    def _draw_score_panel(
+        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
+    ) -> None:
+        surface_width, surface_height = play_rect.width, play_rect.height
+        margin = 0.0
+        padding = 14.0
+        min_dimension = min(surface_width, surface_height)
+        available_side = max(0.0, min_dimension - margin * 2.0)
+        effective_side = available_side if available_side > 0 else min_dimension
+        max_text_width = max(50.0, effective_side - padding * 2.0)
+
+        base_font_size = float(self._font_size)
+        small_font_size = float(max(12, self._font_size - 4))
+        header_font_size = float(self._font_size + 8)
+
+        def create_label(text: str, size: float) -> CoreLabel:
+            label = CoreLabel(text=text, font_size=size)
+            label.refresh()
+            return label
+
+        sample_small_label = create_label("Hg", small_font_size)
+        small_line_height = sample_small_label.texture.size[1] + 2 if sample_small_label.texture else 18
+        sample_base_label = create_label("Hg", base_font_size)
+        base_line_height = sample_base_label.texture.size[1] + 4 if sample_base_label.texture else 24
+        yaku_label_sample = create_label("Yaku: ", small_font_size)
+        yaku_label_width = yaku_label_sample.texture.size[0] if yaku_label_sample.texture else 0.0
+
+        round_data = getattr(self._env, "round", [0, 0])
+        round_index = round_data[0] if isinstance(round_data, Sequence) and round_data else 0
+        if isinstance(round_index, Sequence):
+            round_index = 0
+        elif not isinstance(round_index, int):
+            round_index = 0
+        wind_names = ["East", "South", "West", "North"]
+        wind = wind_names[(round_index // 4) % 4]
+        hand_number = round_index % 4 + 1
+        honba = round_data[1] if len(round_data) > 1 and isinstance(round_data[1], int) else 0
+        riichi_sticks = getattr(self._env, "num_riichi", 0)
+        kyoutaku = getattr(self._env, "num_kyoutaku", 0)
+
+        info_lines = [
+            f"{wind} {hand_number} | Honba {honba} | Riichi {riichi_sticks} | Kyoutaku {kyoutaku}"
+        ]
+
+        seat_names = list(getattr(self._env, "seat_names", []))
+        num_players = getattr(self._env, "num_players", 0)
+        if len(seat_names) < num_players:
+            seat_names.extend([f"P{idx}" for idx in range(len(seat_names), num_players)])
+
+        agari = getattr(self._env, "agari", None)
+        agari_data = agari if isinstance(agari, dict) else None
+        message_lines: list[str] = []
+        if agari_data:
+            winner = agari_data.get("who", -1)
+            from_who = agari_data.get("fromwho", -1)
+            if isinstance(winner, int) and 0 <= winner < num_players:
+                winner_name = seat_names[winner]
+            else:
+                winner_name = f"Player {winner}"
+            if isinstance(from_who, int) and winner == from_who:
+                result_text = f"{winner_name} Tsumo"
+            else:
+                if isinstance(from_who, int) and 0 <= from_who < num_players:
+                    loser_name = seat_names[from_who]
+                else:
+                    loser_name = f"Player {from_who}"
+                result_text = f"{winner_name} Ron vs {loser_name}"
+            message_lines.append(result_text)
+            ten = list(agari_data.get("ten", []))
+            fu = ten[0] if len(ten) > 0 else 0
+            total = ten[1] if len(ten) > 1 else 0
+            han = ten[2] if len(ten) > 2 else 0
+            message_lines.append(f"{han} Han | {fu} Fu | {total} Points")
+        else:
+            tenpai_flags = list(getattr(self._env, "tenpai", []))
+            tenpai_players = [
+                seat_names[idx]
+                for idx, is_tenpai in enumerate(tenpai_flags)
+                if is_tenpai and idx < num_players
+            ]
+            if tenpai_players:
+                message_lines.append("Draw - Tenpai: " + ", ".join(tenpai_players))
+            else:
+                message_lines.append("Draw - No Tenpai")
+
+        yaku_lines: list[tuple[str, str]] = []
+        if agari_data:
+            raw_yaku = [str(item) for item in agari_data.get("yaku", [])]
+            if raw_yaku:
+                combined = ", ".join(raw_yaku)
+                wrapped_yaku = self._wrap_text(
+                    combined,
+                    max(10.0, max_text_width - yaku_label_width),
+                    font_size=small_font_size,
+                )
+                if wrapped_yaku:
+                    yaku_lines.append(("Yaku: ", wrapped_yaku[0]))
+                    for extra in wrapped_yaku[1:]:
+                        yaku_lines.append(("", extra))
+
+        title_label = create_label("Round Results", header_font_size)
+        content_width = title_label.texture.size[0] if title_label.texture else 0.0
+
+        info_labels = [create_label(line, small_font_size) for line in info_lines]
+        if info_labels:
+            info_width = max(
+                (label.texture.size[0] for label in info_labels if label.texture),
+                default=0.0,
+            )
+            content_width = max(content_width, info_width)
+
+        message_labels = [create_label(line, small_font_size) for line in message_lines]
+        if message_labels:
+            message_width = max(
+                (label.texture.size[0] for label in message_labels if label.texture),
+                default=0.0,
+            )
+            content_width = max(content_width, message_width)
+
+        yaku_entries: list[tuple[Optional[CoreLabel], CoreLabel]] = []
+        for prefix, text in yaku_lines:
+            prefix_label = create_label(prefix, small_font_size) if prefix else None
+            text_label = create_label(text, small_font_size)
+            yaku_entries.append((prefix_label, text_label))
+            prefix_width = prefix_label.texture.size[0] if prefix_label and prefix_label.texture else 0.0
+            text_width = text_label.texture.size[0] if text_label.texture else 0.0
+            total_width = prefix_width + (yaku_label_width if not prefix else 0.0) + text_width
+            content_width = max(content_width, total_width)
+
+        scores = list(getattr(self._env, "scores", []))
+        if len(scores) < num_players:
+            scores.extend([0] * (num_players - len(scores)))
+        score_deltas = list(getattr(self._env, "score_deltas", []))
+        if len(score_deltas) < num_players:
+            score_deltas.extend([0] * (num_players - len(score_deltas)))
+        dealer = getattr(self._env, "oya", -1)
+
+        def ordinal(value: int) -> str:
+            suffix = "th"
+            if value % 100 not in {11, 12, 13}:
+                suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+            return f"{value}{suffix}"
+
+        ranks: dict[int, int] = {}
+        sorted_players = sorted(
+            range(num_players), key=lambda idx: (-scores[idx], idx)
+        )
+        last_score: Optional[int] = None
+        current_rank = 0
+        for position, player_idx in enumerate(sorted_players):
+            if player_idx >= len(scores):
+                continue
+            score_value = scores[player_idx]
+            if last_score is None or score_value != last_score:
+                current_rank = position + 1
+                last_score = score_value
+            ranks[player_idx] = current_rank
+
+        winner_idx = agari_data.get("who") if agari_data else None
+        winner_idx = winner_idx if isinstance(winner_idx, int) else None
+
+        player_entries: list[dict[str, Any]] = []
+        for player_idx in range(num_players):
+            if player_idx >= len(scores):
+                continue
+            display_name = seat_names[player_idx]
+            if player_idx == dealer:
+                display_name += " (Dealer)"
+            base_color = (
+                self._accent_color
+                if winner_idx is not None and player_idx == winner_idx
+                else self._text_color
+            )
+            rank_text = ordinal(ranks.get(player_idx, player_idx + 1))
+            name_label = create_label(f"{rank_text}  {display_name}", base_font_size)
+            delta_value = score_deltas[player_idx] if player_idx < len(score_deltas) else 0
+            delta_points = int(round(delta_value * 100))
+            if delta_points > 0:
+                delta_color = self._accent_color
+            elif delta_points < 0:
+                delta_color = self._danger_color
+            else:
+                delta_color = self._muted_text_color
+            delta_label = create_label(f"{delta_points:+}", base_font_size)
+            score_points = int(round(scores[player_idx] * 100))
+            score_label = create_label(f"{score_points:>6d}", base_font_size)
+            player_entries.append(
+                {
+                    "name_label": name_label,
+                    "delta_label": delta_label,
+                    "score_label": score_label,
+                    "base_color": base_color,
+                    "delta_color": delta_color,
+                }
+            )
+            name_width = name_label.texture.size[0] if name_label.texture else 0.0
+            delta_width = delta_label.texture.size[0] if delta_label.texture else 0.0
+            score_width = score_label.texture.size[0] if score_label.texture else 0.0
+            score_line_width = name_width + score_width + delta_width + 16.0
+            content_width = max(content_width, score_line_width)
+            if name_label.texture:
+                base_line_height = max(base_line_height, name_label.texture.size[1] + 4)
+            if score_label.texture:
+                base_line_height = max(base_line_height, score_label.texture.size[1] + 4)
+            if delta_label.texture:
+                base_line_height = max(base_line_height, delta_label.texture.size[1] + 4)
+
+        small_candidates = info_labels + message_labels + [text for pair in yaku_entries for text in pair if text]
+        for label in small_candidates:
+            if label.texture:
+                small_line_height = max(small_line_height, label.texture.size[1] + 2)
+
+        info_height = len(info_labels) * small_line_height
+        message_height = len(message_labels) * small_line_height
+        player_section_height = len(player_entries) * base_line_height
+        yaku_height = len(yaku_entries) * small_line_height
+
+        panel_height = padding * 2.0 + (title_label.texture.size[1] if title_label.texture else 0.0)
+        if info_height:
+            panel_height += 6.0 + info_height
+        if message_height:
+            panel_height += 6.0 + message_height
+        if player_section_height:
+            panel_height += 6.0 + player_section_height
+        if yaku_height:
+            panel_height += 6.0 + yaku_height
+
+        required_width = padding * 2.0 + content_width
+        panel_size = max(required_width, panel_height)
+        if available_side > 0:
+            panel_size = min(panel_size, available_side)
+        else:
+            panel_size = min(panel_size, min_dimension)
+
+        panel_rect = _Rect(0.0, 0.0, panel_size, panel_size)
+        panel_rect.center = play_rect.center
+
+        def draw_label(label: CoreLabel, x: float, y: float, color: Sequence[float]) -> None:
+            if label.texture is None:
+                return
+            px, py = self._to_canvas_pos(
+                board, play_rect, x, y, label.texture.size[0], label.texture.size[1]
+            )
+            canvas.add(Color(*color))
+            canvas.add(
+                Rectangle(
+                    texture=label.texture,
+                    size=label.texture.size,
+                    pos=(px, py),
+                )
+            )
+
+        panel_pos = self._to_canvas_pos(
+            board,
+            play_rect,
+            panel_rect.left,
+            panel_rect.top,
+            panel_rect.width,
+            panel_rect.height,
+        )
+        canvas.add(Color(*self._panel_color))
+        canvas.add(
+            RoundedRectangle(
+                pos=panel_pos,
+                size=(panel_rect.width, panel_rect.height),
+                radius=[12, 12, 12, 12],
+            )
+        )
+        canvas.add(Color(*self._panel_border))
+        canvas.add(
+            Line(
+                rounded_rectangle=(
+                    panel_pos[0],
+                    panel_pos[1],
+                    panel_rect.width,
+                    panel_rect.height,
+                    12,
+                ),
+                width=2,
+            )
+        )
+
+        current_y = panel_rect.top + padding
+        title_x = panel_rect.centerx - (title_label.texture.size[0] / 2 if title_label.texture else 0.0)
+        draw_label(title_label, title_x, current_y, self._accent_color)
+        current_y += (title_label.texture.size[1] if title_label.texture else 0.0) + 6.0
+
+        for label in info_labels:
+            draw_label(label, panel_rect.left + padding, current_y, self._muted_text_color)
+            if label.texture:
+                current_y += label.texture.size[1] + 2.0
+        if info_labels:
+            current_y += 4.0
+
+        for label in message_labels:
+            draw_label(label, panel_rect.left + padding, current_y, self._text_color)
+            if label.texture:
+                current_y += label.texture.size[1] + 2.0
+        if message_labels:
+            current_y += 4.0
+
+        for entry in player_entries:
+            name_label = entry["name_label"]
+            delta_label = entry["delta_label"]
+            score_label = entry["score_label"]
+            base_color = entry["base_color"]
+            delta_color = entry["delta_color"]
+            draw_label(name_label, panel_rect.left + padding, current_y, base_color)
+            delta_width = delta_label.texture.size[0] if delta_label.texture else 0.0
+            delta_x = panel_rect.right - padding - delta_width
+            draw_label(delta_label, delta_x, current_y, delta_color)
+            score_width = score_label.texture.size[0] if score_label.texture else 0.0
+            score_x = delta_x - 16.0 - score_width
+            draw_label(score_label, score_x, current_y, base_color)
+            current_y += base_line_height
+        if player_entries:
+            current_y += 4.0
+
+        for prefix_label, text_label in yaku_entries:
+            x = panel_rect.left + padding
+            if prefix_label:
+                draw_label(prefix_label, x, current_y, self._accent_color)
+                if prefix_label.texture:
+                    x += prefix_label.texture.size[0]
+            else:
+                x += yaku_label_width
+            draw_label(text_label, x, current_y, self._text_color)
+            if text_label.texture:
+                current_y += text_label.texture.size[1] + 2.0
 
     def _draw_dead_wall(
         self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
