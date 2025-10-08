@@ -889,7 +889,7 @@ class MahjongEnvKivyWrapper:
                     (cur_x, cur_y),
                 )
                 if sideways_index is not None and idx in {sideways_index - 1, sideways_index}:
-                    cur_x -= meld_tile[1] + 4
+                    cur_x -= (meld_tile[0]+meld_tile[1])/2 + 4
                 else:
                     cur_x -= meld_tile[0] + 4
             x = cur_x - spacing
@@ -922,7 +922,9 @@ class MahjongEnvKivyWrapper:
             if row != row_prev:
                 x = x0
             elif orientation_map and idx - 1 in orientation_map:
-                x += tile_size[1] + spacing
+                x += (tile_size[0]+tile_size[1])/2 + spacing
+            elif orientation_map and idx in orientation_map:
+                x += (tile_size[0]+tile_size[1])/2 + spacing
             else:
                 x += tile_size[0] + spacing
             y = area.top + row * (tile_size[1] + spacing)
@@ -973,7 +975,7 @@ class MahjongEnvKivyWrapper:
             return
 
         canvas.add(Color(1, 1, 1, 1))
-        canvas.add(Rectangle(texture=texture, size=size, pos=(0, 0)))
+        canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
         canvas.add(PopMatrix())
 
     def _draw_tile_placeholder(
