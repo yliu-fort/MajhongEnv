@@ -587,6 +587,29 @@ class MahjongEnvKivyWrapper:
             base_y + rect.top + rect.height - y - height,
         )
 
+    def _create_label(
+        self, text: str, font_size: int, primary_font: Optional[str] = None
+    ) -> CoreLabel:
+        font_candidates: list[str] = []
+        if primary_font:
+            font_candidates.append(primary_font)
+        for candidate in (self._font_name, *self._fallback_fonts):
+            if candidate and candidate not in font_candidates:
+                font_candidates.append(candidate)
+
+        for font_name in font_candidates:
+            try:
+                label = CoreLabel(text=text, font_size=font_size, font_name=font_name)
+                label.refresh()
+            except Exception:
+                continue
+            if getattr(label, "texture", None) is not None:
+                return label
+
+        label = CoreLabel(text=text, font_size=font_size)
+        label.refresh()
+        return label
+
     def _wrap_text(self, text: str, max_width: float, font_size: Optional[int] = None) -> list[str]:
         if not text:
             return []
@@ -597,8 +620,9 @@ class MahjongEnvKivyWrapper:
         current = ""
 
         def measure(candidate: str) -> float:
-            label = CoreLabel(text=candidate, font_size=font_size, font_name=self._font_name)
-            label.refresh()
+            label = self._create_label(candidate, font_size)
+            if label.texture is None:
+                return 0.0
             return float(label.texture.size[0])
 
         for word in words:
@@ -900,8 +924,7 @@ class MahjongEnvKivyWrapper:
                 message_lines.append("Draw - No Tenpai")
 
         yaku_font_size = max(10, self._font_size - 4)
-        yaku_label_proto = CoreLabel(text="Yaku: ", font_size=yaku_font_size, font_name=self._font_name)
-        yaku_label_proto.refresh()
+        yaku_label_proto = self._create_label("Yaku: ", yaku_font_size)
         yaku_label_width = yaku_label_proto.texture.size[0]
 
         yaku_lines: list[tuple[str, str]] = []
@@ -918,9 +941,7 @@ class MahjongEnvKivyWrapper:
                         yaku_lines.append(("", extra))
 
         def make_label(text: str, font_size: int) -> CoreLabel:
-            label = CoreLabel(text=text, font_size=font_size, font_name=self._font_name)
-            label.refresh()
-            return label
+            return self._create_label(text, font_size)
 
         title_font_size = self._font_size + 6
         info_font_size = max(10, self._font_size - 2)
