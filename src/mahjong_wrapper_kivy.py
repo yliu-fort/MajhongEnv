@@ -1363,10 +1363,10 @@ class MahjongEnvKivyWrapper:
             self._root.done_label.text = ""
 
     def _update_control_buttons(self) -> None:
-        pause_label = "Pause on Score: ON" if self._pause_on_score else "Pause on Score: OFF"
+        pause_label = "On-Pause on Score" if self._pause_on_score else "OFF-Pause on Score"
         self._root.pause_button.text = pause_label
         self._root.pause_button.disabled = not self._auto_advance
-        auto_label = "Auto Next: ON" if self._auto_advance else "Auto Next: OFF"
+        auto_label = "On-Auto Next" if self._auto_advance else "OFF-Auto Next"
         self._root.auto_button.text = auto_label
         step_enabled = (not self._auto_advance) or self._score_pause_active
         self._root.step_button.disabled = not step_enabled
