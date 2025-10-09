@@ -250,7 +250,7 @@ class MahjongEnvKivyWrapper:
         self._score_pause_active = False
         self._score_pause_pending = False
         self._step_once_requested = False
-        self._last_phase_is_score_last = ""
+        self._score_panel_was_visible = False
         self._pending_action: Optional[int] = None
         self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
         self._step_event = threading.Event()
@@ -282,7 +282,7 @@ class MahjongEnvKivyWrapper:
         self._step_once_requested = False
         self._score_pause_active = False
         self._score_pause_pending = False
-        self._last_phase_is_score_last = self._env.phase
+        self._score_panel_was_visible = self._score_last()
         self._riichi_states = []
         self._riichi_pending = []
         self._discard_counts = []
@@ -426,25 +426,27 @@ class MahjongEnvKivyWrapper:
         )
 
     def _update_pause_state(self) -> None:
-        if self._score_last():
+        score_panel_visible = self._score_last()
+        if score_panel_visible:
             if self._auto_advance and self._pause_on_score:
-                if not self._last_phase_is_score_last:
+                if not self._score_panel_was_visible:
                     self._score_pause_pending = True
                     self._score_pause_active = True
             else:
                 self._score_pause_pending = False
                 self._score_pause_active = False
-            self._last_phase_is_score_last = "score"
+            self._score_panel_was_visible = True
         elif self._score_pause_pending:
             if self._auto_advance and self._pause_on_score:
                 self._score_pause_active = True
             else:
                 self._score_pause_active = False
                 self._score_pause_pending = False
+            self._score_panel_was_visible = False
         else:
             self._score_pause_pending = False
             self._score_pause_active = False
-            self._last_phase_is_score_last = getattr(self._env, "phase", "")
+            self._score_panel_was_visible = False
 
     def _compute_tile_metrics(self, play_rect: _Rect) -> None:
         width = max(1, int(play_rect.width))
