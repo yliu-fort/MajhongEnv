@@ -422,7 +422,7 @@ class MahjongEnvKivyWrapper:
     def _score_last(self) -> bool:
         return (
             getattr(self._env, "phase", "") == "score"
-            and self._env.current_player == getattr(self._env, "num_players", 0) - 1
+            and self._env.current_player == - 1
         )
 
     def _update_pause_state(self) -> None:
@@ -717,7 +717,7 @@ class MahjongEnvKivyWrapper:
         num_players = getattr(self._env, "num_players", 0)
         if num_players <= 0:
             return
-        angle_map = {0: 0, 1: -90, 2: 180, 3: 90}
+        angle_map = {0: 0, 1: 90, 2: 180, 3: -90}
         reveal_flags = self._compute_hand_reveal_flags(num_players)
         for player_idx in range(min(4, num_players)):
             face_up = (
@@ -944,6 +944,7 @@ class MahjongEnvKivyWrapper:
         score_deltas = list(getattr(self._env, "score_deltas", []))
         if len(score_deltas) < num_players:
             score_deltas.extend([0] * (num_players - len(score_deltas)))
+        scores = [s + d for s, d in zip(scores, score_deltas)]
         dealer = getattr(self._env, "oya", -1)
 
         def ordinal(value: int) -> str:
@@ -1347,7 +1348,10 @@ class MahjongEnvKivyWrapper:
     def _draw_status_labels(self) -> None:
         if not self._root:
             return
-        phase_text = f"Phase: {self._env.phase}  |  Current Player: P{self._env.current_player}"
+        if self._env.current_player >= 0:
+            phase_text = f"Phase: {self._env.phase}  |  Current Player: P{self._env.current_player}"
+        else:
+            phase_text = f"Phase: {self._env.phase}  |  Current Player: -"
         self._root.status_label.text = phase_text
         reward_color = self._danger_color if self._last_payload.reward < 0 else self._text_color
         reward_text = f"Action: {self._last_payload.action}  Reward: {self._last_payload.reward:.2f}"

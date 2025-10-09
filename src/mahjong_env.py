@@ -484,27 +484,28 @@ class MahjongEnvBase(gym.Env):
                     self.tenpai = [len(self.machii[player]) > 0 for player in range(self.num_players)]
 
                 # 计算每家分数变动
-                if self.agari:
-                    self.score_deltas[player] = self.agari["sc"][player]
-                else:
-                    if self.final_penalty:
-                        # 计算流局罚符
-                        num_tenpai = sum(self.tenpai)
-                        if 0 < num_tenpai < 4:
-                            if self.tenpai[player]:
-                                self.score_deltas[player] = MahjongEnvBase.RYUUKYOKU_PENALTY // num_tenpai
-                            else:
-                                self.score_deltas[player] =-MahjongEnvBase.RYUUKYOKU_PENALTY // (4 - num_tenpai)
+                if player != -1:
+                    if self.agari:
+                        self.score_deltas[player] = self.agari["sc"][player]
+                    else:
+                        if self.final_penalty:
+                            # 计算流局罚符
+                            num_tenpai = sum(self.tenpai)
+                            if 0 < num_tenpai < 4:
+                                if self.tenpai[player]:
+                                    self.score_deltas[player] = MahjongEnvBase.RYUUKYOKU_PENALTY // num_tenpai
+                                else:
+                                    self.score_deltas[player] =-MahjongEnvBase.RYUUKYOKU_PENALTY // (4 - num_tenpai)
 
-                # 计算奖励
-                if self.agari:
-                    reward = 1 if self.score_deltas[player] > 0 else \
-                            -1 if self.score_deltas[player] < 0 else 0
-                else:
-                    reward = 0.01 if self.tenpai[player] else -0.01
+                    # 计算奖励
+                    if self.agari:
+                        reward = 1 if self.score_deltas[player] > 0 else \
+                                -1 if self.score_deltas[player] < 0 else 0
+                    else:
+                        reward = 0.01 if self.tenpai[player] else -0.01
 
                 # 结束更新分数流程，决定是否开始下一局或者宣告游戏结束
-                if player == self.num_players - 1:
+                if player == - 1:
                     wind =     "東南西北"
                     bon = "一二三四五六七八九十"
                     self.msg += f"{wind[(self.round[0]//4) % 4]}{bon[self.round[0]%4]}局{bon[self.round[1]]}本场 "
@@ -584,7 +585,7 @@ class MahjongEnvBase(gym.Env):
                             self.reset_for_next_round(oya_continue=True)
 
                 else:
-                    self.current_player = (player + 1) % self.num_players
+                    self.current_player = (player + 1) % self.num_players if (player + 1) < self.num_players else -1
             
             case "game_over":
                 # 更新顺位
