@@ -192,6 +192,7 @@ class MahjongEnvKivyWrapper:
             tuple(fallback_fonts)
             if fallback_fonts is not None
             else (
+                "sans:lang=ja",
                 "Noto Sans CJK SC",
                 "Noto Sans CJK TC",
                 "Noto Sans CJK JP",
@@ -405,8 +406,13 @@ class MahjongEnvKivyWrapper:
             if resolved:
                 return resolved
 
-        if not ascii_only and fallback:
-            return fallback[0]
+        if not ascii_only:
+            for pattern in ("sans:lang=ja", "serif:lang=ja", "monospace:lang=ja"):
+                resolved = self._resolve_font_candidate(pattern)
+                if resolved:
+                    return resolved
+            if fallback:
+                return fallback[0]
         return self._font_name or "Roboto"
 
     def _create_label(self, text: str, font_size: int) -> CoreLabel:
