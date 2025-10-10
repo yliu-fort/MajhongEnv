@@ -5,6 +5,8 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence, Tuple, Union
 
+import subprocess
+
 from kivy.base import EventLoop
 from kivy.clock import Clock
 from kivy.core.image import Image as CoreImage
@@ -20,6 +22,7 @@ from kivy.graphics import (
     Translate,
 )
 from kivy.graphics.instructions import InstructionGroup
+from kivy.resources import resource_find
 from kivy.properties import ObjectProperty
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
@@ -30,6 +33,11 @@ except Exception:  # pragma: no cover - optional dependency
     svg2png = None
 
 import threading
+
+try:  # pragma: no cover - optional dependency
+    import pygame
+except Exception:  # pragma: no cover - optional dependency
+    pygame = None
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 
@@ -207,6 +215,7 @@ class MahjongEnvKivyWrapper:
                 "Arial Unicode MS",
             )
         )
+        self._font_name = self._resolve_font_name(self._font_name)
         self._background_color = (12 / 255.0, 30 / 255.0, 60 / 255.0, 1)
         self._play_area_color = (24 / 255.0, 60 / 255.0, 90 / 255.0, 1)
         self._play_area_border = (40 / 255.0, 90 / 255.0, 130 / 255.0, 1)
@@ -260,6 +269,95 @@ class MahjongEnvKivyWrapper:
 
         self._clock_event = Clock.schedule_interval(self._on_frame, 1.0 / self._fps)
         self._scheduled = True
+
+    def _resolve_font_name(self, font_name: Optional[str]) -> str:
+        candidates: list[str] = []
+        if font_name:
+            candidates.extend(self._normalize_font_names(font_name))
+        candidates.extend(name for name in self._fallback_fonts if name)
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            normalized = candidate.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            resolved = self._find_font_path(normalized)
+            if resolved:
+                return resolved
+        return font_name or ""
+
+    @staticmethod
+    def _normalize_font_names(font_name: str | Iterable[str]) -> list[str]:
+        if isinstance(font_name, str):
+            return [name.strip() for name in font_name.replace(";", ",").split(",") if name.strip()]
+        return [name for name in font_name if isinstance(name, str) and name]
+
+    @staticmethod
+    def _font_matches_name(font_path: str, candidate: str) -> bool:
+        simplified_candidate = "".join(ch.lower() for ch in candidate if ch.isalnum())
+        if not simplified_candidate:
+            return True
+        stem = "".join(ch.lower() for ch in Path(font_path).stem if ch.isalnum())
+        return simplified_candidate in stem
+
+    def _find_font_path(self, candidate: str) -> Optional[str]:
+        try_path = Path(candidate)
+        if try_path.exists():
+            return str(try_path)
+
+        resource_path = resource_find(candidate)
+        if resource_path:
+            return resource_path
+
+        if pygame is not None and getattr(pygame, "font", None) is not None:
+            try:
+                matched = pygame.font.match_font(candidate)
+            except Exception:
+                matched = None
+            if matched and self._font_matches_name(matched, candidate):
+                return matched
+
+        try:
+            result = subprocess.run(
+                ["fc-match", "-f", "%{file}", candidate],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            result = None
+        if result and result.returncode == 0:
+            candidate_path = result.stdout.strip()
+            if candidate_path:
+                path_obj = Path(candidate_path)
+                if path_obj.exists() and self._font_matches_name(candidate_path, candidate):
+                    return str(path_obj)
+
+        search_dirs = [
+            Path.home() / ".fonts",
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+            Path("/System/Library/Fonts"),
+            Path("/Library/Fonts"),
+            Path("C:/Windows/Fonts"),
+        ]
+        simplified_candidate = "".join(ch.lower() for ch in candidate if ch.isalnum())
+        if simplified_candidate:
+            for directory in search_dirs:
+                if not directory.exists():
+                    continue
+                try:
+                    for font_path in directory.rglob("*.ttf"):
+                        if simplified_candidate in "".join(ch.lower() for ch in font_path.stem if ch.isalnum()):
+                            return str(font_path)
+                    for font_path in directory.rglob("*.otf"):
+                        if simplified_candidate in "".join(ch.lower() for ch in font_path.stem if ch.isalnum()):
+                            return str(font_path)
+                except Exception:
+                    continue
+
+        return None
 
     # ------------------------------------------------------------------
     # Exposed environment API
