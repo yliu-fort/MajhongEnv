@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+import subprocess
 from typing import Any, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
@@ -220,6 +221,8 @@ class MahjongEnvKivyWrapper:
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
         self._tile_texture_background = "#FFFFFF"
 
+        self._font_lookup_cache: dict[str, Optional[str]] = {}
+
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
 
@@ -330,6 +333,88 @@ class MahjongEnvKivyWrapper:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _normalize_font_names(font_name: str | Iterable[str]) -> list[str]:
+        if isinstance(font_name, str):
+            expanded = Path(font_name).expanduser()
+            if expanded.exists():
+                return [str(expanded)]
+            return [name.strip() for name in font_name.replace(";", ",").split(",") if name.strip()]
+        return [name for name in font_name if isinstance(name, str) and name]
+
+    def _resolve_font_candidate(self, name: str) -> Optional[str]:
+        if not name:
+            return None
+        cached = self._font_lookup_cache.get(name)
+        if cached is not None:
+            return cached or None
+
+        resolved: Optional[str] = None
+        expanded = Path(name).expanduser()
+        if expanded.exists():
+            resolved = str(expanded)
+        else:
+            try:
+                from kivy.resources import resource_find
+
+                found = resource_find(name)
+            except Exception:
+                found = None
+            if not found:
+                try:
+                    result = subprocess.run(
+                        ["fc-match", "-f", "%{file}\n", name],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                except Exception:
+                    candidate_path = None
+                else:
+                    candidate_path = result.stdout.strip().splitlines()[0] if result.stdout else ""
+                if candidate_path:
+                    candidate = Path(candidate_path)
+                    if candidate.exists():
+                        resolved = str(candidate)
+                elif found:
+                    resolved = found
+
+        if resolved is None and name == self._font_name:
+            resolved = name
+
+        self._font_lookup_cache[name] = resolved or ""
+        return resolved
+
+    def _choose_font_for_text(self, text: str) -> str:
+        ascii_only = not any(ord(ch) > 127 for ch in text)
+        primary: list[str] = []
+        if self._font_name:
+            primary = self._normalize_font_names(self._font_name)
+        fallback: list[str] = []
+        for name in self._fallback_fonts:
+            fallback.extend(self._normalize_font_names(name))
+        candidates = (primary + fallback) if ascii_only else (fallback + primary)
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            resolved = self._resolve_font_candidate(candidate)
+            if resolved:
+                return resolved
+
+        if not ascii_only and fallback:
+            return fallback[0]
+        return self._font_name or "Roboto"
+
+    def _create_label(self, text: str, font_size: int) -> CoreLabel:
+        font_name = self._choose_font_for_text(text)
+        label = CoreLabel(text=text, font_size=font_size, font_name=font_name)
+        label.refresh()
+        return label
+
     def _connect_controls(self) -> None:
         if not self._root:
             return
@@ -597,8 +682,7 @@ class MahjongEnvKivyWrapper:
         current = ""
 
         def measure(candidate: str) -> float:
-            label = CoreLabel(text=candidate, font_size=font_size, font_name=self._font_name)
-            label.refresh()
+            label = self._create_label(candidate, font_size)
             return float(label.texture.size[0])
 
         for word in words:
@@ -644,8 +728,7 @@ class MahjongEnvKivyWrapper:
         hand_number = round_index % 4 + 1
         round_text = f"{wind} {hand_number}"
 
-        title_label = CoreLabel(text=round_text, font_size=self._font_size + 8)
-        title_label.refresh()
+        title_label = self._create_label(round_text, self._font_size + 8)
         label_x = center_rect.centerx - title_label.texture.size[0] / 2
         label_y = center_rect.top + 18
         px, py = self._to_canvas_pos(board, play_rect, label_x, label_y, *title_label.texture.size)
@@ -662,8 +745,7 @@ class MahjongEnvKivyWrapper:
         )
         next_top = label_y + title_label.texture.size[1] + 12
         for text in counter_texts:
-            label = CoreLabel(text=text, font_size=self._font_size - 4)
-            label.refresh()
+            label = self._create_label(text, self._font_size - 4)
             label_x = center_rect.centerx - label.texture.size[0] / 2
             px, py = self._to_canvas_pos(board, play_rect, label_x, next_top, *label.texture.size)
             canvas.add(Color(*self._muted_text_color))
@@ -683,8 +765,7 @@ class MahjongEnvKivyWrapper:
                 continue
             score_value = scores[idx] * 100
             color = self._accent_color if idx == current_player else self._text_color
-            label = CoreLabel(text=f"{score_value:5d}", font_size=self._font_size)
-            label.refresh()
+            label = self._create_label(f"{score_value:5d}", self._font_size)
             px, py = self._to_canvas_pos(
                 board,
                 play_rect,
@@ -801,8 +882,7 @@ class MahjongEnvKivyWrapper:
         riichi_flags = list(getattr(self._env, "riichi", []))
         in_riichi = player_idx < len(riichi_flags) and riichi_flags[player_idx]
         if in_riichi:
-            label = CoreLabel(text="Riichi", font_size=self._font_size - 2)
-            label.refresh()
+            label = self._create_label("Riichi", self._font_size - 2)
             padding = 4
             flag_width = label.texture.size[0] + padding * 2
             flag_height = label.texture.size[1] + padding * 2
@@ -900,8 +980,7 @@ class MahjongEnvKivyWrapper:
                 message_lines.append("Draw - No Tenpai")
 
         yaku_font_size = max(10, self._font_size - 4)
-        yaku_label_proto = CoreLabel(text="Yaku: ", font_size=yaku_font_size, font_name=self._font_name)
-        yaku_label_proto.refresh()
+        yaku_label_proto = self._create_label("Yaku: ", yaku_font_size)
         yaku_label_width = yaku_label_proto.texture.size[0]
 
         yaku_lines: list[tuple[str, str]] = []
@@ -918,9 +997,7 @@ class MahjongEnvKivyWrapper:
                         yaku_lines.append(("", extra))
 
         def make_label(text: str, font_size: int) -> CoreLabel:
-            label = CoreLabel(text=text, font_size=font_size, font_name=self._font_name)
-            label.refresh()
-            return label
+            return self._create_label(text, font_size)
 
         title_font_size = self._font_size + 6
         info_font_size = max(10, self._font_size - 2)
@@ -1322,8 +1399,7 @@ class MahjongEnvKivyWrapper:
         canvas.add(RoundedRectangle(pos=pos, size=size, radius=[6, 6, 6, 6]))
         canvas.add(Color(245 / 255.0, 245 / 255.0, 245 / 255.0, 1))
         canvas.add(Line(rounded_rectangle=(*pos, *size, 6), width=2))
-        label = CoreLabel(text=_TILE_SYMBOLS[tile_34], font_size=max(12, int(height * 0.45)))
-        label.refresh()
+        label = self._create_label(_TILE_SYMBOLS[tile_34], max(12, int(height * 0.45)))
         label_pos = (
             pos[0] + width / 2 - label.texture.size[0] / 2,
             pos[1] + height / 2 - label.texture.size[1] / 2,
