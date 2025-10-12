@@ -78,10 +78,10 @@ _DEFAULT_LANGUAGE = "en"
 _LANGUAGE_ORDER: Tuple[str, ...] = ("en", "zh-Hans", "ja", "fr")
 _ASSET_FONT_ROOT = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 _FONT_PATHS: dict[str, Path] = {
-    "en": _ASSET_FONT_ROOT / "Noto_Sans" / "NotoSans-VariableFont_wdth,wght.ttf",
-    "zh-Hans": _ASSET_FONT_ROOT / "Noto_Sans_SC" / "NotoSansSC-VariableFont_wght.ttf",
-    "ja": _ASSET_FONT_ROOT / "Noto_Sans_JP" / "NotoSansJP-VariableFont_wght.ttf",
-    "fr": _ASSET_FONT_ROOT / "Noto_Sans" / "NotoSans-VariableFont_wdth,wght.ttf",
+    "en": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
+    "zh-Hans": _ASSET_FONT_ROOT / "Noto_Sans_SC" / "static" / "NotoSansSC-Regular.ttf",
+    "ja": _ASSET_FONT_ROOT / "Noto_Sans_JP" / "static" / "NotoSansJP-Regular.ttf",
+    "fr": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
 }
 _FALLBACK_FONT = _ASSET_FONT_ROOT / "Noto_Color_Emoji" / "NotoColorEmoji-Regular.ttf"
 
@@ -115,7 +115,7 @@ _ORDINAL_FUNCTIONS: dict[str, Callable[[int], str]] = {
 
 _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
     "en": {
-        "language_name": "English",
+        "language_name": "EN",
         "wind_names": ["East", "South", "West", "North"],
         "round_format": "{wind} {hand}",
         "counter_honba": "Honba {count}",
@@ -154,7 +154,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "no_tenpai_label": "No Tenpai",
     },
     "zh-Hans": {
-        "language_name": "简体中文",
+        "language_name": "ZH",
         "wind_names": ["东", "南", "西", "北"],
         "round_format": "{wind}{hand}局",
         "counter_honba": "本场 {count}",
@@ -193,7 +193,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "no_tenpai_label": "无听牌",
     },
     "ja": {
-        "language_name": "日本語",
+        "language_name": "JP",
         "wind_names": ["東", "南", "西", "北"],
         "round_format": "{wind}{hand}局",
         "counter_honba": "本場 {count}",
@@ -232,7 +232,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "no_tenpai_label": "ノーテン",
     },
     "fr": {
-        "language_name": "Français",
+        "language_name": "FR",
         "wind_names": ["Est", "Sud", "Ouest", "Nord"],
         "round_format": "{wind} {hand}",
         "counter_honba": "Honba {count}",
@@ -389,26 +389,6 @@ class MahjongEnvKivyWrapper:
         self._user_font_name = font_name
         self._font_name = font_name or "Roboto"
         self._font_size = font_size
-        if fallback_fonts is not None:
-            self._base_fallback_fonts: Tuple[str, ...] = tuple(str(item) for item in fallback_fonts)
-        else:
-            self._base_fallback_fonts = (
-                "Noto Sans CJK SC",
-                "Noto Sans CJK TC",
-                "Noto Sans CJK JP",
-                "Source Han Sans CN",
-                "Source Han Sans TW",
-                "Source Han Sans JP",
-                "Microsoft YaHei",
-                "Microsoft JhengHei",
-                "Yu Gothic",
-                "Meiryo",
-                "MS Gothic",
-                "SimHei",
-                "WenQuanYi Zen Hei",
-                "Arial Unicode MS",
-            )
-        self._fallback_fonts: Tuple[str, ...] = self._base_fallback_fonts
         self._background_color = (12 / 255.0, 30 / 255.0, 60 / 255.0, 1)
         self._play_area_color = (24 / 255.0, 60 / 255.0, 90 / 255.0, 1)
         self._play_area_border = (40 / 255.0, 90 / 255.0, 130 / 255.0, 1)
@@ -656,7 +636,6 @@ class MahjongEnvKivyWrapper:
         fallback_entries: list[str] = []
         if _FALLBACK_FONT.exists():
             fallback_entries.append(str(_FALLBACK_FONT))
-        fallback_entries.extend(self._base_fallback_fonts)
         self._fallback_fonts = tuple(fallback_entries)
 
     def _apply_font_to_controls(self) -> None:
@@ -1278,7 +1257,7 @@ class MahjongEnvKivyWrapper:
             else:
                 message_lines.append(self._translate("draw_no_tenpai"))
 
-        yaku_font_size = max(10, self._font_size - 4)
+        yaku_font_size = max(18, self._font_size - 4)
         yaku_label_proto = CoreLabel(
             text=self._translate("yaku_prefix"),
             font_size=yaku_font_size,
