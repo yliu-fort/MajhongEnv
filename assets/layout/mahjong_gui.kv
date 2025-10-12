@@ -8,6 +8,7 @@
     pause_button: pause_button
     auto_button: auto_button
     step_button: step_button
+    language_spinner: language_spinner
     canvas.before:
         Color:
             rgba: 12/255.0, 30/255.0, 60/255.0, 1
@@ -52,7 +53,7 @@
         color: 220/255.0, 120/255.0, 120/255.0, 1
     Button:
         id: step_button
-        text: "Next"
+        text: ""
         size_hint: None, None
         size: 160, 44
         pos: root.width - self.width - 16, 16
@@ -60,7 +61,7 @@
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
     Button:
         id: auto_button
-        text: "Auto Next: ON"
+        text: ""
         size_hint: None, None
         size: 160, 44
         pos: step_button.x, step_button.top + 10
@@ -68,12 +69,22 @@
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
     Button:
         id: pause_button
-        text: "Pause on Score: OFF"
+        text: ""
         size_hint: None, None
         size: 160, 44
         pos: auto_button.x, auto_button.top + 10
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
+    Spinner:
+        id: language_spinner
+        text: ""
+        values: ()
+        size_hint: None, None
+        size: 160, 44
+        pos: pause_button.x, pause_button.top + 10
+        background_normal: ''
+        background_color: 5/255.0, 5/255.0, 5/255.0, 1
+        color: 235/255.0, 235/255.0, 235/255.0, 1
 
 <MahjongBoardWidget>:
     canvas.before:
