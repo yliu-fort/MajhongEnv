@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
@@ -72,6 +72,205 @@ _TILE_SYMBOLS: Tuple[str, ...] = (
     "Pin5-Dora",
     "Sou5-Dora",
 )
+
+
+_DEFAULT_LANGUAGE = "en"
+_LANGUAGE_ORDER: Tuple[str, ...] = ("en", "zh-Hans", "ja", "fr")
+_ASSET_FONT_ROOT = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+_FONT_PATHS: dict[str, Path] = {
+    "en": _ASSET_FONT_ROOT / "Noto_Sans" / "NotoSans-VariableFont_wdth,wght.ttf",
+    "zh-Hans": _ASSET_FONT_ROOT / "Noto_Sans_SC" / "NotoSansSC-VariableFont_wght.ttf",
+    "ja": _ASSET_FONT_ROOT / "Noto_Sans_JP" / "NotoSansJP-VariableFont_wght.ttf",
+    "fr": _ASSET_FONT_ROOT / "Noto_Sans" / "NotoSans-VariableFont_wdth,wght.ttf",
+}
+_FALLBACK_FONT = _ASSET_FONT_ROOT / "Noto_Color_Emoji" / "NotoColorEmoji-Regular.ttf"
+
+
+def _ordinal_en(value: int) -> str:
+    suffix = "th"
+    if value % 100 not in {11, 12, 13}:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
+
+
+def _ordinal_zh(value: int) -> str:
+    return f"第{value}名"
+
+
+def _ordinal_ja(value: int) -> str:
+    return f"第{value}位"
+
+
+def _ordinal_fr(value: int) -> str:
+    return "1er" if value == 1 else f"{value}e"
+
+
+_ORDINAL_FUNCTIONS: dict[str, Callable[[int], str]] = {
+    "en": _ordinal_en,
+    "zh-Hans": _ordinal_zh,
+    "ja": _ordinal_ja,
+    "fr": _ordinal_fr,
+}
+
+
+_LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
+    "en": {
+        "language_name": "English",
+        "wind_names": ["East", "South", "West", "North"],
+        "round_format": "{wind} {hand}",
+        "counter_honba": "Honba {count}",
+        "counter_riichi": "Riichi {count}",
+        "counter_tiles": "Tiles {count}",
+        "counter_kyoutaku": "Kyoutaku {count}",
+        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
+        "round_results_title": "Round Results",
+        "yaku_prefix": "Yaku: ",
+        "dealer_suffix": " (Dealer)",
+        "player_name_format": "Player {index}",
+        "seat_placeholder_format": "P{index}",
+        "draw_tenpai": "Draw - Tenpai: {players}",
+        "draw_no_tenpai": "Draw - No Tenpai",
+        "tsumo_label": "Tsumo",
+        "ron_label": "Ron",
+        "vs_label": "vs",
+        "result_tsumo": "{winner} {tsumo_label}",
+        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
+        "result_details": "{han} Han | {fu} Fu | {total} Points",
+        "phase_label": "Phase",
+        "current_player_label": "Current Player",
+        "unknown_player": "-",
+        "action_label": "Action",
+        "reward_label": "Reward",
+        "status_format": "{phase_label}: {phase}  |  {current_player_label}: {player}",
+        "action_reward_format": "{action_label}: {action}  {reward_label}: {reward}",
+        "episode_finished": "Episode finished",
+        "pause_on_score_on": "On-Pause on Score",
+        "pause_on_score_off": "OFF-Pause on Score",
+        "auto_next_on": "On-Auto Next",
+        "auto_next_off": "OFF-Auto Next",
+        "step_next": "Next",
+        "riichi_flag": "Riichi",
+        "tenpai_label": "Tenpai",
+        "no_tenpai_label": "No Tenpai",
+    },
+    "zh-Hans": {
+        "language_name": "简体中文",
+        "wind_names": ["东", "南", "西", "北"],
+        "round_format": "{wind}{hand}局",
+        "counter_honba": "本场 {count}",
+        "counter_riichi": "立直棒 {count}",
+        "counter_tiles": "余牌 {count}",
+        "counter_kyoutaku": "供托 {count}",
+        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
+        "round_results_title": "对局结果",
+        "yaku_prefix": "役种：",
+        "dealer_suffix": "（庄家）",
+        "player_name_format": "玩家{index}",
+        "seat_placeholder_format": "玩家{index}",
+        "draw_tenpai": "流局 - 听牌: {players}",
+        "draw_no_tenpai": "流局 - 无听牌",
+        "tsumo_label": "自摸",
+        "ron_label": "荣和",
+        "vs_label": "对",
+        "result_tsumo": "{winner} {tsumo_label}",
+        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
+        "result_details": "{han} 番 | {fu} 符 | {total} 点",
+        "phase_label": "阶段",
+        "current_player_label": "当前玩家",
+        "unknown_player": "-",
+        "action_label": "动作",
+        "reward_label": "奖励",
+        "status_format": "{phase_label}：{phase}  |  {current_player_label}：{player}",
+        "action_reward_format": "{action_label}：{action}  {reward_label}：{reward}",
+        "episode_finished": "对局结束",
+        "pause_on_score_on": "开启-计分暂停",
+        "pause_on_score_off": "关闭-计分暂停",
+        "auto_next_on": "开启-自动进行",
+        "auto_next_off": "关闭-自动进行",
+        "step_next": "下一步",
+        "riichi_flag": "立直",
+        "tenpai_label": "听牌",
+        "no_tenpai_label": "无听牌",
+    },
+    "ja": {
+        "language_name": "日本語",
+        "wind_names": ["東", "南", "西", "北"],
+        "round_format": "{wind}{hand}局",
+        "counter_honba": "本場 {count}",
+        "counter_riichi": "立直棒 {count}",
+        "counter_tiles": "残り牌 {count}",
+        "counter_kyoutaku": "供託 {count}",
+        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
+        "round_results_title": "対局結果",
+        "yaku_prefix": "役: ",
+        "dealer_suffix": "（親）",
+        "player_name_format": "プレイヤー{index}",
+        "seat_placeholder_format": "プレイヤー{index}",
+        "draw_tenpai": "流局 - 聴牌: {players}",
+        "draw_no_tenpai": "流局 - ノーテン",
+        "tsumo_label": "ツモ",
+        "ron_label": "ロン",
+        "vs_label": "対",
+        "result_tsumo": "{winner} {tsumo_label}",
+        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
+        "result_details": "{han} 翻 | {fu} 符 | {total} 点",
+        "phase_label": "フェーズ",
+        "current_player_label": "現在のプレイヤー",
+        "unknown_player": "-",
+        "action_label": "行動",
+        "reward_label": "報酬",
+        "status_format": "{phase_label}：{phase}  |  {current_player_label}：{player}",
+        "action_reward_format": "{action_label}：{action}  {reward_label}：{reward}",
+        "episode_finished": "ゲーム終了",
+        "pause_on_score_on": "オン-得点で一時停止",
+        "pause_on_score_off": "オフ-得点で一時停止",
+        "auto_next_on": "オン-自動進行",
+        "auto_next_off": "オフ-自動進行",
+        "step_next": "次へ",
+        "riichi_flag": "立直",
+        "tenpai_label": "聴牌",
+        "no_tenpai_label": "ノーテン",
+    },
+    "fr": {
+        "language_name": "Français",
+        "wind_names": ["Est", "Sud", "Ouest", "Nord"],
+        "round_format": "{wind} {hand}",
+        "counter_honba": "Honba {count}",
+        "counter_riichi": "Riichi {count}",
+        "counter_tiles": "Tuiles {count}",
+        "counter_kyoutaku": "Kyoutaku {count}",
+        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
+        "round_results_title": "Résultats de la manche",
+        "yaku_prefix": "Yaku : ",
+        "dealer_suffix": " (Donneur)",
+        "player_name_format": "Joueur {index}",
+        "seat_placeholder_format": "J{index}",
+        "draw_tenpai": "Égalité - Tenpai : {players}",
+        "draw_no_tenpai": "Égalité - Pas de Tenpai",
+        "tsumo_label": "Tsumo",
+        "ron_label": "Ron",
+        "vs_label": "contre",
+        "result_tsumo": "{winner} {tsumo_label}",
+        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
+        "result_details": "{han} Han | {fu} Fu | {total} Points",
+        "phase_label": "Phase",
+        "current_player_label": "Joueur actuel",
+        "unknown_player": "-",
+        "action_label": "Action",
+        "reward_label": "Récompense",
+        "status_format": "{phase_label} : {phase}  |  {current_player_label} : {player}",
+        "action_reward_format": "{action_label} : {action}  {reward_label} : {reward}",
+        "episode_finished": "Manche terminée",
+        "pause_on_score_on": "Marche-Pause sur score",
+        "pause_on_score_off": "Arrêt-Pause sur score",
+        "auto_next_on": "Marche-Auto suivant",
+        "auto_next_off": "Arrêt-Auto suivant",
+        "step_next": "Suivant",
+        "riichi_flag": "Riichi",
+        "tenpai_label": "Tenpai",
+        "no_tenpai_label": "Pas de Tenpai",
+    },
+}
 
 
 @dataclass(slots=True)
@@ -160,6 +359,8 @@ class MahjongRoot(FloatLayout):
     pause_button = ObjectProperty(None)
     auto_button = ObjectProperty(None)
     step_button = ObjectProperty(None)
+    language_spinner = ObjectProperty(None)
+    wrapper = ObjectProperty(None)
 
 
 class MahjongEnvKivyWrapper:
@@ -185,12 +386,13 @@ class MahjongEnvKivyWrapper:
         self._env = env or _BaseMahjongEnv(*args, **kwargs)
         self._window_size = window_size
         self._fps = max(1, fps)
+        self._user_font_name = font_name
         self._font_name = font_name or "Roboto"
         self._font_size = font_size
-        self._fallback_fonts: Tuple[str, ...] = (
-            tuple(fallback_fonts)
-            if fallback_fonts is not None
-            else (
+        if fallback_fonts is not None:
+            self._base_fallback_fonts: Tuple[str, ...] = tuple(str(item) for item in fallback_fonts)
+        else:
+            self._base_fallback_fonts = (
                 "Noto Sans CJK SC",
                 "Noto Sans CJK TC",
                 "Noto Sans CJK JP",
@@ -206,7 +408,7 @@ class MahjongEnvKivyWrapper:
                 "WenQuanYi Zen Hei",
                 "Arial Unicode MS",
             )
-        )
+        self._fallback_fonts: Tuple[str, ...] = self._base_fallback_fonts
         self._background_color = (12 / 255.0, 30 / 255.0, 60 / 255.0, 1)
         self._play_area_color = (24 / 255.0, 60 / 255.0, 90 / 255.0, 1)
         self._play_area_border = (40 / 255.0, 90 / 255.0, 130 / 255.0, 1)
@@ -222,6 +424,27 @@ class MahjongEnvKivyWrapper:
 
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
+        self._root.wrapper = self
+
+        self._language_code_to_name: dict[str, str] = {
+            code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
+        }
+        self._language_name_to_code: dict[str, str] = {
+            name: code for code, name in self._language_code_to_name.items()
+        }
+        if _LANGUAGE_STRINGS:
+            self._default_language = (
+                _DEFAULT_LANGUAGE if _DEFAULT_LANGUAGE in _LANGUAGE_STRINGS else next(iter(_LANGUAGE_STRINGS))
+            )
+        else:
+            self._default_language = _DEFAULT_LANGUAGE
+        self._language = self._default_language
+        self._ordinal_func = _ORDINAL_FUNCTIONS.get(self._language, _ordinal_en)
+        self._updating_language_spinner = False
+        self._configure_language_spinner()
+        self._update_language_fonts(self._language)
+        self._update_language_spinner()
+        self._apply_font_to_controls()
 
         self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Regular"
         self._raw_tile_textures: dict[int, Any] = {}
@@ -275,6 +498,23 @@ class MahjongEnvKivyWrapper:
     @property
     def fps(self) -> int:
         return self._fps
+
+    def set_language(self, language: str) -> None:
+        if not language:
+            return
+        code = self._language_name_to_code.get(language, language)
+        if code not in _LANGUAGE_STRINGS:
+            return
+        if code == self._language:
+            return
+        self._language = code
+        self._ordinal_func = _ORDINAL_FUNCTIONS.get(self._language, _ordinal_en)
+        self._update_language_fonts(self._language)
+        self._apply_font_to_controls()
+        self._update_language_spinner()
+        self._render()
+        self._draw_status_labels()
+        self._update_control_buttons()
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
         observation = self._env.reset(*args, **kwargs)
@@ -336,6 +576,113 @@ class MahjongEnvKivyWrapper:
         self._root.auto_button.bind(on_release=lambda *_: self._toggle_auto())
         self._root.step_button.bind(on_release=lambda *_: self._trigger_step_once())
         self._root.pause_button.bind(on_release=lambda *_: self._toggle_pause())
+        spinner = getattr(self._root, "language_spinner", None)
+        if spinner is not None:
+            spinner.bind(text=self._on_language_spinner_text)
+
+    def _get_language_dict(self, code: Optional[str] = None) -> dict[str, Any]:
+        lang_code = code or self._language
+        if lang_code in _LANGUAGE_STRINGS:
+            return _LANGUAGE_STRINGS[lang_code]
+        return _LANGUAGE_STRINGS.get(self._default_language, {})
+
+    def _translate(self, key: str, **kwargs: Any) -> str:
+        language_dict = self._get_language_dict()
+        template = language_dict.get(key)
+        if template is None:
+            template = self._get_language_dict(self._default_language).get(key, key)
+        if isinstance(template, str):
+            return template.format(**kwargs)
+        return str(template)
+
+    def _translate_sequence(self, key: str) -> Sequence[str]:
+        value = self._get_language_dict().get(key)
+        if isinstance(value, (list, tuple)):
+            return tuple(value)
+        default_value = self._get_language_dict(self._default_language).get(key, ())
+        if isinstance(default_value, (list, tuple)):
+            return tuple(default_value)
+        return ()
+
+    def _format_ordinal(self, value: int) -> str:
+        try:
+            return str(self._ordinal_func(int(value)))
+        except Exception:
+            return str(value)
+
+    def _configure_language_spinner(self) -> None:
+        if not self._root:
+            return
+        spinner = getattr(self._root, "language_spinner", None)
+        if spinner is None:
+            return
+        values: list[str] = [
+            self._language_code_to_name.get(code, code)
+            for code in _LANGUAGE_ORDER
+            if code in self._language_code_to_name
+        ]
+        for name in self._language_code_to_name.values():
+            if name not in values:
+                values.append(name)
+        spinner.values = tuple(values)
+
+    def _update_language_spinner(self) -> None:
+        if not self._root:
+            return
+        spinner = getattr(self._root, "language_spinner", None)
+        if spinner is None:
+            return
+        values: list[str] = [
+            self._language_code_to_name.get(code, code)
+            for code in _LANGUAGE_ORDER
+            if code in self._language_code_to_name
+        ]
+        display_name = self._language_code_to_name.get(self._language, self._language)
+        if display_name not in values:
+            values.append(display_name)
+        spinner.values = tuple(values)
+        if spinner.text != display_name:
+            self._updating_language_spinner = True
+            spinner.text = display_name
+            self._updating_language_spinner = False
+
+    def _update_language_fonts(self, language: str) -> None:
+        font_path = _FONT_PATHS.get(language)
+        if font_path is not None and font_path.exists():
+            self._font_name = str(font_path)
+        elif self._user_font_name:
+            self._font_name = str(self._user_font_name)
+        # otherwise keep the existing font_name
+        fallback_entries: list[str] = []
+        if _FALLBACK_FONT.exists():
+            fallback_entries.append(str(_FALLBACK_FONT))
+        fallback_entries.extend(self._base_fallback_fonts)
+        self._fallback_fonts = tuple(fallback_entries)
+
+    def _apply_font_to_controls(self) -> None:
+        if not self._root:
+            return
+        widgets = [
+            getattr(self._root, "status_label", None),
+            getattr(self._root, "reward_label", None),
+            getattr(self._root, "done_label", None),
+            getattr(self._root, "pause_button", None),
+            getattr(self._root, "auto_button", None),
+            getattr(self._root, "step_button", None),
+            getattr(self._root, "language_spinner", None),
+        ]
+        for widget in widgets:
+            if widget is None:
+                continue
+            try:
+                widget.font_name = self._font_name
+            except Exception:
+                continue
+
+    def _on_language_spinner_text(self, _instance: Any, value: str) -> None:
+        if self._updating_language_spinner:
+            return
+        self.set_language(value)
 
     def _load_tile_assets(self, target_size: Optional[Tuple[int, int]] = None) -> None:
         if target_size is None:
@@ -639,12 +986,12 @@ class MahjongEnvKivyWrapper:
 
         round_data = getattr(self._env, "round", [0, 0])
         round_index = round_data[0] if isinstance(round_data[0], int) else 0
-        wind_names = ["East", "South", "West", "North"]
-        wind = wind_names[(round_index // 4) % 4]
+        wind_names = self._translate_sequence("wind_names") or ("East", "South", "West", "North")
+        wind = wind_names[(round_index // 4) % len(wind_names)]
         hand_number = round_index % 4 + 1
-        round_text = f"{wind} {hand_number}"
+        round_text = self._translate("round_format", wind=wind, hand=hand_number)
 
-        title_label = CoreLabel(text=round_text, font_size=self._font_size + 8)
+        title_label = CoreLabel(text=round_text, font_size=self._font_size + 8, font_name=self._font_name)
         title_label.refresh()
         label_x = center_rect.centerx - title_label.texture.size[0] / 2
         label_y = center_rect.top + 18
@@ -656,13 +1003,13 @@ class MahjongEnvKivyWrapper:
         riichi = getattr(self._env, "num_riichi", 0)
         tiles_remaining = len(getattr(self._env, "deck", []))
         counter_texts = (
-            f"Honba {honba}",
-            f"Riichi {riichi}",
-            f"Tiles {tiles_remaining}",
+            self._translate("counter_honba", count=honba),
+            self._translate("counter_riichi", count=riichi),
+            self._translate("counter_tiles", count=tiles_remaining),
         )
         next_top = label_y + title_label.texture.size[1] + 12
         for text in counter_texts:
-            label = CoreLabel(text=text, font_size=self._font_size - 4)
+            label = CoreLabel(text=text, font_size=self._font_size - 4, font_name=self._font_name)
             label.refresh()
             label_x = center_rect.centerx - label.texture.size[0] / 2
             px, py = self._to_canvas_pos(board, play_rect, label_x, next_top, *label.texture.size)
@@ -683,7 +1030,7 @@ class MahjongEnvKivyWrapper:
                 continue
             score_value = scores[idx] * 100
             color = self._accent_color if idx == current_player else self._text_color
-            label = CoreLabel(text=f"{score_value:5d}", font_size=self._font_size)
+            label = CoreLabel(text=f"{score_value:5d}", font_size=self._font_size, font_name=self._font_name)
             label.refresh()
             px, py = self._to_canvas_pos(
                 board,
@@ -801,7 +1148,11 @@ class MahjongEnvKivyWrapper:
         riichi_flags = list(getattr(self._env, "riichi", []))
         in_riichi = player_idx < len(riichi_flags) and riichi_flags[player_idx]
         if in_riichi:
-            label = CoreLabel(text="Riichi", font_size=self._font_size - 2)
+            label = CoreLabel(
+                text=self._translate("riichi_flag"),
+                font_size=self._font_size - 2,
+                font_name=self._font_name,
+            )
             label.refresh()
             padding = 4
             flag_width = label.texture.size[0] + padding * 2
@@ -847,21 +1198,32 @@ class MahjongEnvKivyWrapper:
 
         round_data = getattr(self._env, "round", [0, 0])
         round_index = round_data[0] if isinstance(round_data[0], int) else 0
-        wind_names = ["East", "South", "West", "North"]
-        wind = wind_names[(round_index // 4) % 4]
+        wind_names = self._translate_sequence("wind_names") or ("East", "South", "West", "North")
+        wind = wind_names[(round_index // 4) % len(wind_names)]
         hand_number = round_index % 4 + 1
         honba = round_data[1] if len(round_data) > 1 and isinstance(round_data[1], int) else 0
         riichi_sticks = getattr(self._env, "num_riichi", 0)
         kyoutaku = getattr(self._env, "num_kyoutaku", 0)
 
         info_lines = [
-            f"{wind} {hand_number} | Honba {honba} | Riichi {riichi_sticks} | Kyoutaku {kyoutaku}"
+            self._translate(
+                "info_line_format",
+                round=self._translate("round_format", wind=wind, hand=hand_number),
+                honba=self._translate("counter_honba", count=honba),
+                riichi=self._translate("counter_riichi", count=riichi_sticks),
+                kyoutaku=self._translate("counter_kyoutaku", count=kyoutaku),
+            )
         ]
 
         seat_names = list(getattr(self._env, "seat_names", []))
         num_players = getattr(self._env, "num_players", 0)
         if len(seat_names) < num_players:
-            seat_names.extend([f"P{idx}" for idx in range(len(seat_names), num_players)])
+            seat_names.extend(
+                [
+                    self._translate("seat_placeholder_format", index=idx)
+                    for idx in range(len(seat_names), num_players)
+                ]
+            )
 
         agari = getattr(self._env, "agari", None)
         message_lines: list[str] = []
@@ -871,22 +1233,34 @@ class MahjongEnvKivyWrapper:
             if 0 <= winner < num_players:
                 winner_name = seat_names[winner]
             else:
-                winner_name = f"Player {winner}"
+                winner_name = self._translate("player_name_format", index=winner)
             if winner == from_who:
-                result_text = f"{winner_name} Tsumo"
+                result_text = self._translate(
+                    "result_tsumo",
+                    winner=winner_name,
+                    tsumo_label=self._translate("tsumo_label"),
+                )
             else:
                 loser_name = (
                     seat_names[from_who]
                     if 0 <= from_who < num_players
-                    else f"Player {from_who}"
+                    else self._translate("player_name_format", index=from_who)
                 )
-                result_text = f"{winner_name} Ron vs {loser_name}"
+                result_text = self._translate(
+                    "result_ron",
+                    winner=winner_name,
+                    ron_label=self._translate("ron_label"),
+                    vs_label=self._translate("vs_label"),
+                    loser=loser_name,
+                )
             message_lines.append(result_text)
             ten = list(agari.get("ten", []))
             fu = ten[0] if len(ten) > 0 else 0
             total = ten[1] if len(ten) > 1 else 0
             han = ten[2] if len(ten) > 2 else 0
-            message_lines.append(f"{han} Han | {fu} Fu | {total} Points")
+            message_lines.append(
+                self._translate("result_details", han=han, fu=fu, total=total)
+            )
         else:
             tenpai_flags = list(getattr(self._env, "tenpai", []))
             tenpai_players = [
@@ -895,12 +1269,21 @@ class MahjongEnvKivyWrapper:
                 if is_tenpai and idx < num_players
             ]
             if tenpai_players:
-                message_lines.append("Draw - Tenpai: " + ", ".join(tenpai_players))
+                message_lines.append(
+                    self._translate(
+                        "draw_tenpai",
+                        players=", ".join(tenpai_players),
+                    )
+                )
             else:
-                message_lines.append("Draw - No Tenpai")
+                message_lines.append(self._translate("draw_no_tenpai"))
 
         yaku_font_size = max(10, self._font_size - 4)
-        yaku_label_proto = CoreLabel(text="Yaku: ", font_size=yaku_font_size, font_name=self._font_name)
+        yaku_label_proto = CoreLabel(
+            text=self._translate("yaku_prefix"),
+            font_size=yaku_font_size,
+            font_name=self._font_name,
+        )
         yaku_label_proto.refresh()
         yaku_label_width = yaku_label_proto.texture.size[0]
 
@@ -913,7 +1296,7 @@ class MahjongEnvKivyWrapper:
                     combined, max(10.0, max_text_width - yaku_label_width), font_size=yaku_font_size
                 )
                 if wrapped_yaku:
-                    yaku_lines.append(("Yaku: ", wrapped_yaku[0]))
+                    yaku_lines.append((self._translate("yaku_prefix"), wrapped_yaku[0]))
                     for extra in wrapped_yaku[1:]:
                         yaku_lines.append(("", extra))
 
@@ -927,7 +1310,7 @@ class MahjongEnvKivyWrapper:
         message_font_size = max(10, self._font_size - 2)
         player_font_size = self._font_size
 
-        title_label = make_label("Round Results", title_font_size)
+        title_label = make_label(self._translate("round_results_title"), title_font_size)
         content_width = title_label.texture.size[0]
 
         info_labels = [make_label(line, info_font_size) for line in info_lines]
@@ -948,12 +1331,6 @@ class MahjongEnvKivyWrapper:
             score_deltas.extend([0] * (num_players - len(score_deltas)))
         scores = [s + d for s, d in zip(scores, score_deltas)]
         dealer = getattr(self._env, "oya", -1)
-
-        def ordinal(value: int) -> str:
-            suffix = "th"
-            if value % 100 not in {11, 12, 13}:
-                suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
-            return f"{value}{suffix}"
 
         ranks: dict[int, int] = {}
         sorted_players = sorted(range(num_players), key=lambda idx: (-scores[idx], idx))
@@ -977,9 +1354,9 @@ class MahjongEnvKivyWrapper:
                 continue
             display_name = seat_names[player_idx]
             if player_idx == dealer:
-                display_name += " (Dealer)"
+                display_name += self._translate("dealer_suffix")
             base_color = self._accent_color if player_idx == winner_idx else self._text_color
-            rank_text = ordinal(ranks.get(player_idx, player_idx + 1))
+            rank_text = self._format_ordinal(ranks.get(player_idx, player_idx + 1))
             name_label = make_label(f"{rank_text}  {display_name}", player_font_size)
             delta_value = score_deltas[player_idx] if player_idx < len(score_deltas) else 0
             delta_points = int(round(delta_value * 100))
@@ -1322,7 +1699,11 @@ class MahjongEnvKivyWrapper:
         canvas.add(RoundedRectangle(pos=pos, size=size, radius=[6, 6, 6, 6]))
         canvas.add(Color(245 / 255.0, 245 / 255.0, 245 / 255.0, 1))
         canvas.add(Line(rounded_rectangle=(*pos, *size, 6), width=2))
-        label = CoreLabel(text=_TILE_SYMBOLS[tile_34], font_size=max(12, int(height * 0.45)))
+        label = CoreLabel(
+            text=_TILE_SYMBOLS[tile_34],
+            font_size=max(12, int(height * 0.45)),
+            font_name=self._font_name,
+        )
         label.refresh()
         label_pos = (
             pos[0] + width / 2 - label.texture.size[0] / 2,
@@ -1351,26 +1732,52 @@ class MahjongEnvKivyWrapper:
         if not self._root:
             return
         if self._env.current_player >= 0:
-            phase_text = f"Phase: {self._env.phase}  |  Current Player: P{self._env.current_player}"
+            player_text = self._translate(
+                "seat_placeholder_format", index=self._env.current_player
+            )
         else:
-            phase_text = f"Phase: {self._env.phase}  |  Current Player: -"
+            player_text = self._translate("unknown_player")
+        phase_text = self._translate(
+            "status_format",
+            phase_label=self._translate("phase_label"),
+            current_player_label=self._translate("current_player_label"),
+            phase=self._env.phase,
+            player=player_text,
+        )
         self._root.status_label.text = phase_text
         reward_color = self._danger_color if self._last_payload.reward < 0 else self._text_color
-        reward_text = f"Action: {self._last_payload.action}  Reward: {self._last_payload.reward:.2f}"
+        action_value = (
+            "-" if self._last_payload.action is None else str(self._last_payload.action)
+        )
+        reward_text = self._translate(
+            "action_reward_format",
+            action_label=self._translate("action_label"),
+            reward_label=self._translate("reward_label"),
+            action=action_value,
+            reward=f"{self._last_payload.reward:.2f}",
+        )
         self._root.reward_label.text = reward_text
         self._root.reward_label.color = reward_color
         if self._last_payload.done:
-            self._root.done_label.text = "Episode finished"
+            self._root.done_label.text = self._translate("episode_finished")
         else:
             self._root.done_label.text = ""
 
     def _update_control_buttons(self) -> None:
-        pause_label = "On-Pause on Score" if self._pause_on_score else "OFF-Pause on Score"
+        pause_label = (
+            self._translate("pause_on_score_on")
+            if self._pause_on_score
+            else self._translate("pause_on_score_off")
+        )
         self._root.pause_button.text = pause_label
         self._root.pause_button.disabled = not self._auto_advance
-        auto_label = "On-Auto Next" if self._auto_advance else "OFF-Auto Next"
+        auto_label = (
+            self._translate("auto_next_on")
+            if self._auto_advance
+            else self._translate("auto_next_off")
+        )
         self._root.auto_button.text = auto_label
         step_enabled = (not self._auto_advance) or self._score_pause_active
         self._root.step_button.disabled = not step_enabled
-        self._root.step_button.text = "Next"
+        self._root.step_button.text = self._translate("step_next")
 
