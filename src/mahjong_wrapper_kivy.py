@@ -1058,16 +1058,28 @@ class MahjongEnvKivyWrapper:
     def _compute_hand_reveal_flags(self, num_players: int) -> list[bool]:
         reveal = [False] * max(0, num_players)
         agari = getattr(self._env, "agari", None)
+        phase = getattr(self._env, "phase", "")
+        winners: set[int] = set()
         if agari:
             winners = self._extract_winner_indices(agari)
-            for idx in winners:
-                if 0 <= idx < len(reveal):
-                    reveal[idx] = True
-        if getattr(self._env, "phase", "") == "score":
-            for idx in range(len(reveal)):
-                reveal[idx] = True
+
+        if phase == "score":
+            if winners:
+                for idx in winners:
+                    if 0 <= idx < len(reveal):
+                        reveal[idx] = True
+            else:
+                tenpai_flags = list(getattr(self._env, "tenpai", []))
+                for idx, is_tenpai in enumerate(tenpai_flags):
+                    if is_tenpai and 0 <= idx < len(reveal):
+                        reveal[idx] = True
         else:
-            reveal[0] = True
+            if winners:
+                for idx in winners:
+                    if 0 <= idx < len(reveal):
+                        reveal[idx] = True
+            if reveal:
+                reveal[0] = True
         return reveal
 
     def _extract_winner_indices(self, agari: Any) -> set[int]:
