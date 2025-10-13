@@ -1078,8 +1078,8 @@ class MahjongEnvKivyWrapper:
                 for idx in winners:
                     if 0 <= idx < len(reveal):
                         reveal[idx] = True
-            if reveal:
-                reveal[0] = True
+        if reveal:
+            reveal[0] = True
         return reveal
 
     def _extract_winner_indices(self, agari: Any) -> set[int]:
