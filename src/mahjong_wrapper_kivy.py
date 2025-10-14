@@ -1091,16 +1091,6 @@ class MahjongEnvKivyWrapper:
         start_x = play_rect.centerx + total_width // 2
         y = play_rect.centery + margin_y
 
-        canvas.add(PushMatrix())
-        center_px, center_py = self._to_canvas_pos(
-            board, play_rect, play_rect.centerx, play_rect.centery, 0, 0
-        )
-        rotation = self._get_board_rotation_angle()
-        if rotation:
-            canvas.add(Translate(center_px, center_py))
-            canvas.add(Rotate(angle=rotation))
-            canvas.add(Translate(-center_px, -center_py))
-
         for i in range(stack_size):
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
             if i < len(self._env.dora_indicator):
@@ -1109,7 +1099,6 @@ class MahjongEnvKivyWrapper:
             else:
                 self._draw_tile(canvas, board, play_rect, 0, wall_tile, False, 0, (x, y))
 
-        canvas.add(PopMatrix())
 
     def _draw_player_areas(
         self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
