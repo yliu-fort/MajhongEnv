@@ -1058,8 +1058,8 @@ class MahjongEnvKivyWrapper:
                         button = Button(
                             text=label_text,
                             size_hint=(None, None),
-                            height=36,
-                            width=max(72, int(len(label_text) * 12)),
+                            height=48,
+                            width=max(72, int(len(label_text) * 18)),
                             background_normal="",
                             background_color=self._panel_border,
                             color=self._text_color,

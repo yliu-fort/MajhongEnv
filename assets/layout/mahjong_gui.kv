@@ -65,9 +65,9 @@
         id: quick_action_bar
         size_hint: None, None
         size_hint_y: None
-        height: 44
+        height: 56
         width: min(board.width - 48, max(self.minimum_width + self.padding[0] + self.padding[2], 0)) if board.width > 48 else max(self.minimum_width + self.padding[0] + self.padding[2], 0)
-        pos: board.x + (board.width - self.width) / 2, board.y + 12
+        pos: board.x + (board.width - self.width) / 2, board.y + 96
         orientation: 'horizontal'
         padding: 8, 6
         spacing: 6

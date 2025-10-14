@@ -208,7 +208,7 @@ class HumanPlayerAgent:
         if action_id < 249:
             return "Ankan"
         if action_id in _PASS_LABELS:
-            return _PASS_LABELS[action_id]
+            return "Cancel"
         if action_id == 249:
             return "Ryuukyoku"
         if action_id == 250:
