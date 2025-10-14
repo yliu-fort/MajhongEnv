@@ -383,6 +383,7 @@ class MahjongRoot(FloatLayout):
     step_button = ObjectProperty(None)
     language_spinner = ObjectProperty(None)
     action_panel = ObjectProperty(None)
+    quick_action_bar = ObjectProperty(None)
     wrapper = ObjectProperty(None)
 
 
@@ -758,6 +759,13 @@ class MahjongEnvKivyWrapper:
                     child.font_name = self._font_name
                 except Exception:
                     continue
+        quick_bar = getattr(self._root, "quick_action_bar", None)
+        if quick_bar is not None:
+            for child in quick_bar.children:
+                try:
+                    child.font_name = self._font_name
+                except Exception:
+                    continue
 
     def _on_language_spinner_text(self, _instance: Any, value: str) -> None:
         if self._updating_language_spinner:
@@ -1014,15 +1022,81 @@ class MahjongEnvKivyWrapper:
             if panel is None:
                 return
             container = getattr(panel, "container", None)
-            if container is None:
-                return
-            container.clear_widgets()
+            quick_bar = getattr(self._root, "quick_action_bar", None)
+
             if not actions_list:
+                if container is not None:
+                    container.clear_widgets()
                 panel.opacity = 0.0
                 panel.disabled = True
+                if quick_bar is not None:
+                    quick_bar.clear_widgets()
+                    quick_bar.opacity = 0.0
+                    quick_bar.disabled = True
                 self._active_action_seat = None
                 self._refresh_action_panel_title()
                 return
+
+            quick_bar_used = False
+            if quick_bar is not None and seat == self._focus_player:
+                quick_entries: list[Tuple[int, str]] = []
+                for action_id, label in actions_list:
+                    label_text = str(label)
+                    normalized = label_text.strip().lower()
+                    display_text: Optional[str] = None
+                    if normalized.startswith("riichi"):
+                        display_text = label_text
+                    elif normalized in {"chi", "pon", "kan", "ron", "tsumo", "ryuukyoku", "cancel"}:
+                        display_text = label_text
+                    elif normalized in {"ankan", "chakan"}:
+                        display_text = label_text
+                    if display_text is not None:
+                        quick_entries.append((action_id, display_text))
+                if quick_entries:
+                    quick_bar.clear_widgets()
+                    for action_id, label_text in quick_entries:
+                        button = Button(
+                            text=label_text,
+                            size_hint=(None, None),
+                            height=36,
+                            width=max(72, int(len(label_text) * 12)),
+                            background_normal="",
+                            background_color=self._panel_border,
+                            color=self._text_color,
+                        )
+                        button.background_down = ""
+                        try:
+                            button.font_name = self._font_name
+                        except Exception:
+                            pass
+                        button.bind(
+                            on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
+                        )
+                        quick_bar.add_widget(button)
+                    quick_bar.opacity = 1.0
+                    quick_bar.disabled = False
+                    quick_bar_used = True
+                else:
+                    quick_bar.clear_widgets()
+                    quick_bar.opacity = 0.0
+                    quick_bar.disabled = True
+            elif quick_bar is not None:
+                quick_bar.clear_widgets()
+                quick_bar.opacity = 0.0
+                quick_bar.disabled = True
+
+            if quick_bar_used:
+                if container is not None:
+                    container.clear_widgets()
+                panel.opacity = 0.0
+                panel.disabled = True
+                self._active_action_seat = seat
+                self._refresh_action_panel_title()
+                return
+
+            if container is None:
+                return
+            container.clear_widgets()
             for action_id, label in actions_list:
                 button = Button(
                     text=str(label),
@@ -1060,6 +1134,11 @@ class MahjongEnvKivyWrapper:
                 container.clear_widgets()
             panel.opacity = 0.0
             panel.disabled = True
+            quick_bar = getattr(self._root, "quick_action_bar", None)
+            if quick_bar is not None:
+                quick_bar.clear_widgets()
+                quick_bar.opacity = 0.0
+                quick_bar.disabled = True
             self._active_action_seat = None
             self._refresh_action_panel_title()
 

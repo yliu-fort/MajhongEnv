@@ -48,6 +48,7 @@
     step_button: step_button
     language_spinner: language_spinner
     action_panel: action_panel
+    quick_action_bar: quick_action_bar
     canvas.before:
         Color:
             rgba: 12/255.0, 30/255.0, 60/255.0, 1
@@ -60,6 +61,25 @@
         width: min(root.width, root.height)
         height: min(root.width, root.height)
         pos: (root.center_x - self.width / 2, root.center_y - self.height / 2)
+    BoxLayout:
+        id: quick_action_bar
+        size_hint: None, None
+        size_hint_y: None
+        height: 44
+        width: min(board.width - 48, max(self.minimum_width + self.padding[0] + self.padding[2], 0)) if board.width > 48 else max(self.minimum_width + self.padding[0] + self.padding[2], 0)
+        pos: board.x + (board.width - self.width) / 2, board.y + 12
+        orientation: 'horizontal'
+        padding: 8, 6
+        spacing: 6
+        opacity: 0
+        disabled: True
+        canvas.before:
+            Color:
+                rgba: 5/255.0, 5/255.0, 5/255.0, self.opacity
+            RoundedRectangle:
+                size: self.size
+                pos: self.pos
+                radius: [12, 12, 12, 12]
     Label:
         id: status_label
         text: ""
