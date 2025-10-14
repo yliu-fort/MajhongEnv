@@ -434,6 +434,10 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending: list[bool] = []
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
+        self._previous_hands: list[list[int]] = []
+        self._last_draw_tiles: dict[int, int] = {}
+        self._dora_base_indices: set[int] = set()
+        self._selected_tile_ids: set[int] = set()
 
         if tile_texture_size is not None:
             width, height = tile_texture_size
@@ -507,6 +511,10 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending = []
         self._discard_counts = []
         self._riichi_declarations = {}
+        self._previous_hands = []
+        self._last_draw_tiles.clear()
+        self._dora_base_indices.clear()
+        self._selected_tile_ids.clear()
         self._pending_action = None
         self._step_result = None
         self._render()
@@ -889,6 +897,7 @@ class MahjongEnvKivyWrapper:
 
         self._compute_tile_metrics(play_rect)
         self._update_riichi_state()
+        self._update_hint_state()
 
         canvas = board.canvas
         canvas.clear()
@@ -1035,7 +1044,25 @@ class MahjongEnvKivyWrapper:
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
             if i < len(self._env.dora_indicator):
                 tile = self._env.dora_indicator[i]
-                self._draw_tile(canvas, board, play_rect, tile, wall_tile, True, 0, (x, y))
+                hints = self._collect_tile_hints(
+                    tile,
+                    area="dead_wall",
+                    player_idx=None,
+                    tile_index=i,
+                    total_tiles=len(self._env.dora_indicator),
+                    face_up=True,
+                )
+                self._draw_tile(
+                    canvas,
+                    board,
+                    play_rect,
+                    tile,
+                    wall_tile,
+                    True,
+                    0,
+                    (x, y),
+                    hints=hints,
+                )
             else:
                 self._draw_tile(canvas, board, play_rect, 0, wall_tile, False, 0, (x, y))
 
@@ -1133,7 +1160,25 @@ class MahjongEnvKivyWrapper:
         for idx, tile in enumerate(hand_tiles):
             if len(hand_tiles) > 1 and idx == len(hand_tiles) - 1:
                 x += draw_gap
-            self._draw_tile(canvas, board, play_rect, tile, tile_size, face_up_hand, 0, (x, y))
+            hints = self._collect_tile_hints(
+                tile,
+                area="hand",
+                player_idx=player_idx,
+                tile_index=idx,
+                total_tiles=len(hand_tiles),
+                face_up=face_up_hand,
+            )
+            self._draw_tile(
+                canvas,
+                board,
+                play_rect,
+                tile,
+                tile_size,
+                face_up_hand,
+                0,
+                (x, y),
+                hints=hints,
+            )
             x += spacing
 
         riichi_flags = list(getattr(self._env, "riichi", []))
@@ -1516,6 +1561,17 @@ class MahjongEnvKivyWrapper:
         declaration_index = self._riichi_declarations.get(player_idx)
         if declaration_index is not None:
             orientation_map = {declaration_index: 90}
+        tile_hints = [
+            self._collect_tile_hints(
+                tile,
+                area="discards",
+                player_idx=player_idx,
+                tile_index=idx,
+                total_tiles=len(discard_tiles),
+                face_up=True,
+            )
+            for idx, tile in enumerate(discard_tiles)
+        ]
         self._draw_tile_grid(
             canvas,
             board,
@@ -1526,6 +1582,7 @@ class MahjongEnvKivyWrapper:
             0,
             cols,
             orientation_map,
+            tile_hints=tile_hints,
         )
 
     def _draw_melds(
@@ -1568,6 +1625,14 @@ class MahjongEnvKivyWrapper:
                         tile_face_up = False
                     else:
                         tile_face_up = True
+                hints = self._collect_tile_hints(
+                    tile,
+                    area="meld",
+                    player_idx=player_idx,
+                    tile_index=idx,
+                    total_tiles=total_tiles,
+                    face_up=tile_face_up,
+                )
                 self._draw_tile(
                     canvas,
                     board,
@@ -1577,6 +1642,7 @@ class MahjongEnvKivyWrapper:
                     tile_face_up,
                     tile_orientation,
                     (cur_x, cur_y),
+                    hints=hints,
                 )
                 if sideways_index is not None and idx in {sideways_index - 1, sideways_index}:
                     cur_x -= (meld_tile[0]+meld_tile[1])/2 + 4
@@ -1595,6 +1661,7 @@ class MahjongEnvKivyWrapper:
         orientation: int,
         columns: int,
         orientation_map: Optional[dict[int, int]] = None,
+        tile_hints: Optional[Sequence[Iterable[str]]] = None,
     ) -> None:
         if not tiles:
             return
@@ -1618,7 +1685,20 @@ class MahjongEnvKivyWrapper:
             else:
                 x += tile_size[0] + spacing
             y = area.top + row * (tile_size[1] + spacing)
-            self._draw_tile(canvas, board, play_rect, tile, tile_size, True, tile_orientation, (x, y))
+            hints = None
+            if tile_hints and idx < len(tile_hints):
+                hints = tile_hints[idx]
+            self._draw_tile(
+                canvas,
+                board,
+                play_rect,
+                tile,
+                tile_size,
+                True,
+                tile_orientation,
+                (x, y),
+                hints=hints,
+            )
 
     def _draw_tile(
         self,
@@ -1630,6 +1710,7 @@ class MahjongEnvKivyWrapper:
         face_up: bool,
         orientation: int,
         origin: Tuple[float, float],
+        hints: Optional[Iterable[str]] = None,
     ) -> None:
         width, height = size
         x, y = origin
@@ -1647,6 +1728,8 @@ class MahjongEnvKivyWrapper:
             canvas.add(RoundedRectangle(pos=(0, 0), size=size, radius=[6, 6, 6, 6]))
             canvas.add(Color(*self._face_down_border))
             canvas.add(Line(rounded_rectangle=(0, 0, width, height, 6), width=2))
+            if hints:
+                self._draw_tile_hint_overlays(canvas, hints, size)
             canvas.add(PopMatrix())
             return
 
@@ -1660,12 +1743,23 @@ class MahjongEnvKivyWrapper:
 
         texture = self._raw_tile_textures.get(tile_34)
         if texture is None:
-            self._draw_tile_placeholder(canvas, board, play_rect, tile_34, size, origin, local=True)
+            self._draw_tile_placeholder(
+                canvas,
+                board,
+                play_rect,
+                tile_34,
+                size,
+                origin,
+                local=True,
+                hints=hints,
+            )
             canvas.add(PopMatrix())
             return
 
         canvas.add(Color(1, 1, 1, 1))
         canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
+        if hints:
+            self._draw_tile_hint_overlays(canvas, hints, size)
         canvas.add(PopMatrix())
 
     def _draw_tile_placeholder(
@@ -1677,6 +1771,7 @@ class MahjongEnvKivyWrapper:
         size: Tuple[int, int],
         origin: Tuple[float, float],
         local: bool = False,
+        hints: Optional[Iterable[str]] = None,
     ) -> None:
         width, height = size
         if local:
@@ -1702,6 +1797,8 @@ class MahjongEnvKivyWrapper:
         )
         canvas.add(Color(20 / 255.0, 20 / 255.0, 20 / 255.0, 1))
         canvas.add(Rectangle(texture=label.texture, size=label.texture.size, pos=label_pos))
+        if hints:
+            self._draw_tile_hint_overlays(canvas, hints, size, pos)
 
     def _get_tile_color(self, tile_34: int) -> Tuple[int, int, int]:
         symbol = _TILE_SYMBOLS[tile_34]
@@ -1713,6 +1810,138 @@ class MahjongEnvKivyWrapper:
             "z": (220, 210, 150),
         }
         return palette.get(suit, (200, 200, 200))
+
+    def _tile_136_to_base(self, tile_136: int) -> int:
+        if tile_136 is None or tile_136 < 0:
+            return -1
+        red_map = {16: 4, 52: 13, 88: 22}
+        return red_map.get(tile_136, tile_136 // 4)
+
+    def _indicator_to_dora(self, indicator_base: int) -> int:
+        if 0 <= indicator_base <= 26:
+            block = indicator_base // 9
+            offset = (indicator_base % 9 + 1) % 9
+            return block * 9 + offset
+        if 27 <= indicator_base <= 30:
+            return 27 + ((indicator_base - 27 + 1) % 4)
+        if 31 <= indicator_base <= 33:
+            return 31 + ((indicator_base - 31 + 1) % 3)
+        return indicator_base
+
+    def _compute_dora_base_indices(self) -> set[int]:
+        dora_tiles: set[int] = set()
+        indicators = list(getattr(self._env, "dora_indicator", []))
+        for tile in indicators:
+            base = self._tile_136_to_base(tile)
+            if base < 0:
+                continue
+            dora_base = self._indicator_to_dora(base)
+            dora_tiles.add(dora_base)
+        return dora_tiles
+
+    def _tile_is_dora(self, tile_136: int) -> bool:
+        base = self._tile_136_to_base(tile_136)
+        return base in self._dora_base_indices if base >= 0 else False
+
+    def _detect_added_tiles(
+        self, previous: Sequence[int], current: Sequence[int]
+    ) -> list[int]:
+        remaining: dict[int, int] = {}
+        for tile in previous:
+            remaining[tile] = remaining.get(tile, 0) + 1
+        added: list[int] = []
+        for tile in current:
+            count = remaining.get(tile, 0)
+            if count > 0:
+                remaining[tile] = count - 1
+            else:
+                added.append(tile)
+        return added
+
+    def _update_last_draw_tiles(self, hands: Sequence[Sequence[int]]) -> None:
+        while len(self._previous_hands) < len(hands):
+            self._previous_hands.append([])
+        self._last_draw_tiles = {
+            idx: tile
+            for idx, tile in self._last_draw_tiles.items()
+            if idx < len(hands)
+        }
+        for idx, hand in enumerate(hands):
+            previous = self._previous_hands[idx]
+            added = self._detect_added_tiles(previous, hand)
+            if added:
+                self._last_draw_tiles[idx] = added[-1]
+            else:
+                last_tile = self._last_draw_tiles.get(idx)
+                if last_tile is not None and last_tile not in hand:
+                    self._last_draw_tiles.pop(idx, None)
+            self._previous_hands[idx] = list(hand)
+        if len(self._previous_hands) > len(hands):
+            self._previous_hands = self._previous_hands[: len(hands)]
+
+    def _update_hint_state(self) -> None:
+        hands = list(getattr(self._env, "hands", []))
+        self._update_last_draw_tiles(hands)
+        self._selected_tile_ids = set(getattr(self._env, "selected_tiles", []))
+        self._dora_base_indices = self._compute_dora_base_indices()
+
+    def _draw_tile_hint_overlays(
+        self,
+        canvas: InstructionGroup,
+        hints: Iterable[str],
+        size: Tuple[int, int],
+        pos: Tuple[float, float] = (0.0, 0.0),
+    ) -> None:
+        hint_set = {hint for hint in hints if hint}
+        if not hint_set:
+            return
+        overlay_map = {
+            "dora": (1.0, 0.75, 0.2, 0.3),
+            "last_draw": (0.2, 0.65, 1.0, 0.35),
+            "last_discard": (1.0, 0.3, 0.3, 0.35),
+        }
+        for key in ("dora", "last_draw", "last_discard"):
+            if key in hint_set:
+                canvas.add(Color(*overlay_map[key]))
+                canvas.add(
+                    RoundedRectangle(pos=pos, size=size, radius=[6, 6, 6, 6])
+                )
+        if "selected" in hint_set:
+            canvas.add(Color(0.4, 1.0, 0.4, 1.0))
+            canvas.add(Line(rounded_rectangle=(*pos, *size, 6), width=2.5))
+
+    def _collect_tile_hints(
+        self,
+        tile_136: int,
+        *,
+        area: str,
+        player_idx: Optional[int] = None,
+        tile_index: Optional[int] = None,
+        total_tiles: Optional[int] = None,
+        face_up: bool = True,
+    ) -> set[str]:
+        hints: set[str] = set()
+        if face_up and self._tile_is_dora(tile_136):
+            hints.add("dora")
+        if area == "hand":
+            if face_up:
+                if (
+                    player_idx is not None
+                    and self._last_draw_tiles.get(player_idx) == tile_136
+                ):
+                    hints.add("last_draw")
+                if tile_136 in self._selected_tile_ids:
+                    hints.add("selected")
+        elif area == "discards":
+            if total_tiles is not None and tile_index is not None:
+                if tile_index == total_tiles - 1:
+                    hints.add("last_discard")
+            last_discard_tile = getattr(self._env, "last_discarded_tile", -1)
+            if tile_136 == last_discard_tile:
+                hints.add("last_discard")
+        elif area == "dead_wall":
+            hints.add("dora")
+        return hints
 
     def _get_discard_tiles(self, player_idx: int) -> list[int]:
         if player_idx >= len(getattr(self._env, "discard_pile_seq", [])):
