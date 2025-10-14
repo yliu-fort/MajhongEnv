@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import Any, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
-from kivy.core.image import Image as CoreImage
 from kivy.core.text import Label as CoreLabel
 from kivy.graphics import (
     Color,
@@ -24,14 +22,14 @@ from kivy.properties import ObjectProperty
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
-try:  # pragma: no cover - optional dependency
-    from cairosvg import svg2png
-except Exception:  # pragma: no cover - optional dependency
-    svg2png = None
-
 import threading
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
+from mahjong_gui.assets import TileAssetManager
+from mahjong_gui.controls import apply_font, bind_controls, set_spinner_text, set_spinner_values
+from mahjong_gui.layout import Rect, board_rotation_angle, compute_display_order, get_relative_angle
+from mahjong_gui.localization import DEFAULT_LANGUAGE, LocalizationManager
+from mahjong_gui.state import PlaybackState
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -74,203 +72,6 @@ _TILE_SYMBOLS: Tuple[str, ...] = (
 )
 
 
-_DEFAULT_LANGUAGE = "en"
-_LANGUAGE_ORDER: Tuple[str, ...] = ("en", "zh-Hans", "ja", "fr")
-_ASSET_FONT_ROOT = Path(__file__).resolve().parent.parent / "assets" / "fonts"
-_FONT_PATHS: dict[str, Path] = {
-    "en": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
-    "zh-Hans": _ASSET_FONT_ROOT / "Noto_Sans_SC" / "static" / "NotoSansSC-Regular.ttf",
-    "ja": _ASSET_FONT_ROOT / "Noto_Sans_JP" / "static" / "NotoSansJP-Regular.ttf",
-    "fr": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
-}
-_FALLBACK_FONT = _ASSET_FONT_ROOT / "Noto_Color_Emoji" / "NotoColorEmoji-Regular.ttf"
-
-
-def _ordinal_en(value: int) -> str:
-    suffix = "th"
-    if value % 100 not in {11, 12, 13}:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
-    return f"{value}{suffix}"
-
-
-def _ordinal_zh(value: int) -> str:
-    return f"第{value}名"
-
-
-def _ordinal_ja(value: int) -> str:
-    return f"第{value}位"
-
-
-def _ordinal_fr(value: int) -> str:
-    return "1er" if value == 1 else f"{value}e"
-
-
-_ORDINAL_FUNCTIONS: dict[str, Callable[[int], str]] = {
-    "en": _ordinal_en,
-    "zh-Hans": _ordinal_zh,
-    "ja": _ordinal_ja,
-    "fr": _ordinal_fr,
-}
-
-
-_LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
-    "en": {
-        "language_name": "EN",
-        "wind_names": ["East", "South", "West", "North"],
-        "round_format": "{wind} {hand}",
-        "counter_honba": "Honba {count}",
-        "counter_riichi": "Riichi {count}",
-        "counter_tiles": "Tiles {count}",
-        "counter_kyoutaku": "Kyoutaku {count}",
-        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
-        "round_results_title": "Round Results",
-        "yaku_prefix": "Yaku: ",
-        "dealer_suffix": " (Dealer)",
-        "player_name_format": "Player {index}",
-        "seat_placeholder_format": "P{index}",
-        "draw_tenpai": "Draw - Tenpai: {players}",
-        "draw_no_tenpai": "Draw - No Tenpai",
-        "tsumo_label": "Tsumo",
-        "ron_label": "Ron",
-        "vs_label": "vs",
-        "result_tsumo": "{winner} {tsumo_label}",
-        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
-        "result_details": "{han} Han | {fu} Fu | {total} Points",
-        "phase_label": "Phase",
-        "current_player_label": "Current Player",
-        "unknown_player": "-",
-        "action_label": "Action",
-        "reward_label": "Reward",
-        "status_format": "{phase_label}: {phase}  |  {current_player_label}: {player}",
-        "action_reward_format": "{action_label}: {action}  {reward_label}: {reward}",
-        "episode_finished": "Episode finished",
-        "pause_on_score_on": "On-Pause on Score",
-        "pause_on_score_off": "OFF-Pause on Score",
-        "auto_next_on": "On-Auto Next",
-        "auto_next_off": "OFF-Auto Next",
-        "step_next": "Next",
-        "riichi_flag": "Riichi",
-        "tenpai_label": "Tenpai",
-        "no_tenpai_label": "No Tenpai",
-    },
-    "zh-Hans": {
-        "language_name": "ZH",
-        "wind_names": ["东", "南", "西", "北"],
-        "round_format": "{wind}{hand}局",
-        "counter_honba": "本场 {count}",
-        "counter_riichi": "立直棒 {count}",
-        "counter_tiles": "余牌 {count}",
-        "counter_kyoutaku": "供托 {count}",
-        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
-        "round_results_title": "对局结果",
-        "yaku_prefix": "役种：",
-        "dealer_suffix": "（庄家）",
-        "player_name_format": "玩家{index}",
-        "seat_placeholder_format": "玩家{index}",
-        "draw_tenpai": "流局 - 听牌: {players}",
-        "draw_no_tenpai": "流局 - 无听牌",
-        "tsumo_label": "自摸",
-        "ron_label": "荣和",
-        "vs_label": "对",
-        "result_tsumo": "{winner} {tsumo_label}",
-        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
-        "result_details": "{han} 番 | {fu} 符 | {total} 点",
-        "phase_label": "阶段",
-        "current_player_label": "当前玩家",
-        "unknown_player": "-",
-        "action_label": "动作",
-        "reward_label": "奖励",
-        "status_format": "{phase_label}：{phase}  |  {current_player_label}：{player}",
-        "action_reward_format": "{action_label}：{action}  {reward_label}：{reward}",
-        "episode_finished": "对局结束",
-        "pause_on_score_on": "开启-计分暂停",
-        "pause_on_score_off": "关闭-计分暂停",
-        "auto_next_on": "开启-自动进行",
-        "auto_next_off": "关闭-自动进行",
-        "step_next": "下一步",
-        "riichi_flag": "立直",
-        "tenpai_label": "听牌",
-        "no_tenpai_label": "无听牌",
-    },
-    "ja": {
-        "language_name": "JP",
-        "wind_names": ["東", "南", "西", "北"],
-        "round_format": "{wind}{hand}局",
-        "counter_honba": "本場 {count}",
-        "counter_riichi": "立直棒 {count}",
-        "counter_tiles": "残り牌 {count}",
-        "counter_kyoutaku": "供託 {count}",
-        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
-        "round_results_title": "対局結果",
-        "yaku_prefix": "役: ",
-        "dealer_suffix": "（親）",
-        "player_name_format": "プレイヤー{index}",
-        "seat_placeholder_format": "プレイヤー{index}",
-        "draw_tenpai": "流局 - 聴牌: {players}",
-        "draw_no_tenpai": "流局 - ノーテン",
-        "tsumo_label": "ツモ",
-        "ron_label": "ロン",
-        "vs_label": "対",
-        "result_tsumo": "{winner} {tsumo_label}",
-        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
-        "result_details": "{han} 翻 | {fu} 符 | {total} 点",
-        "phase_label": "フェーズ",
-        "current_player_label": "現在のプレイヤー",
-        "unknown_player": "-",
-        "action_label": "行動",
-        "reward_label": "報酬",
-        "status_format": "{phase_label}：{phase}  |  {current_player_label}：{player}",
-        "action_reward_format": "{action_label}：{action}  {reward_label}：{reward}",
-        "episode_finished": "ゲーム終了",
-        "pause_on_score_on": "オン-得点で一時停止",
-        "pause_on_score_off": "オフ-得点で一時停止",
-        "auto_next_on": "オン-自動進行",
-        "auto_next_off": "オフ-自動進行",
-        "step_next": "次へ",
-        "riichi_flag": "立直",
-        "tenpai_label": "聴牌",
-        "no_tenpai_label": "ノーテン",
-    },
-    "fr": {
-        "language_name": "FR",
-        "wind_names": ["Est", "Sud", "Ouest", "Nord"],
-        "round_format": "{wind} {hand}",
-        "counter_honba": "Honba {count}",
-        "counter_riichi": "Riichi {count}",
-        "counter_tiles": "Tuiles {count}",
-        "counter_kyoutaku": "Kyoutaku {count}",
-        "info_line_format": "{round} | {honba} | {riichi} | {kyoutaku}",
-        "round_results_title": "Résultats de la manche",
-        "yaku_prefix": "Yaku : ",
-        "dealer_suffix": " (Donneur)",
-        "player_name_format": "Joueur {index}",
-        "seat_placeholder_format": "J{index}",
-        "draw_tenpai": "Égalité - Tenpai : {players}",
-        "draw_no_tenpai": "Égalité - Pas de Tenpai",
-        "tsumo_label": "Tsumo",
-        "ron_label": "Ron",
-        "vs_label": "contre",
-        "result_tsumo": "{winner} {tsumo_label}",
-        "result_ron": "{winner} {ron_label} {vs_label} {loser}",
-        "result_details": "{han} Han | {fu} Fu | {total} Points",
-        "phase_label": "Phase",
-        "current_player_label": "Joueur actuel",
-        "unknown_player": "-",
-        "action_label": "Action",
-        "reward_label": "Récompense",
-        "status_format": "{phase_label} : {phase}  |  {current_player_label} : {player}",
-        "action_reward_format": "{action_label} : {action}  {reward_label} : {reward}",
-        "episode_finished": "Manche terminée",
-        "pause_on_score_on": "Marche-Pause sur score",
-        "pause_on_score_off": "Arrêt-Pause sur score",
-        "auto_next_on": "Marche-Auto suivant",
-        "auto_next_off": "Arrêt-Auto suivant",
-        "step_next": "Suivant",
-        "riichi_flag": "Riichi",
-        "tenpai_label": "Tenpai",
-        "no_tenpai_label": "Pas de Tenpai",
-    },
-}
 
 
 @dataclass(slots=True)
@@ -279,72 +80,6 @@ class _RenderPayload:
     reward: float
     done: bool
     info: dict[str, Any]
-
-
-@dataclass
-class _Rect:
-    x: float
-    y: float
-    width: float
-    height: float
-
-    @property
-    def left(self) -> float:
-        return self.x
-
-    @left.setter
-    def left(self, value: float) -> None:
-        self.x = value
-
-    @property
-    def right(self) -> float:
-        return self.x + self.width
-
-    @right.setter
-    def right(self, value: float) -> None:
-        self.x = value - self.width
-
-    @property
-    def top(self) -> float:
-        return self.y
-
-    @top.setter
-    def top(self, value: float) -> None:
-        self.y = value
-
-    @property
-    def bottom(self) -> float:
-        return self.y + self.height
-
-    @bottom.setter
-    def bottom(self, value: float) -> None:
-        self.y = value - self.height
-
-    @property
-    def centerx(self) -> float:
-        return self.x + self.width / 2
-
-    @centerx.setter
-    def centerx(self, value: float) -> None:
-        self.x = value - self.width / 2
-
-    @property
-    def centery(self) -> float:
-        return self.y + self.height / 2
-
-    @centery.setter
-    def centery(self, value: float) -> None:
-        self.y = value - self.height / 2
-
-    @property
-    def center(self) -> Tuple[float, float]:
-        return (self.centerx, self.centery)
-
-    @center.setter
-    def center(self, value: Tuple[float, float]) -> None:
-        cx, cy = value
-        self.centerx = cx
-        self.centery = cy
 
 
 class MahjongBoardWidget(Widget):
@@ -401,33 +136,27 @@ class MahjongEnvKivyWrapper:
         self._face_down_color = (18 / 255.0, 18 / 255.0, 22 / 255.0, 1)
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
         self._tile_texture_background = "#FFFFFF"
+        if tile_texture_background is not None:
+            self._tile_texture_background = tile_texture_background
 
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
         self._root.wrapper = self
 
-        self._language_code_to_name: dict[str, str] = {
-            code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
-        }
-        self._language_name_to_code: dict[str, str] = {
-            name: code for code, name in self._language_code_to_name.items()
-        }
-        if _LANGUAGE_STRINGS:
-            self._default_language = (
-                _DEFAULT_LANGUAGE if _DEFAULT_LANGUAGE in _LANGUAGE_STRINGS else next(iter(_LANGUAGE_STRINGS))
-            )
-        else:
-            self._default_language = _DEFAULT_LANGUAGE
+        self._localization = LocalizationManager(DEFAULT_LANGUAGE)
+        self._default_language = self._localization.default_language
         self._language = self._default_language
-        self._ordinal_func = _ORDINAL_FUNCTIONS.get(self._language, _ordinal_en)
         self._updating_language_spinner = False
-        self._configure_language_spinner()
-        self._update_language_fonts(self._language)
-        self._update_language_spinner()
-        self._apply_font_to_controls()
+        self._language_spinner = None
+        self._user_fallback_fonts: Tuple[str, ...] = tuple(fallback_fonts or ())
+        self._fallback_fonts: Tuple[str, ...] = self._user_fallback_fonts
 
         self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Regular"
-        self._raw_tile_textures: dict[int, Any] = {}
+        self._asset_manager = TileAssetManager(
+            asset_root=self._asset_root,
+            tile_symbols=_TILE_SYMBOLS,
+            background_color=self._tile_texture_background,
+        )
         self._placeholder_cache: dict[tuple[int, Tuple[int, int]], CoreLabel] = {}
         self._tile_metrics: dict[str, Tuple[int, int]] = {}
         self._riichi_states: list[bool] = []
@@ -446,21 +175,18 @@ class MahjongEnvKivyWrapper:
             self._tile_texture_explicit_size = None
         self._tile_texture_auto_size = bool(tile_texture_use_tile_metrics)
         
-        self._current_texture_render_size: Optional[Tuple[int, int]] = None
-
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
-        self._auto_advance = True
-        self._pause_on_score = False
-        self._score_pause_active = False
-        self._score_pause_pending = False
-        self._step_once_requested = False
-        self._score_panel_was_visible = False
+        self._state = PlaybackState()
         self._pending_action: Optional[int] = None
         self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
         self._step_event = threading.Event()
         self._scheduled = False
         self._load_tile_assets(self._tile_texture_explicit_size)
         self._connect_controls()
+        self._configure_language_spinner()
+        self._update_language_fonts(self._language)
+        self._update_language_spinner()
+        self._apply_font_to_controls()
 
         self._clock_event = Clock.schedule_interval(self._on_frame, 1.0 / self._fps)
         self._scheduled = True
@@ -505,31 +231,27 @@ class MahjongEnvKivyWrapper:
         if num_players <= 0:
             return []
         focus = self._get_focus_index(num_players)
-        max_display = min(4, num_players)
-        return [((focus + offset) % num_players) for offset in range(max_display)]
+        return compute_display_order(num_players, focus)
 
     def _get_relative_angle(self, relative_position: int) -> int:
-        angle_map = {0: 0, 1: 90, 2: 180, 3: -90}
-        normalized = relative_position % 4
-        return angle_map.get(normalized, 0)
+        return get_relative_angle(relative_position)
 
     def _get_board_rotation_angle(self) -> int:
         num_players = getattr(self._env, "num_players", 0)
         if num_players <= 0:
             return 0
         focus = self._get_focus_index(num_players)
-        return -self._get_relative_angle(focus)
+        return board_rotation_angle(num_players, focus)
 
     def set_language(self, language: str) -> None:
         if not language:
             return
-        code = self._language_name_to_code.get(language, language)
-        if code not in _LANGUAGE_STRINGS:
+        code = self._localization.resolve_code(language)
+        if code is None:
             return
         if code == self._language:
             return
         self._language = code
-        self._ordinal_func = _ORDINAL_FUNCTIONS.get(self._language, _ordinal_en)
         self._update_language_fonts(self._language)
         self._apply_font_to_controls()
         self._update_language_spinner()
@@ -540,10 +262,8 @@ class MahjongEnvKivyWrapper:
     def reset(self, *args: Any, **kwargs: Any) -> Any:
         observation = self._env.reset(*args, **kwargs)
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=self._env.done, info={})
-        self._step_once_requested = False
-        self._score_pause_active = False
-        self._score_pause_pending = False
-        self._score_panel_was_visible = self._score_last()
+        self._state = PlaybackState()
+        self._state.score_panel_was_visible = self._score_last()
         self._riichi_states = []
         self._riichi_pending = []
         self._discard_counts = []
@@ -594,112 +314,62 @@ class MahjongEnvKivyWrapper:
     def _connect_controls(self) -> None:
         if not self._root:
             return
-        self._root.auto_button.bind(on_release=lambda *_: self._toggle_auto())
-        self._root.step_button.bind(on_release=lambda *_: self._trigger_step_once())
-        self._root.pause_button.bind(on_release=lambda *_: self._toggle_pause())
-        spinner = getattr(self._root, "language_spinner", None)
-        if spinner is not None:
-            spinner.bind(text=self._on_language_spinner_text)
+        self._language_spinner = bind_controls(
+            self._root,
+            on_toggle_auto=self._toggle_auto,
+            on_step_once=self._trigger_step_once,
+            on_toggle_pause=self._toggle_pause,
+            on_language_change=self._on_language_spinner_text,
+        )
 
     def _get_language_dict(self, code: Optional[str] = None) -> dict[str, Any]:
-        lang_code = code or self._language
-        if lang_code in _LANGUAGE_STRINGS:
-            return _LANGUAGE_STRINGS[lang_code]
-        return _LANGUAGE_STRINGS.get(self._default_language, {})
+        return self._localization.language_dict(code or self._language)
 
     def _translate(self, key: str, **kwargs: Any) -> str:
-        language_dict = self._get_language_dict()
-        template = language_dict.get(key)
-        if template is None:
-            template = self._get_language_dict(self._default_language).get(key, key)
-        if isinstance(template, str):
-            return template.format(**kwargs)
-        return str(template)
+        return self._localization.translate(self._language, key, **kwargs)
 
     def _translate_sequence(self, key: str) -> Sequence[str]:
-        value = self._get_language_dict().get(key)
-        if isinstance(value, (list, tuple)):
-            return tuple(value)
-        default_value = self._get_language_dict(self._default_language).get(key, ())
-        if isinstance(default_value, (list, tuple)):
-            return tuple(default_value)
-        return ()
+        return self._localization.translate_sequence(self._language, key)
 
     def _format_ordinal(self, value: int) -> str:
-        try:
-            return str(self._ordinal_func(int(value)))
-        except Exception:
-            return str(value)
+        return self._localization.format_ordinal(self._language, value)
 
     def _configure_language_spinner(self) -> None:
-        if not self._root:
+        if not self._language_spinner:
             return
-        spinner = getattr(self._root, "language_spinner", None)
-        if spinner is None:
-            return
-        values: list[str] = [
-            self._language_code_to_name.get(code, code)
-            for code in _LANGUAGE_ORDER
-            if code in self._language_code_to_name
-        ]
-        for name in self._language_code_to_name.values():
-            if name not in values:
-                values.append(name)
-        spinner.values = tuple(values)
+        values = self._localization.spinner_values()
+        set_spinner_values(self._language_spinner, values)
 
     def _update_language_spinner(self) -> None:
-        if not self._root:
+        if not self._language_spinner:
             return
-        spinner = getattr(self._root, "language_spinner", None)
-        if spinner is None:
-            return
-        values: list[str] = [
-            self._language_code_to_name.get(code, code)
-            for code in _LANGUAGE_ORDER
-            if code in self._language_code_to_name
-        ]
-        display_name = self._language_code_to_name.get(self._language, self._language)
+        values = list(self._localization.spinner_values())
+        display_name = self._localization.display_name(self._language)
         if display_name not in values:
             values.append(display_name)
-        spinner.values = tuple(values)
-        if spinner.text != display_name:
+        set_spinner_values(self._language_spinner, values)
+        if self._language_spinner.text != display_name:
             self._updating_language_spinner = True
-            spinner.text = display_name
+            set_spinner_text(self._language_spinner, display_name)
             self._updating_language_spinner = False
 
     def _update_language_fonts(self, language: str) -> None:
-        font_path = _FONT_PATHS.get(language)
-        if font_path is not None and font_path.exists():
-            self._font_name = str(font_path)
-        elif self._user_font_name:
-            self._font_name = str(self._user_font_name)
-        # otherwise keep the existing font_name
-        fallback_entries: list[str] = []
-        if _FALLBACK_FONT.exists():
-            fallback_entries.append(str(_FALLBACK_FONT))
-        self._fallback_fonts = tuple(fallback_entries)
+        font_name, localized_fallbacks = self._localization.resolve_fonts(
+            language,
+            user_font_name=self._user_font_name,
+            fallback=self._font_name,
+        )
+        self._font_name = font_name
+        combined: list[str] = []
+        for candidate in list(localized_fallbacks) + list(self._user_fallback_fonts):
+            if candidate and candidate not in combined:
+                combined.append(candidate)
+        self._fallback_fonts = tuple(combined)
 
     def _apply_font_to_controls(self) -> None:
-        if not self._root:
-            return
-        widgets = [
-            getattr(self._root, "status_label", None),
-            getattr(self._root, "reward_label", None),
-            getattr(self._root, "done_label", None),
-            getattr(self._root, "pause_button", None),
-            getattr(self._root, "auto_button", None),
-            getattr(self._root, "step_button", None),
-            getattr(self._root, "language_spinner", None),
-        ]
-        for widget in widgets:
-            if widget is None:
-                continue
-            try:
-                widget.font_name = self._font_name
-            except Exception:
-                continue
+        apply_font(self._root, self._font_name)
 
-    def _on_language_spinner_text(self, _instance: Any, value: str) -> None:
+    def _on_language_spinner_text(self, value: str) -> None:
         if self._updating_language_spinner:
             return
         self.set_language(value)
@@ -707,84 +377,17 @@ class MahjongEnvKivyWrapper:
     def _load_tile_assets(self, target_size: Optional[Tuple[int, int]] = None) -> None:
         if target_size is None:
             target_size = self._tile_texture_explicit_size
-        if target_size is not None:
-            width, height = target_size
-            sanitized_size: Optional[Tuple[int, int]] = (
-                max(1, int(width)),
-                max(1, int(height)),
-            )
-        else:
-            sanitized_size = None
-        self._current_texture_render_size = sanitized_size
-
-        self._raw_tile_textures.clear()
-        if not self._asset_root.exists():
-            return
-
-        for tile_index, symbol in enumerate(_TILE_SYMBOLS):
-            path = self._asset_root / f"{symbol}.svg"
-            if not path.exists():
-                continue
-            texture = None
-            if svg2png is not None:
-                svg_kwargs: dict[str, Any] = {"url": str(path)}
-                if sanitized_size is not None:
-                    svg_kwargs["output_width"] = sanitized_size[0]
-                    svg_kwargs["output_height"] = sanitized_size[1]
-                if self._tile_texture_background is not None:
-                    svg_kwargs["background_color"] = self._tile_texture_background
-                try:
-                    png_bytes = svg2png(**svg_kwargs)
-                except Exception:
-                    png_bytes = None
-                else:
-                    try:
-                        buffer = BytesIO(png_bytes)
-                        image = CoreImage(buffer, ext="png")
-                        texture = image.texture
-                    except Exception:
-                        texture = None
-            if texture is None:
-                try:
-                    image = CoreImage(str(path))
-                    texture = image.texture
-                except Exception:
-                    texture = None
-            if texture is not None:
-                self._raw_tile_textures[tile_index] = texture
+        self._asset_manager.background_color = self._tile_texture_background
+        self._asset_manager.load(target_size)
 
     def _toggle_auto(self) -> None:
-        self._auto_advance = not self._auto_advance
-        if self._auto_advance:
-            self._step_once_requested = False
-            if self._score_last() and self._pause_on_score:
-                self._score_pause_active = True
-                self._score_pause_pending = True
-            else:
-                self._score_pause_active = False
-                self._score_pause_pending = False
-        else:
-            self._step_once_requested = False
-            self._score_pause_active = False
-            self._score_pause_pending = False
+        self._state.toggle_auto(self._score_last())
 
     def _trigger_step_once(self) -> None:
-        if not self._auto_advance:
-            self._step_once_requested = True
-        elif self._score_pause_active:
-            self._score_pause_active = False
-            self._score_pause_pending = False
+        self._state.trigger_step_once()
 
     def _toggle_pause(self) -> None:
-        if not self._auto_advance:
-            return
-        self._pause_on_score = not self._pause_on_score
-        if self._pause_on_score and self._score_last():
-            self._score_pause_active = True
-            self._score_pause_pending = True
-        else:
-            self._score_pause_active = False
-            self._score_pause_pending = False
+        self._state.toggle_pause(self._score_last())
 
     def _score_last(self) -> bool:
         return (
@@ -793,29 +396,9 @@ class MahjongEnvKivyWrapper:
         )
 
     def _update_pause_state(self) -> None:
-        score_panel_visible = self._score_last()
-        if score_panel_visible:
-            if self._auto_advance and self._pause_on_score:
-                if not self._score_panel_was_visible:
-                    self._score_pause_pending = True
-                    self._score_pause_active = True
-            else:
-                self._score_pause_pending = False
-                self._score_pause_active = False
-            self._score_panel_was_visible = True
-        elif self._score_pause_pending:
-            if self._auto_advance and self._pause_on_score:
-                self._score_pause_active = True
-            else:
-                self._score_pause_active = False
-                self._score_pause_pending = False
-            self._score_panel_was_visible = False
-        else:
-            self._score_pause_pending = False
-            self._score_pause_active = False
-            self._score_panel_was_visible = False
+        self._state.update_for_score_panel(self._score_last())
 
-    def _compute_tile_metrics(self, play_rect: _Rect) -> None:
+    def _compute_tile_metrics(self, play_rect: Rect) -> None:
         width = max(1, int(play_rect.width))
         height = max(1, int(play_rect.height))
         base_tile_width = max(16, min(width // 27, height // 24, 72))
@@ -838,7 +421,7 @@ class MahjongEnvKivyWrapper:
         if not base_size:
             return
         target_size = (max(1, int(base_size[0])), max(1, int(base_size[1])))
-        if self._current_texture_render_size == target_size:
+        if self._asset_manager.current_size == target_size:
             return
         self._load_tile_assets(target_size)
 
@@ -892,15 +475,15 @@ class MahjongEnvKivyWrapper:
     def _on_frame(self, dt: float) -> None:
         if self._pending_action is not None and self._step_result is None:
             can_step = True
-            if not self._auto_advance and not self._step_once_requested:
+            if not self._state.auto_advance and not self._state.step_once_requested:
                 can_step = False
-            if self._score_pause_active:
+            if self._state.score_pause_active:
                 can_step = False
             if self._env.done:
                 can_step = True
             if can_step:
-                if self._step_once_requested:
-                    self._step_once_requested = False
+                if self._state.step_once_requested:
+                    self._state.step_once_requested = False
                 action = self._pending_action
                 observation, reward, done, info = self._env.step(action)
                 self._pending_action = None
@@ -924,7 +507,7 @@ class MahjongEnvKivyWrapper:
 
         width, height = board.size
         play_size = height
-        play_rect = _Rect(0, 0, play_size, play_size)
+        play_rect = Rect(0, 0, play_size, play_size)
         play_rect.top = 0
         play_rect.centerx = width / 2
 
@@ -946,7 +529,7 @@ class MahjongEnvKivyWrapper:
     # Rendering helpers
     # ------------------------------------------------------------------
     def _to_canvas_pos(
-        self, board: MahjongBoardWidget, rect: _Rect, x: float, y: float, width: float, height: float
+        self, board: MahjongBoardWidget, rect: Rect, x: float, y: float, width: float, height: float
     ) -> Tuple[float, float]:
         base_x, base_y = board.pos
         return (
@@ -980,11 +563,11 @@ class MahjongEnvKivyWrapper:
         return lines
 
     def _draw_center_panel(
-        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
+        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: Rect
     ) -> None:
         center_width = max(100, int(play_rect.width * 0.24))
         center_height = max(100, int(play_rect.height * 0.24))
-        center_rect = _Rect(0, 0, center_width, center_height)
+        center_rect = Rect(0, 0, center_width, center_height)
         center_rect.center = play_rect.center
 
         x, y = self._to_canvas_pos(board, play_rect, center_rect.left, center_rect.top, center_rect.width, center_rect.height)
@@ -1081,7 +664,7 @@ class MahjongEnvKivyWrapper:
             )
 
     def _draw_dead_wall(
-        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
+        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: Rect
     ) -> None:
         wall_tile = self._tile_metrics.get("wall", (20, 26))
         stack_size = 5
@@ -1101,7 +684,7 @@ class MahjongEnvKivyWrapper:
 
 
     def _draw_player_areas(
-        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
+        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: Rect
     ) -> None:
         order = self._get_display_order()
         if not order:
@@ -1164,7 +747,7 @@ class MahjongEnvKivyWrapper:
         self,
         canvas: InstructionGroup,
         board: MahjongBoardWidget,
-        play_rect: _Rect,
+        play_rect: Rect,
         player_idx: int,
         face_up_hand: bool,
         angle: int,
@@ -1244,7 +827,7 @@ class MahjongEnvKivyWrapper:
         canvas.add(PopMatrix())
 
     def _draw_score_panel(
-        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
+        self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: Rect
     ) -> None:
         margin = 0
         padding = 14
@@ -1493,7 +1076,7 @@ class MahjongEnvKivyWrapper:
         else:
             panel_size = min(panel_size, min_dimension)
 
-        panel_rect = _Rect(0, 0, panel_size, panel_size)
+        panel_rect = Rect(0, 0, panel_size, panel_size)
         panel_rect.center = play_rect.center
 
         panel_pos = self._to_canvas_pos(
@@ -1566,7 +1149,7 @@ class MahjongEnvKivyWrapper:
         self,
         canvas: InstructionGroup,
         board: MahjongBoardWidget,
-        play_rect: _Rect,
+        play_rect: Rect,
         player_idx: int,
         tile_size: Tuple[int, int],
     ) -> None:
@@ -1576,7 +1159,7 @@ class MahjongEnvKivyWrapper:
         grid_half_width = 3 * (discard_tile[0] + 4)
         grid_width = 6 * (discard_tile[0] + 4)
         grid_height = 4 * (discard_tile[1] + 4)
-        discard_rect = _Rect(play_rect.centerx - grid_half_width, 0, grid_width, grid_height)
+        discard_rect = Rect(play_rect.centerx - grid_half_width, 0, grid_width, grid_height)
         discard_rect.top = play_rect.bottom - tile_size[1] - 14 - 4 * (discard_tile[1] + 4) - 24
         orientation_map: Optional[dict[int, int]] = None
         declaration_index = self._riichi_declarations.get(player_idx)
@@ -1598,7 +1181,7 @@ class MahjongEnvKivyWrapper:
         self,
         canvas: InstructionGroup,
         board: MahjongBoardWidget,
-        play_rect: _Rect,
+        play_rect: Rect,
         player_idx: int,
         hand_tile: Tuple[int, int],
         meld_tile: Tuple[int, int],
@@ -1654,9 +1237,9 @@ class MahjongEnvKivyWrapper:
         self,
         canvas: InstructionGroup,
         board: MahjongBoardWidget,
-        play_rect: _Rect,
+        play_rect: Rect,
         tiles: list[int],
-        area: _Rect,
+        area: Rect,
         tile_size: Tuple[int, int],
         orientation: int,
         columns: int,
@@ -1690,7 +1273,7 @@ class MahjongEnvKivyWrapper:
         self,
         canvas: InstructionGroup,
         board: MahjongBoardWidget,
-        play_rect: _Rect,
+        play_rect: Rect,
         tile_136: int,
         size: Tuple[int, int],
         face_up: bool,
@@ -1724,7 +1307,7 @@ class MahjongEnvKivyWrapper:
         elif tile_136 == 88:
             tile_34 = 36
 
-        texture = self._raw_tile_textures.get(tile_34)
+        texture = self._asset_manager.get_texture(tile_34)
         if texture is None:
             self._draw_tile_placeholder(canvas, board, play_rect, tile_34, size, origin, local=True)
             canvas.add(PopMatrix())
@@ -1738,7 +1321,7 @@ class MahjongEnvKivyWrapper:
         self,
         canvas: InstructionGroup,
         board: MahjongBoardWidget,
-        play_rect: _Rect,
+        play_rect: Rect,
         tile_34: int,
         size: Tuple[int, int],
         origin: Tuple[float, float],
@@ -1823,18 +1406,18 @@ class MahjongEnvKivyWrapper:
     def _update_control_buttons(self) -> None:
         pause_label = (
             self._translate("pause_on_score_on")
-            if self._pause_on_score
+            if self._state.pause_on_score
             else self._translate("pause_on_score_off")
         )
         self._root.pause_button.text = pause_label
-        self._root.pause_button.disabled = not self._auto_advance
+        self._root.pause_button.disabled = not self._state.auto_advance
         auto_label = (
             self._translate("auto_next_on")
-            if self._auto_advance
+            if self._state.auto_advance
             else self._translate("auto_next_off")
         )
         self._root.auto_button.text = auto_label
-        step_enabled = (not self._auto_advance) or self._score_pause_active
+        step_enabled = (not self._state.auto_advance) or self._state.score_pause_active
         self._root.step_button.disabled = not step_enabled
         self._root.step_button.text = self._translate("step_next")
 
