@@ -97,7 +97,9 @@ class HumanPlayerAgent:
 
     def begin_turn(self, observation: Any, masks: Any, timeout: float) -> None:
         """Publish the available actions for the current decision."""
-
+        if sum(masks) <= 1:
+            raise TypeError
+        
         _ = observation  # Reserved for future use
         actions = self._extract_actions(masks)
         labels = [(action_id, self._format_action_label(action_id)) for action_id in actions]

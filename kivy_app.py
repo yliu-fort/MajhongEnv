@@ -134,6 +134,7 @@ class MahjongKivyApp(App):
         self.env = MahjongEnv(num_players=4)
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
         self._initialise_agents()
+        self._initialise_human()
         self._initialise_controllers()
         self._observation = self.wrapper.reset()
         self._start_controllers()
@@ -195,20 +196,18 @@ class MahjongKivyApp(App):
     def _initialise_agents(self) -> None:
         num_players = self.env.num_players
         self._agents = [None] * num_players
+
+        for seat in range(num_players):
+            agent = VisualAgent(self.env, backbone="resnet50")
+            agent.load_model("model_weights/latest.pt")
+            self._agents[seat] = agent
+        self._fallback_agent = RandomDiscardAgent(env=self.env)
+
+    def _initialise_human(self) -> None:
         human_agent = HumanPlayerAgent()
         if self.wrapper is not None:
             self.wrapper.bind_human_ui(0, human_agent)
         self._agents[0] = human_agent
-
-        if num_players > 1:
-            base_agent = VisualAgent(self.env, backbone="resnet50")
-            base_agent.load_model("model_weights/latest.pt")
-            self._agents[1] = base_agent
-            for seat in range(2, num_players):
-                agent = VisualAgent(self.env, backbone="resnet50")
-                agent.model.load_state_dict(base_agent.model.state_dict())
-                self._agents[seat] = agent
-        self._fallback_agent = RandomDiscardAgent(env=self.env)
 
     def _initialise_controllers(self) -> None:
         self._controllers = [
