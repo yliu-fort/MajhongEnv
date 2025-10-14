@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
@@ -21,6 +21,8 @@ from kivy.graphics import (
 )
 from kivy.graphics.instructions import InstructionGroup
 from kivy.properties import ObjectProperty
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
@@ -30,6 +32,9 @@ except Exception:  # pragma: no cover - optional dependency
     svg2png = None
 
 import threading
+
+if TYPE_CHECKING:  # pragma: no cover - typing support only
+    from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 
@@ -351,6 +356,11 @@ class MahjongBoardWidget(Widget):
     """Widget that renders the Mahjong play field."""
 
 
+class ActionPanel(BoxLayout):
+    container = ObjectProperty(None)
+    title_label = ObjectProperty(None)
+
+
 class MahjongRoot(FloatLayout):
     board = ObjectProperty(None)
     status_label = ObjectProperty(None)
@@ -360,6 +370,7 @@ class MahjongRoot(FloatLayout):
     auto_button = ObjectProperty(None)
     step_button = ObjectProperty(None)
     language_spinner = ObjectProperty(None)
+    action_panel = ObjectProperty(None)
     wrapper = ObjectProperty(None)
 
 
@@ -405,6 +416,8 @@ class MahjongEnvKivyWrapper:
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
         self._root.wrapper = self
+        self._human_agents: dict[int, "HumanPlayerAgent"] = {}
+        self._active_action_seat: Optional[int] = None
 
         self._language_code_to_name: dict[str, str] = {
             code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
@@ -425,6 +438,8 @@ class MahjongEnvKivyWrapper:
         self._update_language_fonts(self._language)
         self._update_language_spinner()
         self._apply_font_to_controls()
+        self._refresh_action_panel_title()
+        self._clear_human_actions()
 
         self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Regular"
         self._raw_tile_textures: dict[int, Any] = {}
@@ -536,6 +551,7 @@ class MahjongEnvKivyWrapper:
         self._render()
         self._draw_status_labels()
         self._update_control_buttons()
+        self._refresh_action_panel_title()
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
         observation = self._env.reset(*args, **kwargs)
@@ -551,6 +567,7 @@ class MahjongEnvKivyWrapper:
         self._pending_action = None
         self._step_result = None
         self._render()
+        self._clear_human_actions()
         return observation
 
     def step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
@@ -583,6 +600,17 @@ class MahjongEnvKivyWrapper:
 
     def action_masks(self) -> Any:
         return self._env.action_masks()
+
+    def bind_human_ui(self, seat: int, agent: "HumanPlayerAgent") -> None:
+        """Register callbacks that display human actions and handle input."""
+
+        if seat < 0:
+            raise ValueError("seat must be non-negative")
+        self._human_agents[seat] = agent
+        agent.bind_presenter(
+            lambda actions, seat=seat: self._show_human_actions(seat, actions),
+            lambda seat=seat: self._clear_human_actions(seat),
+        )
 
     @property
     def phase(self) -> str:
@@ -690,6 +718,7 @@ class MahjongEnvKivyWrapper:
             getattr(self._root, "auto_button", None),
             getattr(self._root, "step_button", None),
             getattr(self._root, "language_spinner", None),
+            getattr(getattr(self._root, "action_panel", None), "title_label", None),
         ]
         for widget in widgets:
             if widget is None:
@@ -698,6 +727,14 @@ class MahjongEnvKivyWrapper:
                 widget.font_name = self._font_name
             except Exception:
                 continue
+        panel = getattr(self._root, "action_panel", None)
+        container = getattr(panel, "container", None) if panel is not None else None
+        if container is not None:
+            for child in container.children:
+                try:
+                    child.font_name = self._font_name
+                except Exception:
+                    continue
 
     def _on_language_spinner_text(self, _instance: Any, value: str) -> None:
         if self._updating_language_spinner:
@@ -941,6 +978,96 @@ class MahjongEnvKivyWrapper:
             self._draw_score_panel(canvas, board, play_rect)
         self._draw_status_labels()
         self._update_control_buttons()
+
+    def _show_human_actions(
+        self, seat: int, actions: Sequence[Tuple[int, str]]
+    ) -> None:
+        actions_list = list(actions)
+
+        def apply(_dt: float) -> None:
+            panel = getattr(self._root, "action_panel", None)
+            if panel is None:
+                return
+            container = getattr(panel, "container", None)
+            if container is None:
+                return
+            container.clear_widgets()
+            if not actions_list:
+                panel.opacity = 0.0
+                panel.disabled = True
+                self._active_action_seat = None
+                self._refresh_action_panel_title()
+                return
+            for action_id, label in actions_list:
+                button = Button(
+                    text=str(label),
+                    size_hint_y=None,
+                    height=44,
+                    background_normal="",
+                    background_color=self._panel_border,
+                    color=self._text_color,
+                )
+                button.background_down = ""
+                try:
+                    button.font_name = self._font_name
+                except Exception:
+                    pass
+                button.bind(
+                    on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
+                )
+                container.add_widget(button)
+            panel.opacity = 1.0
+            panel.disabled = False
+            self._active_action_seat = seat
+            self._refresh_action_panel_title()
+
+        Clock.schedule_once(apply, 0)
+
+    def _clear_human_actions(self, seat: Optional[int] = None) -> None:
+        def apply(_dt: float) -> None:
+            panel = getattr(self._root, "action_panel", None)
+            if panel is None:
+                return
+            if seat is not None and self._active_action_seat != seat:
+                return
+            container = getattr(panel, "container", None)
+            if container is not None:
+                container.clear_widgets()
+            panel.opacity = 0.0
+            panel.disabled = True
+            self._active_action_seat = None
+            self._refresh_action_panel_title()
+
+        Clock.schedule_once(apply, 0)
+
+    def _refresh_action_panel_title(self) -> None:
+        panel = getattr(self._root, "action_panel", None)
+        if panel is None:
+            return
+        title = getattr(panel, "title_label", None)
+        if title is None:
+            return
+        base_label = self._translate("action_label")
+        if self._active_action_seat is not None:
+            player_label = self._translate(
+                "player_name_format", index=self._active_action_seat + 1
+            )
+            title.text = f"{base_label}: {player_label}"
+        else:
+            title.text = base_label
+        try:
+            title.font_name = self._font_name
+        except Exception:
+            pass
+
+    def _on_human_action_selected(self, seat: int, action: int) -> None:
+        agent = self._human_agents.get(seat)
+        if agent is None:
+            return
+        try:
+            agent.submit_action(action)
+        except Exception:
+            return
 
     # ------------------------------------------------------------------
     # Rendering helpers

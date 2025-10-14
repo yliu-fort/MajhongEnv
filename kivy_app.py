@@ -15,6 +15,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.lang import Builder
 
+from agent.human_player_agent import HumanPlayerAgent
 from agent.visual_agent import VisualAgent
 from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_env import MahjongEnv
@@ -33,7 +34,7 @@ class AgentController:
     def __init__(self, seat: int, agent: Optional[Any]) -> None:
         self.seat = seat
         self.agent = agent
-        self._request_queue: "queue.Queue[Optional[Tuple[int, Any, float]]]" = queue.Queue()
+        self._request_queue: "queue.Queue[Optional[Tuple[int, Any, Any, float]]]" = queue.Queue()
         self._response_queue: "queue.Queue[Tuple[int, Optional[int]]]" = queue.Queue()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
@@ -56,11 +57,12 @@ class AgentController:
         self,
         request_id: int,
         observation: Any,
+        masks: Any,
         deadline: float,
     ) -> None:
         if self._stop_event.is_set():
             return
-        payload = (request_id, observation, deadline)
+        payload = (request_id, observation, masks, deadline)
         self._request_queue.put(payload)
 
     def poll(self) -> Optional[Tuple[int, Optional[int]]]:
@@ -70,6 +72,8 @@ class AgentController:
             return None
 
     def flush(self) -> None:
+        if isinstance(self.agent, HumanPlayerAgent):
+            self.agent.cancel_turn()
         self._drain_queue(self._request_queue)
         self._drain_queue(self._response_queue)
 
@@ -81,9 +85,18 @@ class AgentController:
                 continue
             if payload is None:
                 continue
-            request_id, observation, deadline = payload
+            request_id, observation, masks, deadline = payload
             action: Optional[int] = None
-            if self.agent is not None:
+            if isinstance(self.agent, HumanPlayerAgent):
+                timeout = max(0.0, deadline - time.monotonic())
+                try:
+                    self.agent.begin_turn(observation, masks, timeout)
+                    action = self.agent.wait_for_action()
+                except TimeoutError:
+                    action = None
+                except Exception:
+                    action = None
+            elif self.agent is not None:
                 try:
                     action = self.agent.predict(observation)
                 except Exception:
@@ -105,7 +118,7 @@ class MahjongKivyApp(App):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._controllers: list[AgentController] = []
-        self._agents: list[VisualAgent] = []
+        self._agents: list[Any] = []
         self._fallback_agent: RandomDiscardAgent = None
         self._pending_requests: dict[int, _PendingRequest] = {}
         self._request_ids = count()
@@ -152,7 +165,8 @@ class MahjongKivyApp(App):
         if pending is None:
             deadline = now + self._action_timeout
             request_id = next(self._request_ids)
-            controller.submit(request_id, self._observation, deadline)
+            masks = self.wrapper.action_masks()
+            controller.submit(request_id, self._observation, masks, deadline)
             self._pending_requests[current_seat] = _PendingRequest(
                 request_id=request_id,
                 deadline=deadline,
@@ -170,8 +184,7 @@ class MahjongKivyApp(App):
             return
 
         if now >= pending.deadline:
-            fallback_action = self._fallback_agent(self._observation)
-            self._queue_action_and_clear(current_seat, controller, fallback_action)
+            self._queue_action_and_clear(current_seat, controller, None)
 
     def on_stop(self) -> None:
         self._shutdown_controllers()
@@ -180,13 +193,21 @@ class MahjongKivyApp(App):
         super().on_stop()
 
     def _initialise_agents(self) -> None:
-        base_agent = VisualAgent(self.env, backbone="resnet50")
-        base_agent.load_model("model_weights/latest.pt")
-        self._agents = [base_agent]
-        for _ in range(1, self.env.num_players):
-            agent = VisualAgent(self.env, backbone="resnet50")
-            agent.model.load_state_dict(base_agent.model.state_dict())
-            self._agents.append(agent)
+        num_players = self.env.num_players
+        self._agents = [None] * num_players
+        human_agent = HumanPlayerAgent()
+        if self.wrapper is not None:
+            self.wrapper.bind_human_ui(0, human_agent)
+        self._agents[0] = human_agent
+
+        if num_players > 1:
+            base_agent = VisualAgent(self.env, backbone="resnet50")
+            base_agent.load_model("model_weights/latest.pt")
+            self._agents[1] = base_agent
+            for seat in range(2, num_players):
+                agent = VisualAgent(self.env, backbone="resnet50")
+                agent.model.load_state_dict(base_agent.model.state_dict())
+                self._agents[seat] = agent
         self._fallback_agent = RandomDiscardAgent(env=self.env)
 
     def _initialise_controllers(self) -> None:
@@ -200,11 +221,15 @@ class MahjongKivyApp(App):
             controller.start()
 
     def _queue_action_and_clear(
-        self, seat: int, controller: AgentController, action: int
+        self, seat: int, controller: AgentController, action: Optional[int]
     ) -> None:
-        self.wrapper.queue_action(action)
         controller.flush()
         self._pending_requests.pop(seat, None)
+        if action is None and self._fallback_agent is not None:
+            action = self._fallback_agent.predict(self._observation)
+        if action is None:
+            return
+        self.wrapper.queue_action(action)
 
     def _handle_environment_reset(self) -> None:
         self._flush_pending_requests()
