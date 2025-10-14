@@ -434,6 +434,7 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending: list[bool] = []
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
+        self._focus_player = 0
 
         if tile_texture_size is not None:
             width, height = tile_texture_size
@@ -478,6 +479,46 @@ class MahjongEnvKivyWrapper:
     @property
     def fps(self) -> int:
         return self._fps
+
+    def set_focus_player(self, player_index: int) -> None:
+        num_players = getattr(self._env, "num_players", 0)
+        if num_players > 0:
+            sanitized = max(0, min(int(player_index), num_players - 1))
+        else:
+            sanitized = 0
+        if sanitized == self._focus_player:
+            return
+        self._focus_player = sanitized
+        self._render()
+
+    def _get_focus_index(self, num_players: int) -> int:
+        if num_players <= 0:
+            return 0
+        if self._focus_player < 0:
+            self._focus_player = 0
+        elif self._focus_player >= num_players:
+            self._focus_player = num_players - 1
+        return self._focus_player
+
+    def _get_display_order(self) -> list[int]:
+        num_players = getattr(self._env, "num_players", 0)
+        if num_players <= 0:
+            return []
+        focus = self._get_focus_index(num_players)
+        max_display = min(4, num_players)
+        return [((focus + offset) % num_players) for offset in range(max_display)]
+
+    def _get_relative_angle(self, relative_position: int) -> int:
+        angle_map = {0: 0, 1: 90, 2: 180, 3: -90}
+        normalized = relative_position % 4
+        return angle_map.get(normalized, 0)
+
+    def _get_board_rotation_angle(self) -> int:
+        num_players = getattr(self._env, "num_players", 0)
+        if num_players <= 0:
+            return 0
+        focus = self._get_focus_index(num_players)
+        return -self._get_relative_angle(focus)
 
     def set_language(self, language: str) -> None:
         if not language:
@@ -996,20 +1037,32 @@ class MahjongEnvKivyWrapper:
             canvas.add(Rectangle(texture=label.texture, size=label.texture.size, pos=(px, py)))
             next_top += label.texture.size[1] + 4
 
-        score_positions = {
-            0: (center_rect.centerx, center_rect.bottom + 14),
-            1: (center_rect.right + 18, center_rect.centery),
-            2: (center_rect.centerx, center_rect.top - 14),
-            3: (center_rect.left - 18, center_rect.centery),
-        }
+        score_positions = (
+            (center_rect.centerx, center_rect.bottom + 14),
+            (center_rect.right + 18, center_rect.centery),
+            (center_rect.centerx, center_rect.top - 14),
+            (center_rect.left - 18, center_rect.centery),
+        )
         scores = getattr(self._env, "scores", [])
         current_player = getattr(self._env, "current_player", 0)
-        for idx, position in score_positions.items():
-            if idx >= len(scores):
+        order = self._get_display_order()
+        for relative_position, player_idx in enumerate(order):
+            if relative_position >= len(score_positions):
+                break
+            if player_idx >= len(scores):
                 continue
-            score_value = scores[idx] * 100
-            color = self._accent_color if idx == current_player else self._text_color
-            label = CoreLabel(text=f"{score_value:5d}", font_size=self._font_size, font_name=self._font_name)
+            position = score_positions[relative_position]
+            score_value = scores[player_idx] * 100
+            color = (
+                self._accent_color
+                if player_idx == current_player
+                else self._text_color
+            )
+            label = CoreLabel(
+                text=f"{score_value:5d}",
+                font_size=self._font_size,
+                font_name=self._font_name,
+            )
             label.refresh()
             px, py = self._to_canvas_pos(
                 board,
@@ -1019,7 +1072,13 @@ class MahjongEnvKivyWrapper:
                 *label.texture.size,
             )
             canvas.add(Color(*color))
-            canvas.add(Rectangle(texture=label.texture, size=label.texture.size, pos=(px, py)))
+            canvas.add(
+                Rectangle(
+                    texture=label.texture,
+                    size=label.texture.size,
+                    pos=(px, py),
+                )
+            )
 
     def _draw_dead_wall(
         self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
@@ -1028,9 +1087,20 @@ class MahjongEnvKivyWrapper:
         stack_size = 5
         gap = 6
         margin_y = 32
-        total_height = stack_size * (wall_tile[0] + gap) - gap
-        start_x = play_rect.centerx + total_height // 2
+        total_width = stack_size * (wall_tile[0] + gap) - gap
+        start_x = play_rect.centerx + total_width // 2
         y = play_rect.centery + margin_y
+
+        canvas.add(PushMatrix())
+        center_px, center_py = self._to_canvas_pos(
+            board, play_rect, play_rect.centerx, play_rect.centery, 0, 0
+        )
+        rotation = self._get_board_rotation_angle()
+        if rotation:
+            canvas.add(Translate(center_px, center_py))
+            canvas.add(Rotate(angle=rotation))
+            canvas.add(Translate(-center_px, -center_py))
+
         for i in range(stack_size):
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
             if i < len(self._env.dora_indicator):
@@ -1039,21 +1109,26 @@ class MahjongEnvKivyWrapper:
             else:
                 self._draw_tile(canvas, board, play_rect, 0, wall_tile, False, 0, (x, y))
 
+        canvas.add(PopMatrix())
+
     def _draw_player_areas(
         self, canvas: InstructionGroup, board: MahjongBoardWidget, play_rect: _Rect
     ) -> None:
-        num_players = getattr(self._env, "num_players", 0)
-        if num_players <= 0:
+        order = self._get_display_order()
+        if not order:
             return
-        angle_map = {0: 0, 1: 90, 2: 180, 3: -90}
+        num_players = getattr(self._env, "num_players", 0)
         reveal_flags = self._compute_hand_reveal_flags(num_players)
-        for player_idx in range(min(4, num_players)):
+        for relative_position, player_idx in enumerate(order):
             face_up = (
                 reveal_flags[player_idx]
                 if player_idx < len(reveal_flags)
-                else player_idx == 0
+                else player_idx == self._focus_player
             )
-            self._draw_player_layout(canvas, board, play_rect, player_idx, face_up, angle_map.get(player_idx, 0))
+            angle = self._get_relative_angle(relative_position)
+            self._draw_player_layout(
+                canvas, board, play_rect, player_idx, face_up, angle
+            )
 
     def _compute_hand_reveal_flags(self, num_players: int) -> list[bool]:
         reveal = [False] * max(0, num_players)
@@ -1079,7 +1154,9 @@ class MahjongEnvKivyWrapper:
                     if 0 <= idx < len(reveal):
                         reveal[idx] = True
         if reveal:
-            reveal[0] = True
+            focus_idx = self._get_focus_index(len(reveal))
+            if 0 <= focus_idx < len(reveal):
+                reveal[focus_idx] = True
         return reveal
 
     def _extract_winner_indices(self, agari: Any) -> set[int]:
