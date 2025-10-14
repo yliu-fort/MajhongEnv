@@ -21,7 +21,10 @@ from kivy.graphics import (
 )
 from kivy.graphics.instructions import InstructionGroup
 from kivy.properties import ObjectProperty
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.widget import Widget
 
 try:  # pragma: no cover - optional dependency
@@ -32,6 +35,7 @@ except Exception:  # pragma: no cover - optional dependency
 import threading
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
+from mahjong_features import get_action_from_index
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -152,6 +156,16 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "No Tenpai",
+        "action_panel_title": "Available Actions",
+        "action_discard_label": "Discard",
+        "action_riichi_label": "Riichi",
+        "action_chi_label": "Chi",
+        "action_pon_label": "Pon",
+        "action_kan_label": "Kan",
+        "action_ron_label": "Ron",
+        "action_tsumo_label": "Tsumo",
+        "action_ryuukyoku_label": "Ryuukyoku",
+        "action_pass_label": "Pass",
     },
     "zh-Hans": {
         "language_name": "ZH",
@@ -191,6 +205,16 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "立直",
         "tenpai_label": "听牌",
         "no_tenpai_label": "无听牌",
+        "action_panel_title": "可选操作",
+        "action_discard_label": "打出",
+        "action_riichi_label": "立直",
+        "action_chi_label": "吃",
+        "action_pon_label": "碰",
+        "action_kan_label": "杠",
+        "action_ron_label": "荣和",
+        "action_tsumo_label": "自摸",
+        "action_ryuukyoku_label": "流局",
+        "action_pass_label": "跳过",
     },
     "ja": {
         "language_name": "JP",
@@ -230,6 +254,16 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "立直",
         "tenpai_label": "聴牌",
         "no_tenpai_label": "ノーテン",
+        "action_panel_title": "選択可能な行動",
+        "action_discard_label": "打牌",
+        "action_riichi_label": "立直",
+        "action_chi_label": "チー",
+        "action_pon_label": "ポン",
+        "action_kan_label": "カン",
+        "action_ron_label": "ロン",
+        "action_tsumo_label": "ツモ",
+        "action_ryuukyoku_label": "流局",
+        "action_pass_label": "パス",
     },
     "fr": {
         "language_name": "FR",
@@ -269,6 +303,16 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "Pas de Tenpai",
+        "action_panel_title": "Actions disponibles",
+        "action_discard_label": "Défausser",
+        "action_riichi_label": "Riichi",
+        "action_chi_label": "Chi",
+        "action_pon_label": "Pon",
+        "action_kan_label": "Kan",
+        "action_ron_label": "Ron",
+        "action_tsumo_label": "Tsumo",
+        "action_ryuukyoku_label": "Ryuukyoku",
+        "action_pass_label": "Passer",
     },
 }
 
@@ -279,6 +323,78 @@ class _RenderPayload:
     reward: float
     done: bool
     info: dict[str, Any]
+
+
+@dataclass(slots=True)
+class _ActionOption:
+    index: int
+    label: str
+    priority: int
+
+
+_ACTION_PRIORITIES: dict[str, int] = {
+    "ron": 0,
+    "tsumo": 0,
+    "ryuukyoku": 1,
+    "kan": 2,
+    "pon": 3,
+    "chi": 4,
+    "riichi": 5,
+    "discard": 6,
+    "pass": 7,
+}
+
+_DEFAULT_ACTION_PRIORITY = max(_ACTION_PRIORITIES.values()) + 1
+
+
+def _format_tile_text(tile_index: int) -> str:
+    if tile_index < 0:
+        return "?"
+    if tile_index < 9:
+        return f"{tile_index + 1}m"
+    if tile_index < 18:
+        return f"{tile_index - 8}p"
+    if tile_index < 27:
+        return f"{tile_index - 17}s"
+    honor_map = {
+        27: "East",
+        28: "South",
+        29: "West",
+        30: "North",
+        31: "Haku",
+        32: "Hatsu",
+        33: "Chun",
+    }
+    return honor_map.get(tile_index, str(tile_index))
+
+
+def _describe_action_type(action_index: int) -> tuple[str, tuple[int, ...]]:
+    payload, _ = get_action_from_index(action_index)
+
+    def _as_tuple(value: Any) -> tuple[int, ...]:
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+            return tuple(int(v) for v in value)
+        if isinstance(value, int) and value >= 0:
+            return (int(value),)
+        return ()
+
+    if action_index < 34:
+        return "discard", _as_tuple(payload)
+    if action_index < 68:
+        return "riichi", _as_tuple(payload)
+    if action_index < 113:
+        return "chi", _as_tuple(payload)
+    if action_index < 147:
+        return "pon", _as_tuple(payload)
+    if action_index < 249:
+        return "kan", _as_tuple(payload)
+    if action_index == 249:
+        return "ryuukyoku", ()
+    if action_index == 250:
+        return "ron", ()
+    if action_index == 251:
+        return "tsumo", ()
+    return "pass", ()
 
 
 @dataclass
@@ -360,6 +476,9 @@ class MahjongRoot(FloatLayout):
     auto_button = ObjectProperty(None)
     step_button = ObjectProperty(None)
     language_spinner = ObjectProperty(None)
+    action_panel_title = ObjectProperty(None)
+    action_panel_scroll = ObjectProperty(None)
+    action_panel = ObjectProperty(None)
     wrapper = ObjectProperty(None)
 
 
@@ -434,6 +553,14 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending: list[bool] = []
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
+        self._action_panel_layout: Optional[BoxLayout] = None
+        self._action_panel_scroll: Optional[ScrollView] = None
+        self._action_panel_title_label: Optional[Any] = None
+        self._action_buttons: list[Button] = []
+        self._cached_action_options: list[_ActionOption] = []
+        self._displayed_action_signature: list[tuple[int, str]] = []
+        self._last_action_mask: Optional[Tuple[int, ...]] = None
+        self._last_action_language: Optional[str] = None
 
         if tile_texture_size is not None:
             width, height = tile_texture_size
@@ -460,6 +587,7 @@ class MahjongEnvKivyWrapper:
         self._scheduled = False
         self._load_tile_assets(self._tile_texture_explicit_size)
         self._connect_controls()
+        self._build_action_panel()
 
         self._clock_event = Clock.schedule_interval(self._on_frame, 1.0 / self._fps)
         self._scheduled = True
@@ -492,6 +620,8 @@ class MahjongEnvKivyWrapper:
         self._update_language_fonts(self._language)
         self._apply_font_to_controls()
         self._update_language_spinner()
+        self._refresh_action_panel_language()
+        self._clear_cached_action_options()
         self._render()
         self._draw_status_labels()
         self._update_control_buttons()
@@ -509,7 +639,9 @@ class MahjongEnvKivyWrapper:
         self._riichi_declarations = {}
         self._pending_action = None
         self._step_result = None
+        self._clear_cached_action_options()
         self._render()
+        self._update_action_panel()
         return observation
 
     def step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
@@ -559,6 +691,179 @@ class MahjongEnvKivyWrapper:
         spinner = getattr(self._root, "language_spinner", None)
         if spinner is not None:
             spinner.bind(text=self._on_language_spinner_text)
+
+    def _build_action_panel(self) -> None:
+        if not self._root:
+            return
+        self._action_panel_layout = getattr(self._root, "action_panel", None)
+        self._action_panel_scroll = getattr(self._root, "action_panel_scroll", None)
+        self._action_panel_title_label = getattr(self._root, "action_panel_title", None)
+        self._clear_action_panel_widgets()
+        if self._action_panel_layout is not None:
+            self._action_panel_layout.padding = (4, 0, 4, 0)
+            self._action_panel_layout.spacing = 8
+        if self._action_panel_scroll is not None:
+            try:
+                self._action_panel_scroll.do_scroll_y = False
+            except Exception:
+                pass
+            self._action_panel_scroll.disabled = True
+        self._refresh_action_panel_language()
+        self._clear_cached_action_options()
+
+    def _refresh_action_panel_language(self) -> None:
+        if self._action_panel_title_label is None:
+            return
+        try:
+            self._action_panel_title_label.font_name = self._font_name
+            self._action_panel_title_label.font_size = max(self._font_size - 2, 12)
+        except Exception:
+            pass
+        try:
+            self._action_panel_title_label.color = self._text_color
+        except Exception:
+            pass
+        self._action_panel_title_label.text = self._translate("action_panel_title")
+
+    def _clear_cached_action_options(self) -> None:
+        self._last_action_mask = None
+        self._last_action_language = None
+        self._cached_action_options = []
+
+    def _clear_action_panel_widgets(self) -> None:
+        if self._action_panel_layout is not None:
+            self._action_panel_layout.clear_widgets()
+        self._action_buttons = []
+        self._displayed_action_signature = []
+
+    def _format_action_label(self, action_type: str, tiles: Sequence[int]) -> str:
+        key_map = {
+            "discard": "action_discard_label",
+            "riichi": "action_riichi_label",
+            "chi": "action_chi_label",
+            "pon": "action_pon_label",
+            "kan": "action_kan_label",
+            "ron": "action_ron_label",
+            "tsumo": "action_tsumo_label",
+            "ryuukyoku": "action_ryuukyoku_label",
+            "pass": "action_pass_label",
+        }
+        base_label = self._translate(key_map.get(action_type, "action_label"))
+        tile_values: list[int] = []
+        if action_type in {"pon", "kan"}:
+            seen: set[int] = set()
+            for tile in tiles:
+                if tile not in seen:
+                    seen.add(tile)
+                    tile_values.append(tile)
+        else:
+            tile_values = list(tiles)
+        tile_texts = [_format_tile_text(tile) for tile in tile_values]
+        if not tile_texts:
+            return base_label
+        if action_type in {"chi", "pon", "kan"} and len(tile_texts) > 1:
+            tile_repr = "-".join(tile_texts)
+        else:
+            tile_repr = tile_texts[0]
+        return f"{base_label} {tile_repr}".strip()
+
+    def _collect_action_options(self) -> list[_ActionOption]:
+        if getattr(self._env, "done", False):
+            self._clear_cached_action_options()
+            return []
+        mask_raw = self.action_masks()
+        try:
+            mask_iterable = list(mask_raw) if mask_raw is not None else []
+        except TypeError:
+            mask_iterable = []
+        mask_list = [bool(value) for value in mask_iterable]
+        if not any(mask_list):
+            self._clear_cached_action_options()
+            return []
+        mask_tuple = tuple(1 if value else 0 for value in mask_list)
+        if (
+            self._last_action_mask == mask_tuple
+            and self._last_action_language == self._language
+            and self._cached_action_options
+        ):
+            return self._cached_action_options
+
+        options: list[_ActionOption] = []
+        seen_pass = False
+        for index, allowed in enumerate(mask_list):
+            if not allowed:
+                continue
+            action_type, tiles = _describe_action_type(index)
+            if action_type == "pass":
+                if seen_pass:
+                    continue
+                seen_pass = True
+            label = self._format_action_label(action_type, tiles)
+            priority = _ACTION_PRIORITIES.get(action_type, _DEFAULT_ACTION_PRIORITY)
+            options.append(_ActionOption(index=index, label=label, priority=priority))
+        options.sort(key=lambda item: (item.priority, item.index))
+        self._cached_action_options = options
+        self._last_action_mask = mask_tuple
+        self._last_action_language = self._language
+        return options
+
+    def _update_action_panel(self) -> None:
+        if self._action_panel_layout is None:
+            return
+        self._refresh_action_panel_language()
+        if getattr(self._env, "done", False):
+            self._clear_cached_action_options()
+            options: list[_ActionOption] = []
+        else:
+            options = self._collect_action_options()
+        signature = [(option.index, option.label) for option in options]
+        disable_panel = True
+        if not options:
+            if self._displayed_action_signature:
+                self._clear_action_panel_widgets()
+        elif signature != self._displayed_action_signature:
+            self._clear_action_panel_widgets()
+            for option in options:
+                button = Button(
+                    text=option.label,
+                    size_hint=(None, None),
+                    height=48,
+                    font_size=self._font_size,
+                    font_name=self._font_name,
+                    background_normal="",
+                    background_down="",
+                )
+                button.background_color = self._panel_color
+                button.background_disabled_normal = ""
+                button.background_disabled_down = ""
+                button.background_disabled_color = self._panel_color
+                button.color = self._text_color
+                button.padding = (16, 10)
+                button.bind(on_release=lambda _instance, idx=option.index: self._on_action_button_press(idx))
+                button.texture_update()
+                button.width = max(120, button.texture_size[0] + 24)
+                self._action_panel_layout.add_widget(button)
+                self._action_buttons.append(button)
+            self._displayed_action_signature = signature
+        if options:
+            disable_panel = self._auto_advance or self._pending_action is not None
+        for button in self._action_buttons:
+            button.disabled = disable_panel
+            button.opacity = 0.5 if disable_panel else 1.0
+            try:
+                button.font_name = self._font_name
+                button.font_size = self._font_size
+            except Exception:
+                pass
+        if self._action_panel_scroll is not None:
+            self._action_panel_scroll.disabled = disable_panel or not options
+
+    def _on_action_button_press(self, action_index: int) -> None:
+        if self._pending_action is not None:
+            return
+        self.queue_action(action_index)
+        if not self._auto_advance:
+            self._step_once_requested = True
 
     def _get_language_dict(self, code: Optional[str] = None) -> dict[str, Any]:
         lang_code = code or self._language
@@ -649,12 +954,24 @@ class MahjongEnvKivyWrapper:
             getattr(self._root, "auto_button", None),
             getattr(self._root, "step_button", None),
             getattr(self._root, "language_spinner", None),
+            getattr(self._root, "action_panel_title", None),
         ]
         for widget in widgets:
             if widget is None:
                 continue
             try:
                 widget.font_name = self._font_name
+            except Exception:
+                continue
+        for button in self._action_buttons:
+            try:
+                button.font_name = self._font_name
+                button.font_size = self._font_size
+            except Exception:
+                continue
+            try:
+                button.texture_update()
+                button.width = max(120, button.texture_size[0] + 24)
             except Exception:
                 continue
 
@@ -900,6 +1217,7 @@ class MahjongEnvKivyWrapper:
             self._draw_score_panel(canvas, board, play_rect)
         self._draw_status_labels()
         self._update_control_buttons()
+        self._update_action_panel()
 
     # ------------------------------------------------------------------
     # Rendering helpers

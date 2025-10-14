@@ -9,6 +9,9 @@
     auto_button: auto_button
     step_button: step_button
     language_spinner: language_spinner
+    action_panel_title: action_panel_title
+    action_panel_scroll: action_panel_scroll
+    action_panel: action_panel
     canvas.before:
         Color:
             rgba: 12/255.0, 30/255.0, 60/255.0, 1
@@ -85,6 +88,45 @@
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
         color: 235/255.0, 235/255.0, 235/255.0, 1
+    BoxLayout:
+        id: action_panel_container
+        orientation: 'vertical'
+        size_hint: None, None
+        width: max(320, root.width - step_button.width - 48)
+        height: 124
+        pos: 16, 16
+        padding: 12, 10
+        spacing: 8
+        canvas.before:
+            Color:
+                rgba: 5/255.0, 5/255.0, 5/255.0, 0.9
+            RoundedRectangle:
+                size: self.size
+                pos: self.pos
+                radius: [12, 12, 12, 12]
+        Label:
+            id: action_panel_title
+            text: ""
+            size_hint_y: None
+            height: max(self.texture_size[1], 24)
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.width, None
+            color: 235/255.0, 235/255.0, 235/255.0, 1
+        ScrollView:
+            id: action_panel_scroll
+            size_hint: 1, 1
+            do_scroll_y: False
+            bar_width: 4
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                id: action_panel
+                orientation: 'horizontal'
+                size_hint: None, None
+                height: max(self.minimum_height, 64)
+                width: max(self.minimum_width, action_panel_scroll.width)
+                spacing: 8
+                padding: 4, 0
 
 <MahjongBoardWidget>:
     canvas.before:
