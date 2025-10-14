@@ -94,7 +94,7 @@ class VisualAgent:
         if sum(legal_mask) == 0:
             return 252
         if sum(legal_mask) == 1:
-            return np.where(legal_mask==1)[0]
+            return np.where(legal_mask==1)[0].item()
         
         # 如果当前状态是和牌状态，直接返回和牌动作
         if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):

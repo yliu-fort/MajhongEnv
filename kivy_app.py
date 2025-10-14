@@ -16,6 +16,7 @@ from kivy.clock import Clock
 from kivy.lang import Builder
 
 from agent.visual_agent import VisualAgent
+from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_env import MahjongEnv
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
 
@@ -24,7 +25,6 @@ from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
 class _PendingRequest:
     request_id: int
     deadline: float
-    action_mask: Sequence[int]
 
 
 class AgentController:
@@ -33,7 +33,7 @@ class AgentController:
     def __init__(self, seat: int, agent: Optional[Any]) -> None:
         self.seat = seat
         self.agent = agent
-        self._request_queue: "queue.Queue[Optional[Tuple[int, Any, Sequence[int], float]]]" = queue.Queue()
+        self._request_queue: "queue.Queue[Optional[Tuple[int, Any, float]]]" = queue.Queue()
         self._response_queue: "queue.Queue[Tuple[int, Optional[int]]]" = queue.Queue()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
@@ -56,12 +56,11 @@ class AgentController:
         self,
         request_id: int,
         observation: Any,
-        action_mask: Sequence[int],
         deadline: float,
     ) -> None:
         if self._stop_event.is_set():
             return
-        payload = (request_id, observation, action_mask, deadline)
+        payload = (request_id, observation, deadline)
         self._request_queue.put(payload)
 
     def poll(self) -> Optional[Tuple[int, Optional[int]]]:
@@ -82,7 +81,7 @@ class AgentController:
                 continue
             if payload is None:
                 continue
-            request_id, observation, action_mask, deadline = payload
+            request_id, observation, deadline = payload
             action: Optional[int] = None
             if self.agent is not None:
                 try:
@@ -107,6 +106,7 @@ class MahjongKivyApp(App):
         super().__init__(**kwargs)
         self._controllers: list[AgentController] = []
         self._agents: list[VisualAgent] = []
+        self._fallback_agent: RandomDiscardAgent = None
         self._pending_requests: dict[int, _PendingRequest] = {}
         self._request_ids = count()
         self._action_timeout = 1.0
@@ -150,14 +150,12 @@ class MahjongKivyApp(App):
         now = time.monotonic()
 
         if pending is None:
-            action_mask = tuple(self.wrapper.action_masks())
             deadline = now + self._action_timeout
             request_id = next(self._request_ids)
-            controller.submit(request_id, self._observation, action_mask, deadline)
+            controller.submit(request_id, self._observation, deadline)
             self._pending_requests[current_seat] = _PendingRequest(
                 request_id=request_id,
                 deadline=deadline,
-                action_mask=action_mask,
             )
             return
 
@@ -168,12 +166,11 @@ class MahjongKivyApp(App):
             request_id, action = response
             if request_id != pending.request_id:
                 continue
-            chosen_action = self._select_action(action, pending.action_mask)
-            self._queue_action_and_clear(current_seat, controller, chosen_action)
+            self._queue_action_and_clear(current_seat, controller, action)
             return
 
         if now >= pending.deadline:
-            fallback_action = self._select_fallback(pending.action_mask)
+            fallback_action = self._fallback_agent(self._observation)
             self._queue_action_and_clear(current_seat, controller, fallback_action)
 
     def on_stop(self) -> None:
@@ -190,6 +187,7 @@ class MahjongKivyApp(App):
             agent = VisualAgent(self.env, backbone="resnet50")
             agent.model.load_state_dict(base_agent.model.state_dict())
             self._agents.append(agent)
+        self._fallback_agent = RandomDiscardAgent(env=self.env)
 
     def _initialise_controllers(self) -> None:
         self._controllers = [
@@ -207,26 +205,6 @@ class MahjongKivyApp(App):
         self.wrapper.queue_action(action)
         controller.flush()
         self._pending_requests.pop(seat, None)
-
-    def _select_action(self, action: Optional[int], mask: Sequence[int]) -> int:
-        if action is None or not self._action_is_legal(action, mask):
-            return self._select_fallback(mask)
-        return action
-
-    @staticmethod
-    def _action_is_legal(action: Optional[int], mask: Sequence[int]) -> bool:
-        if action is None:
-            return False
-        if action < 0 or action >= len(mask):
-            return False
-        return bool(mask[action])
-
-    @staticmethod
-    def _select_fallback(mask: Sequence[int]) -> int:
-        for index, flag in enumerate(mask):
-            if flag:
-                return index
-        return 0
 
     def _handle_environment_reset(self) -> None:
         self._flush_pending_requests()
