@@ -355,6 +355,18 @@ class _Rect:
 class MahjongBoardWidget(Widget):
     """Widget that renders the Mahjong play field."""
 
+    wrapper = ObjectProperty(None)
+
+    def on_touch_down(self, touch: Any) -> bool:  # type: ignore[override]
+        if super().on_touch_down(touch):
+            return True
+        pos = getattr(touch, "pos", None)
+        if pos is None or not self.collide_point(*pos):
+            return False
+        if self.wrapper is not None and self.wrapper.handle_board_touch(self, touch):
+            return True
+        return False
+
 
 class ActionPanel(BoxLayout):
     container = ObjectProperty(None)
@@ -416,8 +428,13 @@ class MahjongEnvKivyWrapper:
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
         self._root.wrapper = self
+        self._root.bind(board=self._on_board_assigned)
+        self._on_board_assigned(self._root, getattr(self._root, "board", None))
         self._human_agents: dict[int, "HumanPlayerAgent"] = {}
         self._active_action_seat: Optional[int] = None
+        self._hand_hitboxes: dict[
+            int, list[tuple[int, tuple[float, float, float, float]]]
+        ] = {}
 
         self._language_code_to_name: dict[str, str] = {
             code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
@@ -628,6 +645,12 @@ class MahjongEnvKivyWrapper:
         spinner = getattr(self._root, "language_spinner", None)
         if spinner is not None:
             spinner.bind(text=self._on_language_spinner_text)
+
+    def _on_board_assigned(
+        self, _root: MahjongRoot, board: Optional[MahjongBoardWidget]
+    ) -> None:
+        if isinstance(board, MahjongBoardWidget):
+            board.wrapper = self
 
     def _get_language_dict(self, code: Optional[str] = None) -> dict[str, Any]:
         lang_code = code or self._language
@@ -968,6 +991,8 @@ class MahjongEnvKivyWrapper:
         self._compute_tile_metrics(play_rect)
         self._update_riichi_state()
 
+        self._hand_hitboxes.clear()
+
         canvas = board.canvas
         canvas.clear()
 
@@ -1069,6 +1094,33 @@ class MahjongEnvKivyWrapper:
         except Exception:
             return
 
+    def handle_board_touch(self, board: MahjongBoardWidget, touch: Any) -> bool:
+        pos = getattr(touch, "pos", None)
+        if pos is None:
+            return False
+        canvas_x, canvas_y = float(pos[0]), float(pos[1])
+        base_x, base_y = board.pos
+        play_x = canvas_x - base_x
+        play_y = canvas_y - base_y
+        canvas_x = base_x + play_x
+        canvas_y = base_y + play_y
+
+        seat = self._active_action_seat
+        if seat is None:
+            return False
+        hitboxes = self._hand_hitboxes.get(seat)
+        if not hitboxes:
+            return False
+        agent = self._human_agents.get(seat)
+        if agent is None:
+            return False
+
+        for tile_index, rect in reversed(hitboxes):
+            left, bottom, right, top = rect
+            if left <= canvas_x <= right and bottom <= canvas_y <= top:
+                return agent.submit_action(tile_index)
+        return False
+
     # ------------------------------------------------------------------
     # Rendering helpers
     # ------------------------------------------------------------------
@@ -1080,6 +1132,14 @@ class MahjongEnvKivyWrapper:
             base_x + rect.left + x,
             base_y + rect.top + rect.height - y - height,
         )
+
+    def _tile_to_discard_action(self, tile_136: int) -> Optional[int]:
+        if not isinstance(tile_136, int):
+            return None
+        tile_index = tile_136 // 4
+        if 0 <= tile_index < 34:
+            return tile_index
+        return None
 
     def _wrap_text(self, text: str, max_width: float, font_size: Optional[int] = None) -> list[str]:
         if not text:
@@ -1323,9 +1383,24 @@ class MahjongEnvKivyWrapper:
 
         x = play_rect.centerx - 7 * (tile_size[0] + 6)
         y = play_rect.bottom - tile_size[1] - 14
+        is_focus_player = player_idx == self._focus_player
+        if is_focus_player:
+            self._hand_hitboxes[player_idx] = []
         for idx, tile in enumerate(hand_tiles):
             if len(hand_tiles) > 1 and idx == len(hand_tiles) - 1:
                 x += draw_gap
+            if is_focus_player:
+                discard_action = self._tile_to_discard_action(tile)
+                if discard_action is not None:
+                    px, py = self._to_canvas_pos(
+                        board, play_rect, x, y, tile_size[0], tile_size[1]
+                    )
+                    self._hand_hitboxes[player_idx].append(
+                        (
+                            discard_action,
+                            (px, py, px + tile_size[0], py + tile_size[1]),
+                        )
+                    )
             self._draw_tile(canvas, board, play_rect, tile, tile_size, face_up_hand, 0, (x, y))
             x += spacing
 
