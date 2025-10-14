@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -401,6 +402,31 @@ class MahjongEnvKivyWrapper:
         self._face_down_color = (18 / 255.0, 18 / 255.0, 22 / 255.0, 1)
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
         self._tile_texture_background = "#FFFFFF"
+        dora_style = {
+            "fill": (1.0, 0.85, 0.0, 0.28),
+            "border": (1.0, 0.7, 0.0, 0.9),
+            "border_width": 2.5,
+        }
+        self._hint_styles: dict[str, dict[str, Any]] = {
+            "dora": dora_style,
+            "dora_indicator": dora_style.copy(),
+            "last_draw": {
+                "fill": (0.35, 0.7, 1.0, 0.32),
+                "border": (0.2, 0.5, 0.85, 0.95),
+                "border_width": 2.0,
+            },
+            "last_discard": {
+                "fill": (1.0, 0.45, 0.45, 0.35),
+                "border": (0.8, 0.1, 0.1, 0.95),
+                "border_width": 2.0,
+            },
+            "selected": {
+                "fill": (0.5, 0.95, 0.6, 0.3),
+                "border": (0.2, 0.65, 0.25, 0.95),
+                "border_width": 2.0,
+            },
+        }
+        self._dora_tile_indices: set[int] = set()
 
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
@@ -889,6 +915,7 @@ class MahjongEnvKivyWrapper:
 
         self._compute_tile_metrics(play_rect)
         self._update_riichi_state()
+        self._dora_tile_indices = self._compute_dora_tiles()
 
         canvas = board.canvas
         canvas.clear()
@@ -1035,7 +1062,17 @@ class MahjongEnvKivyWrapper:
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
             if i < len(self._env.dora_indicator):
                 tile = self._env.dora_indicator[i]
-                self._draw_tile(canvas, board, play_rect, tile, wall_tile, True, 0, (x, y))
+                self._draw_tile(
+                    canvas,
+                    board,
+                    play_rect,
+                    tile,
+                    wall_tile,
+                    True,
+                    0,
+                    (x, y),
+                    ("dora_indicator",),
+                )
             else:
                 self._draw_tile(canvas, board, play_rect, 0, wall_tile, False, 0, (x, y))
 
@@ -1130,10 +1167,36 @@ class MahjongEnvKivyWrapper:
 
         x = play_rect.centerx - 7 * (tile_size[0] + 6)
         y = play_rect.bottom - tile_size[1] - 14
+        selected_counter = Counter(getattr(self._env, "selected_tiles", []))
+        current_player = getattr(self._env, "current_player", -1)
+        phase = getattr(self._env, "phase", "")
+        highlight_last_draw = (
+            face_up_hand
+            and player_idx == current_player
+            and phase in {"draw", "kan_draw"}
+            and bool(hand_tiles)
+        )
         for idx, tile in enumerate(hand_tiles):
             if len(hand_tiles) > 1 and idx == len(hand_tiles) - 1:
                 x += draw_gap
-            self._draw_tile(canvas, board, play_rect, tile, tile_size, face_up_hand, 0, (x, y))
+            hints: list[str] = []
+            if face_up_hand:
+                if selected_counter.get(tile, 0) > 0:
+                    hints.append("selected")
+                    selected_counter[tile] -= 1
+                elif highlight_last_draw and idx == len(hand_tiles) - 1:
+                    hints.append("last_draw")
+            self._draw_tile(
+                canvas,
+                board,
+                play_rect,
+                tile,
+                tile_size,
+                face_up_hand,
+                0,
+                (x, y),
+                hints,
+            )
             x += spacing
 
         riichi_flags = list(getattr(self._env, "riichi", []))
@@ -1516,6 +1579,13 @@ class MahjongEnvKivyWrapper:
         declaration_index = self._riichi_declarations.get(player_idx)
         if declaration_index is not None:
             orientation_map = {declaration_index: 90}
+        last_discard = getattr(self._env, "last_discarded_tile", -1)
+        highlight_map: dict[int, list[str]] = {}
+        if last_discard >= 0:
+            for idx in range(len(discard_tiles) - 1, -1, -1):
+                if discard_tiles[idx] == last_discard:
+                    highlight_map[idx] = ["last_discard"]
+                    break
         self._draw_tile_grid(
             canvas,
             board,
@@ -1526,6 +1596,7 @@ class MahjongEnvKivyWrapper:
             0,
             cols,
             orientation_map,
+            highlight_map,
         )
 
     def _draw_melds(
@@ -1595,6 +1666,7 @@ class MahjongEnvKivyWrapper:
         orientation: int,
         columns: int,
         orientation_map: Optional[dict[int, int]] = None,
+        highlight_map: Optional[dict[int, list[str]]] = None,
     ) -> None:
         if not tiles:
             return
@@ -1618,7 +1690,18 @@ class MahjongEnvKivyWrapper:
             else:
                 x += tile_size[0] + spacing
             y = area.top + row * (tile_size[1] + spacing)
-            self._draw_tile(canvas, board, play_rect, tile, tile_size, True, tile_orientation, (x, y))
+            hints = highlight_map.get(idx) if highlight_map else None
+            self._draw_tile(
+                canvas,
+                board,
+                play_rect,
+                tile,
+                tile_size,
+                True,
+                tile_orientation,
+                (x, y),
+                hints,
+            )
 
     def _draw_tile(
         self,
@@ -1630,6 +1713,7 @@ class MahjongEnvKivyWrapper:
         face_up: bool,
         orientation: int,
         origin: Tuple[float, float],
+        hints: Optional[Iterable[str]] = None,
     ) -> None:
         width, height = size
         x, y = origin
@@ -1650,22 +1734,48 @@ class MahjongEnvKivyWrapper:
             canvas.add(PopMatrix())
             return
 
-        tile_34 = tile_136 // 4
+        tile_base_index = tile_136 // 4
+        tile_texture_index = tile_base_index
         if tile_136 == 16:
-            tile_34 = 34
+            tile_texture_index = 34
         elif tile_136 == 52:
-            tile_34 = 35
+            tile_texture_index = 35
         elif tile_136 == 88:
-            tile_34 = 36
+            tile_texture_index = 36
 
-        texture = self._raw_tile_textures.get(tile_34)
+        hint_list: list[str] = []
+        if hints:
+            if isinstance(hints, str):
+                hint_list = [hints]
+            else:
+                hint_list = [h for h in hints if h]
+
+        normalized_base = self._normalize_tile_index(tile_base_index)
+        if (
+            normalized_base in self._dora_tile_indices
+            and "dora" not in hint_list
+        ):
+            hint_list.append("dora")
+
+        texture = self._raw_tile_textures.get(tile_texture_index)
         if texture is None:
-            self._draw_tile_placeholder(canvas, board, play_rect, tile_34, size, origin, local=True)
+            self._draw_tile_placeholder(
+                canvas,
+                board,
+                play_rect,
+                tile_texture_index,
+                size,
+                origin,
+                local=True,
+                hints=hint_list,
+            )
             canvas.add(PopMatrix())
             return
 
         canvas.add(Color(1, 1, 1, 1))
         canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
+        for hint in hint_list:
+            self._apply_tile_hint(canvas, (0, 0), size, hint)
         canvas.add(PopMatrix())
 
     def _draw_tile_placeholder(
@@ -1677,6 +1787,7 @@ class MahjongEnvKivyWrapper:
         size: Tuple[int, int],
         origin: Tuple[float, float],
         local: bool = False,
+        hints: Optional[Iterable[str]] = None,
     ) -> None:
         width, height = size
         if local:
@@ -1702,6 +1813,9 @@ class MahjongEnvKivyWrapper:
         )
         canvas.add(Color(20 / 255.0, 20 / 255.0, 20 / 255.0, 1))
         canvas.add(Rectangle(texture=label.texture, size=label.texture.size, pos=label_pos))
+        if hints:
+            for hint in hints:
+                self._apply_tile_hint(canvas, pos, size, hint)
 
     def _get_tile_color(self, tile_34: int) -> Tuple[int, int, int]:
         symbol = _TILE_SYMBOLS[tile_34]
@@ -1718,6 +1832,51 @@ class MahjongEnvKivyWrapper:
         if player_idx >= len(getattr(self._env, "discard_pile_seq", [])):
             return []
         return [t for t in self._env.discard_pile_seq[player_idx]]
+
+    def _apply_tile_hint(
+        self,
+        canvas: InstructionGroup,
+        pos: Tuple[float, float],
+        size: Tuple[int, int],
+        hint: str,
+    ) -> None:
+        style = self._hint_styles.get(hint)
+        if not style:
+            return
+        fill = style.get("fill")
+        if fill:
+            canvas.add(Color(*fill))
+            canvas.add(RoundedRectangle(pos=pos, size=size, radius=[6, 6, 6, 6]))
+        border = style.get("border")
+        if border:
+            width = float(style.get("border_width", 2.0))
+            canvas.add(Color(*border))
+            canvas.add(Line(rounded_rectangle=(*pos, *size, 6), width=width))
+
+    def _compute_dora_tiles(self) -> set[int]:
+        indicators = getattr(self._env, "dora_indicator", [])
+        result: set[int] = set()
+        for indicator in indicators:
+            tile_index = self._normalize_tile_index(indicator // 4)
+            result.add(self._dora_from_indicator(tile_index))
+        return result
+
+    @staticmethod
+    def _normalize_tile_index(tile_34: int) -> int:
+        mapping = {34: 4, 35: 13, 36: 22}
+        return mapping.get(tile_34, tile_34)
+
+    @staticmethod
+    def _dora_from_indicator(tile_34: int) -> int:
+        if 0 <= tile_34 < 27:
+            suit = tile_34 // 9
+            rank = tile_34 % 9
+            return suit * 9 + ((rank + 1) % 9)
+        if 27 <= tile_34 <= 30:
+            return 27 + ((tile_34 - 27 + 1) % 4)
+        if 31 <= tile_34 <= 33:
+            return 31 + ((tile_34 - 31 + 1) % 3)
+        return tile_34
 
     def _draw_status_labels(self) -> None:
         if not self._root:
