@@ -525,6 +525,15 @@ class MahjongEnvKivyWrapper:
         self._root.size = window_size
         self._root.wrapper = self
 
+        self._action_panel_layout: Optional[BoxLayout] = None
+        self._action_panel_scroll: Optional[ScrollView] = None
+        self._action_panel_title_label: Optional[Any] = None
+        self._action_buttons: list[Button] = []
+        self._cached_action_options: list[_ActionOption] = []
+        self._displayed_action_signature: list[tuple[int, str]] = []
+        self._last_action_mask: Optional[Tuple[int, ...]] = None
+        self._last_action_language: Optional[str] = None
+
         self._language_code_to_name: dict[str, str] = {
             code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
         }
@@ -553,14 +562,6 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending: list[bool] = []
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
-        self._action_panel_layout: Optional[BoxLayout] = None
-        self._action_panel_scroll: Optional[ScrollView] = None
-        self._action_panel_title_label: Optional[Any] = None
-        self._action_buttons: list[Button] = []
-        self._cached_action_options: list[_ActionOption] = []
-        self._displayed_action_signature: list[tuple[int, str]] = []
-        self._last_action_mask: Optional[Tuple[int, ...]] = None
-        self._last_action_language: Optional[str] = None
 
         if tile_texture_size is not None:
             width, height = tile_texture_size
