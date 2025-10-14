@@ -1,5 +1,51 @@
 #:kivy 2.1.0
 
+<ActionOverlay>:
+    message_label: message_label
+    button_container: button_container
+    size_hint: 1, 1
+    pos: 0, 0
+    visible: False
+    canvas.before:
+        Color:
+            rgba: (0, 0, 0, 0.65) if self.visible else (0, 0, 0, 0)
+        Rectangle:
+            size: self.size
+            pos: self.pos
+    BoxLayout:
+        size_hint: 0.8, None
+        height: min(root.height * 0.8, max(self.minimum_height, 200))
+        pos_hint: {"center_x": 0.5, "center_y": 0.5}
+        orientation: "vertical"
+        spacing: 12
+        padding: 16
+        canvas.before:
+            Color:
+                rgba: 12/255.0, 30/255.0, 60/255.0, 0.95
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [12, 12, 12, 12]
+        Label:
+            id: message_label
+            text: root.message
+            size_hint_y: None
+            height: max(32, self.texture_size[1])
+            color: 235/255.0, 235/255.0, 235/255.0, 1
+        ScrollView:
+            size_hint: 1, 1
+            do_scroll_x: False
+            bar_width: 8
+            effect_cls: 'ScrollEffect'
+            GridLayout:
+                id: button_container
+                cols: 2
+                size_hint_y: None
+                height: self.minimum_height
+                row_default_height: 48
+                row_force_default: True
+                spacing: 8
+
 <MahjongRoot>:
     board: board
     status_label: status_label
@@ -85,6 +131,8 @@
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
         color: 235/255.0, 235/255.0, 235/255.0, 1
+    ActionOverlay:
+        id: action_overlay
 
 <MahjongBoardWidget>:
     canvas.before:

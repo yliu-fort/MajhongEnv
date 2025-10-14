@@ -20,8 +20,13 @@ from kivy.graphics import (
     Translate,
 )
 from kivy.graphics.instructions import InstructionGroup
-from kivy.properties import ObjectProperty
+from kivy.properties import BooleanProperty, ObjectProperty, StringProperty
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.widget import Widget
 
 try:  # pragma: no cover - optional dependency
@@ -351,6 +356,67 @@ class MahjongBoardWidget(Widget):
     """Widget that renders the Mahjong play field."""
 
 
+class ActionOverlay(FloatLayout):
+    """Semi-transparent overlay presenting human action choices."""
+
+    visible = BooleanProperty(False)
+    message = StringProperty("")
+    button_container = ObjectProperty(None)
+    message_label = ObjectProperty(None)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._callback: Optional[Callable[[int], None]] = None
+        self.opacity = 0.0
+        self.disabled = True
+
+    def on_visible(self, _instance: Any, value: bool) -> None:
+        self.opacity = 1.0 if value else 0.0
+        self.disabled = not value
+
+    def show(
+        self,
+        title: str,
+        options: Sequence[tuple[int, str]],
+        on_select: Callable[[int], None],
+    ) -> None:
+        self.message = title
+        self._callback = on_select
+        if self.message_label is not None:
+            self.message_label.text = title
+        if self.button_container is not None:
+            self.button_container.clear_widgets()
+            for index, label in options:
+                button = Button(
+                    text=label,
+                    size_hint_y=None,
+                    height=44,
+                )
+                button.halign = "center"
+                button.valign = "middle"
+                button.bind(
+                    size=lambda btn, *_: setattr(
+                        btn, "text_size", (btn.width - 16, None)
+                    )
+                )
+                button.bind(on_release=lambda _btn, idx=index: self._handle_choice(idx))
+                self.button_container.add_widget(button)
+        self.visible = True
+
+    def hide(self) -> None:
+        self.visible = False
+        if self.button_container is not None:
+            self.button_container.clear_widgets()
+        self.message = ""
+        self._callback = None
+
+    def _handle_choice(self, action_index: int) -> None:
+        callback = self._callback
+        self.hide()
+        if callback is not None:
+            callback(action_index)
+
+
 class MahjongRoot(FloatLayout):
     board = ObjectProperty(None)
     status_label = ObjectProperty(None)
@@ -361,6 +427,7 @@ class MahjongRoot(FloatLayout):
     step_button = ObjectProperty(None)
     language_spinner = ObjectProperty(None)
     wrapper = ObjectProperty(None)
+    action_overlay = ObjectProperty(None)
 
 
 class MahjongEnvKivyWrapper:
@@ -405,6 +472,10 @@ class MahjongEnvKivyWrapper:
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
         self._root.wrapper = self
+        self._action_overlay: Optional[ActionOverlay] = getattr(
+            self._root, "action_overlay", None
+        )
+        self._overlay_geometry_bound = False
 
         self._language_code_to_name: dict[str, str] = {
             code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
@@ -575,6 +646,27 @@ class MahjongEnvKivyWrapper:
         self._step_result = None
         return result
 
+    def prompt_human_action(
+        self,
+        title: str,
+        options: Sequence[tuple[int, str]],
+        on_select: Callable[[int], None],
+    ) -> None:
+        def _show(_dt: float) -> None:
+            overlay = self._ensure_action_overlay()
+            if overlay is not None:
+                overlay.show(title, options, on_select)
+
+        Clock.schedule_once(_show, 0.0)
+
+    def dismiss_human_action(self) -> None:
+        def _dismiss(_dt: float) -> None:
+            overlay = self._ensure_action_overlay()
+            if overlay is not None:
+                overlay.hide()
+
+        Clock.schedule_once(_dismiss, 0.0)
+
     def close(self) -> None:
         if self._scheduled:
             self._clock_event.cancel()
@@ -600,6 +692,32 @@ class MahjongEnvKivyWrapper:
         spinner = getattr(self._root, "language_spinner", None)
         if spinner is not None:
             spinner.bind(text=self._on_language_spinner_text)
+
+    def _ensure_action_overlay(self) -> Optional[ActionOverlay]:
+        if self._action_overlay is not None:
+            return self._action_overlay
+        if not self._root:
+            return None
+        overlay = getattr(self._root, "action_overlay", None)
+        if overlay is None:
+            overlay = ActionOverlay()
+            overlay.size_hint = (1, 1)
+            self._root.add_widget(overlay)
+            self._root.action_overlay = overlay
+        overlay.size = self._root.size
+        overlay.pos = self._root.pos
+        if not self._overlay_geometry_bound:
+            self._root.bind(size=lambda *_: self._sync_overlay_geometry())
+            self._root.bind(pos=lambda *_: self._sync_overlay_geometry())
+            self._overlay_geometry_bound = True
+        self._action_overlay = overlay
+        return self._action_overlay
+
+    def _sync_overlay_geometry(self) -> None:
+        if self._action_overlay is None or self._root is None:
+            return
+        self._action_overlay.size = self._root.size
+        self._action_overlay.pos = self._root.pos
 
     def _get_language_dict(self, code: Optional[str] = None) -> dict[str, Any]:
         lang_code = code or self._language
