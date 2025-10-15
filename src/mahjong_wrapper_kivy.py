@@ -1102,6 +1102,7 @@ class MahjongEnvKivyWrapper:
                 panel.disabled = True
                 self._active_action_seat = seat
                 self._refresh_action_panel_title()
+                self._start_action_countdown(deadline)
                 return
 
             if container is None:
