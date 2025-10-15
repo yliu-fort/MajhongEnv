@@ -122,7 +122,7 @@ class MahjongKivyApp(App):
         self._fallback_agent: RandomDiscardAgent = None
         self._pending_requests: dict[int, _PendingRequest] = {}
         self._request_ids = count()
-        self._action_timeout = 1.0
+        self._action_timeout = 5.0
         self._observation: Any = None
 
     def build(self):
