@@ -32,6 +32,7 @@ except Exception:  # pragma: no cover - optional dependency
     svg2png = None
 
 import threading
+import time
 
 if TYPE_CHECKING:  # pragma: no cover - typing support only
     from agent.human_player_agent import HumanPlayerAgent
@@ -384,6 +385,7 @@ class MahjongRoot(FloatLayout):
     language_spinner = ObjectProperty(None)
     action_panel = ObjectProperty(None)
     quick_action_bar = ObjectProperty(None)
+    action_timer_label = ObjectProperty(None)
     wrapper = ObjectProperty(None)
 
 
@@ -492,6 +494,8 @@ class MahjongEnvKivyWrapper:
         self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
         self._step_event = threading.Event()
         self._scheduled = False
+        self._action_deadline: Optional[float] = None
+        self._action_timer_event: Optional[Any] = None
         self._load_tile_assets(self._tile_texture_explicit_size)
         self._connect_controls()
 
@@ -626,7 +630,9 @@ class MahjongEnvKivyWrapper:
             raise ValueError("seat must be non-negative")
         self._human_agents[seat] = agent
         agent.bind_presenter(
-            lambda actions, seat=seat: self._show_human_actions(seat, actions),
+            lambda actions, deadline, seat=seat: self._show_human_actions(
+                seat, actions, deadline
+            ),
             lambda seat=seat: self._clear_human_actions(seat),
         )
 
@@ -1013,7 +1019,10 @@ class MahjongEnvKivyWrapper:
         self._update_control_buttons()
 
     def _show_human_actions(
-        self, seat: int, actions: Sequence[Tuple[int, str]]
+        self,
+        seat: int,
+        actions: Sequence[Tuple[int, str]],
+        deadline: Optional[float],
     ) -> None:
         actions_list = list(actions)
 
@@ -1035,6 +1044,7 @@ class MahjongEnvKivyWrapper:
                     quick_bar.disabled = True
                 self._active_action_seat = None
                 self._refresh_action_panel_title()
+                self._stop_action_countdown(clear=True)
                 return
 
             quick_bar_used = False
@@ -1119,6 +1129,7 @@ class MahjongEnvKivyWrapper:
             panel.disabled = False
             self._active_action_seat = seat
             self._refresh_action_panel_title()
+            self._start_action_countdown(deadline)
 
         Clock.schedule_once(apply, 0)
 
@@ -1141,6 +1152,7 @@ class MahjongEnvKivyWrapper:
                 quick_bar.disabled = True
             self._active_action_seat = None
             self._refresh_action_panel_title()
+            self._stop_action_countdown(clear=True)
 
         Clock.schedule_once(apply, 0)
 
@@ -1168,10 +1180,51 @@ class MahjongEnvKivyWrapper:
         agent = self._human_agents.get(seat)
         if agent is None:
             return
+        self._stop_action_countdown(clear=True)
         try:
             agent.submit_action(action)
         except Exception:
             return
+
+    def _start_action_countdown(self, deadline: Optional[float]) -> None:
+        if deadline is None:
+            self._stop_action_countdown(clear=True)
+            return
+        self._action_deadline = float(deadline)
+        self._update_action_timer_text()
+        if self._action_timer_event is None:
+            self._action_timer_event = Clock.schedule_interval(
+                self._on_action_timer_tick, 0.1
+            )
+
+    def _stop_action_countdown(self, clear: bool = False) -> None:
+        if self._action_timer_event is not None:
+            self._action_timer_event.cancel()
+            self._action_timer_event = None
+        self._action_deadline = None
+        if clear:
+            self._set_action_timer_text("")
+
+    def _on_action_timer_tick(self, _dt: float) -> None:
+        self._update_action_timer_text()
+
+    def _update_action_timer_text(self) -> None:
+        if self._action_deadline is None:
+            self._set_action_timer_text("")
+            return
+        remaining = self._action_deadline - time.monotonic()
+        if remaining <= 0:
+            self._set_action_timer_text("")
+            self._stop_action_countdown(clear=False)
+            return
+        self._set_action_timer_text(f"{remaining:0.1f}s")
+
+    def _set_action_timer_text(self, text: str) -> None:
+        label = getattr(self._root, "action_timer_label", None)
+        if label is None:
+            return
+        label.text = text
+        label.opacity = 1.0 if text else 0.0
 
     def handle_board_touch(self, board: MahjongBoardWidget, touch: Any) -> bool:
         pos = getattr(touch, "pos", None)

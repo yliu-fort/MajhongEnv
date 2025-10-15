@@ -49,6 +49,7 @@
     language_spinner: language_spinner
     action_panel: action_panel
     quick_action_bar: quick_action_bar
+    action_timer_label: action_timer_label
     canvas.before:
         Color:
             rgba: 12/255.0, 30/255.0, 60/255.0, 1
@@ -150,6 +151,19 @@
         width: 220
         height: board.height - 32 if board.height > 32 else board.height
         pos: 16, 16
+    Label:
+        id: action_timer_label
+        text: ""
+        size_hint: None, None
+        width: action_panel.width
+        height: 28
+        x: action_panel.x
+        y: action_panel.top + 8
+        halign: 'center'
+        valign: 'middle'
+        text_size: self.size
+        color: 235/255.0, 235/255.0, 235/255.0, 1
+        opacity: 0
 
 <MahjongBoardWidget>:
     canvas.before:

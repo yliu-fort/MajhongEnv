@@ -76,7 +76,7 @@ class HumanPlayerAgent:
         self._cancelled = False
         self._presenter: Optional[
             Tuple[
-                Callable[[Sequence[Tuple[int, str]]], None],
+                Callable[[Sequence[Tuple[int, str]], Optional[float]], None],
                 Callable[[], None],
             ]
         ] = None
@@ -86,7 +86,7 @@ class HumanPlayerAgent:
     # ------------------------------------------------------------------
     def bind_presenter(
         self,
-        show_callback: Callable[[Sequence[Tuple[int, str]]], None],
+        show_callback: Callable[[Sequence[Tuple[int, str]], Optional[float]], None],
         clear_callback: Callable[[], None],
     ) -> None:
         """Attach callbacks used to present and clear UI options."""
@@ -115,7 +115,7 @@ class HumanPlayerAgent:
             self._deadline = time.monotonic() + max(0.0, float(timeout))
             self._event.clear()
 
-        self._invoke_show(labels)
+        self._invoke_show(labels, self._deadline)
 
     def submit_action(self, action_id: int) -> bool:
         """Record the human's selection and wake any waiting thread."""
@@ -217,7 +217,9 @@ class HumanPlayerAgent:
             return "Tsumo"
         return f"Action {action_id}"
 
-    def _invoke_show(self, actions: Sequence[Tuple[int, str]]) -> None:
+    def _invoke_show(
+        self, actions: Sequence[Tuple[int, str]], deadline: Optional[float]
+    ) -> None:
         presenter = None
         with self._lock:
             presenter = self._presenter
@@ -225,7 +227,7 @@ class HumanPlayerAgent:
             return
         show_callback, _ = presenter
         if show_callback is not None:
-            show_callback(tuple(actions))
+            show_callback(tuple(actions), deadline)
 
     def _invoke_clear(self) -> None:
         presenter = None
