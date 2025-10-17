@@ -1258,6 +1258,19 @@ class MahjongEnvKivyWrapper:
                             max(1.0, button_width - horizontal_padding),
                             None,
                         )
+
+                        content.size_hint = (None, None)
+                        content.size = (button.width, button.height)
+                        content.pos = (0, 0)
+
+                        def _sync_content_size(instance: Button, value: tuple[float, float], widget=content) -> None:
+                            widget.size = value
+
+                        def _sync_label_text_size(instance: Button, value: float, widget=label_widget, padding=horizontal_padding) -> None:
+                            widget.text_size = (max(1.0, value - padding), None)
+
+                        button.bind(size=_sync_content_size)
+                        button.bind(width=_sync_label_text_size)
                         button.add_widget(content)
 
                         button.bind(
