@@ -25,6 +25,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
+from kivy.utils import escape_markup
 
 try:  # pragma: no cover - optional dependency
     from cairosvg import svg2png
@@ -455,6 +456,16 @@ class MahjongEnvKivyWrapper:
         self._cached_last_discard_tile: int = -1
         self._cached_last_discarder: int = -1
 
+        fallback_entries: list[str] = []
+        if fallback_fonts:
+            for fallback in fallback_fonts:
+                if not fallback:
+                    continue
+                fallback_entries.append(str(fallback))
+        self._user_fallback_fonts: Tuple[str, ...] = tuple(fallback_entries)
+        self._fallback_fonts: Tuple[str, ...] = self._user_fallback_fonts
+        self._emoji_font_path: Optional[str] = None
+
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
         self._root.wrapper = self
@@ -758,10 +769,20 @@ class MahjongEnvKivyWrapper:
         elif self._user_font_name:
             self._font_name = str(self._user_font_name)
         # otherwise keep the existing font_name
-        fallback_entries: list[str] = []
+        fallback_entries: list[str] = list(self._user_fallback_fonts)
         if _FALLBACK_FONT.exists():
-            fallback_entries.append(str(_FALLBACK_FONT))
+            fallback_path = str(_FALLBACK_FONT)
+            if fallback_path not in fallback_entries:
+                fallback_entries.append(fallback_path)
         self._fallback_fonts = tuple(fallback_entries)
+        self._emoji_font_path = None
+        for candidate in self._fallback_fonts:
+            if not candidate:
+                continue
+            candidate_path = Path(candidate)
+            if candidate_path.exists():
+                self._emoji_font_path = str(candidate_path)
+                break
 
     def _apply_font_to_controls(self) -> None:
         if not self._root:
@@ -1137,22 +1158,35 @@ class MahjongEnvKivyWrapper:
 
             quick_bar_used = False
             if quick_bar is not None and seat == self._focus_player:
-                quick_entries: list[Tuple[int, str]] = []
+                quick_entries: list[Tuple[int, str, str, bool]] = []
                 for action_id, label in actions_list:
                     label_text = str(label)
                     display_text: Optional[str] = None
                     if action_id > 33:
-                        display_text: Optional[str] = label_text
+                        display_text = label_text
                     if display_text is not None:
-                        quick_entries.append((action_id, display_text))
+                        markup_text, use_markup = self._format_quick_action_label(display_text)
+                        quick_entries.append(
+                            (
+                                action_id,
+                                display_text,
+                                markup_text,
+                                use_markup,
+                            )
+                        )
                 if quick_entries:
                     quick_bar.clear_widgets()
-                    for action_id, label_text in quick_entries:
+                    for action_id, plain_text, markup_text, use_markup in quick_entries:
+                        visible_text = plain_text.strip()
+                        if not visible_text:
+                            visible_text = plain_text
+                        base_length = len(visible_text) if visible_text else 1
                         button = Button(
-                            text=label_text,
+                            text=markup_text if use_markup else plain_text,
+                            markup=use_markup,
                             size_hint=(None, None),
                             height=48,
-                            width=max(144, int(len(label_text) * 18)),
+                            width=max(144, int(base_length * 18)),
                             background_normal="",
                             background_color=self._panel_border,
                             color=self._text_color,
@@ -1212,6 +1246,30 @@ class MahjongEnvKivyWrapper:
             agent.submit_action(action)
         except Exception:
             return
+
+    @staticmethod
+    def _is_tile_emoji(character: str) -> bool:
+        if not character:
+            return False
+        codepoint = ord(character)
+        return 0x1F000 <= codepoint <= 0x1F02F
+
+    def _format_quick_action_label(self, text: str) -> tuple[str, bool]:
+        fallback_font = self._emoji_font_path
+        if not fallback_font:
+            return text, False
+        needs_markup = False
+        parts: list[str] = []
+        for character in text:
+            escaped = escape_markup(character)
+            if self._is_tile_emoji(character):
+                needs_markup = True
+                parts.append(f"[font={fallback_font}]{escaped}[/font]")
+            else:
+                parts.append(escaped)
+        if not needs_markup:
+            return text, False
+        return "".join(parts), True
 
     def _start_action_countdown(self, deadline: Optional[float]) -> None:
         if deadline is None:
