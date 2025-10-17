@@ -24,6 +24,8 @@ from kivy.properties import ObjectProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image
+from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 
 try:  # pragma: no cover - optional dependency
@@ -38,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
     from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
+from mahjong_features import get_action_from_index
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -1140,30 +1143,123 @@ class MahjongEnvKivyWrapper:
                 quick_entries: list[Tuple[int, str]] = []
                 for action_id, label in actions_list:
                     label_text = str(label)
-                    display_text: Optional[str] = None
                     if action_id > 33:
-                        display_text: Optional[str] = label_text
-                    if display_text is not None:
-                        quick_entries.append((action_id, display_text))
+                        quick_entries.append((action_id, label_text))
                 if quick_entries:
                     quick_bar.clear_widgets()
+                    quick_action_height = 56
+                    base_tile_width, base_tile_height = self._tile_metrics.get("south_hand", (72, 96))
+                    base_tile_width = max(1, int(base_tile_width))
+                    base_tile_height = max(1, int(base_tile_height))
+                    padding_x = 8
+                    padding_y = 4
+                    layout_spacing = 4
+                    label_height = 20
+                    max_preview_height = max(0, quick_action_height - label_height - layout_spacing - padding_y * 2)
+                    preview_tile_height = 0
+                    if max_preview_height > 0:
+                        preview_tile_height = min(
+                            max_preview_height,
+                            max(12, min(int(base_tile_height * 0.5), max_preview_height)),
+                        )
+                    preview_tile_width = 0
+                    if preview_tile_height > 0:
+                        preview_tile_width = max(
+                            8,
+                            int(round(base_tile_width * (preview_tile_height / base_tile_height))),
+                        )
+                    tile_spacing = 2
+                    label_font_size = 14
                     for action_id, label_text in quick_entries:
                         button = Button(
-                            text=label_text,
+                            text="",
                             size_hint=(None, None),
-                            height=48,
-                            width=max(144, int(len(label_text) * 18)),
+                            height=quick_action_height,
                             background_normal="",
                             background_color=self._panel_border,
                             color=self._text_color,
                         )
                         button.background_down = ""
+                        content = BoxLayout(
+                            orientation="vertical",
+                            padding=(padding_x, padding_y),
+                            spacing=layout_spacing,
+                            size_hint=(1, 1),
+                        )
+                        button.add_widget(content)
+            
+                        tile_row_width = 0.0
+                        preview_tiles = tuple(self._preview_tiles_for_action(action_id))
+                        if preview_tiles and preview_tile_height > 0 and preview_tile_width > 0:
+                            tile_textures = [
+                                self._raw_tile_textures.get(tile) for tile in preview_tiles if isinstance(tile, int)
+                            ]
+                            tile_textures = [tex for tex in tile_textures if tex is not None]
+                            if tile_textures:
+                                tile_row = BoxLayout(
+                                    orientation="horizontal",
+                                    spacing=tile_spacing,
+                                    size_hint=(None, None),
+                                    height=preview_tile_height,
+                                )
+                                tile_count = len(tile_textures)
+                                tile_row_width = tile_count * preview_tile_width + max(0, tile_count - 1) * tile_spacing
+                                tile_row.width = tile_row_width
+                                for texture in tile_textures:
+                                    image = Image(
+                                        texture=texture,
+                                        size_hint=(None, None),
+                                        size=(preview_tile_width, preview_tile_height),
+                                        allow_stretch=True,
+                                        keep_ratio=True,
+                                    )
+                                    tile_row.add_widget(image)
+                                tile_wrapper = BoxLayout(
+                                    orientation="horizontal",
+                                    size_hint=(1, None),
+                                    height=preview_tile_height,
+                                )
+                                tile_wrapper.add_widget(Widget(size_hint_x=1))
+                                tile_wrapper.add_widget(tile_row)
+                                tile_wrapper.add_widget(Widget(size_hint_x=1))
+                                content.add_widget(tile_wrapper)
+            
+                        label_widget = Label(
+                            text=label_text,
+                            size_hint=(1, None),
+                            height=label_height,
+                            color=self._text_color,
+                            halign="center",
+                            valign="middle",
+                        )
+                        label_widget.font_size = label_font_size
+                        label_widget.bind(size=lambda instance, _value: setattr(instance, "text_size", instance.size))
+                        label_widget.text_size = label_widget.size
                         try:
-                            button.font_name = self._font_name
+                            label_widget.font_name = self._font_name
                         except Exception:
                             pass
+                        content.add_widget(label_widget)
+            
+                        measured_label = CoreLabel(text=label_text)
+                        try:
+                            measured_label.font_name = self._font_name
+                        except Exception:
+                            pass
+                        measured_label.font_size = label_font_size
+                        measured_label.refresh()
+                        label_width = 0.0
+                        if measured_label.texture is not None:
+                            label_width = measured_label.texture.size[0]
+            
+                        button_width = max(label_width, tile_row_width) + padding_x * 2
+                        button.width = max(96, int(round(button_width)))
+            
                         button.bind(
-                            on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
+                            on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(
+                                seat_idx,
+                                act,
+                            )
                         )
                         quick_bar.add_widget(button)
                     quick_bar.opacity = 1.0
@@ -1198,10 +1294,34 @@ class MahjongEnvKivyWrapper:
                 quick_bar.opacity = 0.0
                 quick_bar.disabled = True
             self._active_action_seat = None
-            
+
             self._stop_action_countdown(clear=True)
 
         Clock.schedule_once(apply, 0)
+
+    def _preview_tiles_for_action(self, action_id: int) -> Sequence[int]:
+        try:
+            payload, confirm = get_action_from_index(int(action_id))
+        except Exception:
+            return ()
+        if not confirm:
+            return ()
+        if isinstance(payload, int):
+            if 0 <= payload < len(_TILE_SYMBOLS):
+                return (payload,)
+            return ()
+        if isinstance(payload, Iterable) and not isinstance(payload, (str, bytes)):
+            tiles: list[int] = []
+            for value in payload:
+                if isinstance(value, int):
+                    if 0 <= value < len(_TILE_SYMBOLS):
+                        tiles.append(value)
+                elif isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+                    for inner in value:
+                        if isinstance(inner, int) and 0 <= inner < len(_TILE_SYMBOLS):
+                            tiles.append(inner)
+            return tuple(tiles)
+        return ()
 
     def _on_human_action_selected(self, seat: int, action: int) -> None:
         agent = self._human_agents.get(seat)
