@@ -21,6 +21,7 @@ from kivy.graphics import (
 )
 from kivy.graphics.instructions import InstructionGroup
 from kivy.properties import ObjectProperty
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
@@ -1151,7 +1152,6 @@ class MahjongEnvKivyWrapper:
                     preview_width = max(8, int(tile_width * 0.5))
                     preview_height = max(12, int(tile_height * 0.5))
                     label_font_size = max(12, int(self._font_size * 0.85))
-                    padding_x = 12
                     tile_spacing = 2
 
                     for action_id, label_text in quick_entries:
@@ -1169,18 +1169,19 @@ class MahjongEnvKivyWrapper:
                         except Exception:
                             pass
 
-                        content = BoxLayout(orientation="vertical", padding=(6, 4), spacing=2)
+                        content = BoxLayout(orientation="vertical", padding=(6, 4), spacing=4)
+                        horizontal_padding = content.padding[0] + content.padding[2]
                         tile_indices = self._preview_tiles_for_action(action_id)
                         tile_row_width = 0
 
                         if tile_indices:
-                            tile_container = BoxLayout(
-                                orientation="horizontal",
+                            tile_container = AnchorLayout(
+                                anchor_x="center",
+                                anchor_y="center",
                                 size_hint=(1, None),
                                 height=preview_height,
                                 padding=(0, 0),
                             )
-                            tile_container.spacing = 0
                             tile_row = BoxLayout(
                                 orientation="horizontal",
                                 size_hint=(None, None),
@@ -1192,6 +1193,23 @@ class MahjongEnvKivyWrapper:
                             for tile_index in tile_indices:
                                 texture = self._raw_tile_textures.get(tile_index)
                                 if texture is None:
+                                    placeholder = Label(
+                                        text=_TILE_SYMBOLS[tile_index] if 0 <= tile_index < len(_TILE_SYMBOLS) else "?",
+                                        size_hint=(None, None),
+                                        color=self._text_color,
+                                        halign="center",
+                                        valign="middle",
+                                        font_size=max(10, int(label_font_size * 0.6)),
+                                    )
+                                    try:
+                                        placeholder.font_name = self._font_name
+                                    except Exception:
+                                        pass
+                                    placeholder.width = preview_width
+                                    placeholder.height = preview_height
+                                    placeholder.text_size = (preview_width, preview_height)
+                                    tile_row.add_widget(placeholder)
+                                    rendered_tiles += 1
                                     continue
                                 image = Image(
                                     texture=texture,
@@ -1199,15 +1217,14 @@ class MahjongEnvKivyWrapper:
                                     allow_stretch=True,
                                     keep_ratio=True,
                                 )
-                                image.size = (preview_width, preview_height)
+                                image.width = preview_width
+                                image.height = preview_height
                                 tile_row.add_widget(image)
                                 rendered_tiles += 1
                             if rendered_tiles:
                                 tile_row_width = rendered_tiles * preview_width + max(0, rendered_tiles - 1) * tile_spacing
-                                tile_row.size = (tile_row_width, preview_height)
-                                tile_container.add_widget(Widget(size_hint_x=1))
+                                tile_row.width = tile_row_width
                                 tile_container.add_widget(tile_row)
-                                tile_container.add_widget(Widget(size_hint_x=1))
                                 content.add_widget(tile_container)
 
                         label_texture = CoreLabel(
@@ -1223,6 +1240,8 @@ class MahjongEnvKivyWrapper:
                             text=label_text,
                             size_hint=(1, None),
                             color=self._text_color,
+                            halign="center",
+                            valign="center",
                         )
                         label_widget.height = label_height
                         label_widget.font_size = label_font_size
@@ -1232,8 +1251,13 @@ class MahjongEnvKivyWrapper:
                             pass
                         content.add_widget(label_widget)
 
-                        button_width = max(label_width + padding_x, tile_row_width + padding_x, 96)
-                        button.width = int(button_width)
+                        inner_width = max(label_width, tile_row_width)
+                        button_width = max(int(inner_width + horizontal_padding), 96)
+                        button.width = button_width
+                        label_widget.text_size = (
+                            max(1.0, button_width - horizontal_padding),
+                            None,
+                        )
                         button.add_widget(content)
 
                         button.bind(
@@ -1386,6 +1410,8 @@ class MahjongEnvKivyWrapper:
         preview: list[int] = []
 
         def add_tile(candidate: Any) -> None:
+            if isinstance(candidate, bool):
+                return
             if isinstance(candidate, int) and 0 <= candidate < len(_TILE_SYMBOLS):
                 preview.append(int(candidate))
 
