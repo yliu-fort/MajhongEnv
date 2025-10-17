@@ -1141,7 +1141,7 @@ class MahjongEnvKivyWrapper:
                 for action_id, label in actions_list:
                     label_text = str(label)
                     display_text: Optional[str] = None
-                    if action_id > 34:
+                    if action_id > 33:
                         display_text: Optional[str] = label_text
                     if display_text is not None:
                         quick_entries.append((action_id, display_text))
