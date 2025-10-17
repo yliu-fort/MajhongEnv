@@ -10,15 +10,20 @@ class MahjongTileStyle:
                     + tuple(range(0x1F000, 0x1F004)) \
                     + (0x1F006, 0x1F005, 0x1F004))
     
+    _use_emoji = False
+    
     @staticmethod
     def get_style(hai):
-        return f"{MahjongTileStyle._style_emoji[hai]} " if hai != 33 else \
-            MahjongTileStyle._style_emoji[hai]
+        _style = MahjongTileStyle._style_emoji if MahjongTileStyle._use_emoji else MahjongTileStyle._style_text
+        return f"{_style[hai]} " if hai != 33 else _style[hai]
     
     @staticmethod
     def get_colored_style(hai, color_code=31):
-    # ANSI escape code for bold and colored text
-        return f"\033[0;{color_code}m{MahjongTileStyle._style_emoji[hai]}\033[0m "
+        # ANSI escape code for bold and colored text
+        if MahjongTileStyle._use_emoji:
+            return f"\033[0;{color_code}m{MahjongTileStyle._style_emoji[hai]}\033[0m "
+        else:
+            return f"{MahjongTileStyle._style_text[hai]}"
 
     @staticmethod
     def get_tile_printout(tile_id: int) -> str:
@@ -68,20 +73,20 @@ def get_action_printouts():
     # pong
     for i in range(34):
         k = [i*4+1, i*4+1]
-        pouts.append("碰"+tiles_printout(k))
+        pouts.append("碰"+tile_printout(k[0]))
 
     # kan
     for i in range(34):
         k = [i*4+1, i*4+1, i*4+1]
-        pouts.append("杠"+tiles_printout(k))
+        pouts.append("杠"+tile_printout(k[0]))
 
     for i in range(34):
         k = [i*4+1, i*4+1, i*4+1]
-        pouts.append("加杠"+tiles_printout(k)+"+"+tile_printout(k[0]))
+        pouts.append("加杠"+tile_printout(k[0]))
 
     for i in range(34):
         k = [i*4+1, i*4+1, i*4+1, i*4+1]
-        pouts.append("暗杠"+tiles_printout(k))
+        pouts.append("暗杠"+tile_printout(k[0]))
 
     # ryuukyoku
     pouts.append("流局")

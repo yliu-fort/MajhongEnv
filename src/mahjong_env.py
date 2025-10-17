@@ -9,6 +9,7 @@ from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
 from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_features import get_action_index, get_action_from_index, NUM_ACTIONS
+from typing import List
 
 class MahjongEnvBase(gym.Env):
     """
@@ -686,72 +687,60 @@ class MahjongEnvBase(gym.Env):
                 # 这里可视需要决定是否继续由同一个玩家行动，或下一玩家
                 claim = self.claims[0]
                 fromwho = claim["fromwho"]
-                if self.is_selecting_tiles_for_claim:
+                if confirm:
+                    self.is_selecting_tiles_for_claim = True
+                    # Pre-fill with selected tiles
+                    for idx in action:
+                        self.selected_tiles.append(self.hands[player][idx])
+                    self.hands[player] = [h for h in self.hands[player] if h not in self.selected_tiles]
                     # 需要选择牌(需要进行动作合法性检查)
                     # 碰/吃需要选择两张牌
                     # （杠）需要选择第三张牌
                     num_tiles_to_select = 3 if self.phase == "kan" else 2
 
-                    if len(self.selected_tiles) < num_tiles_to_select:
-                        tile_to_claim = self.hands[player][action]
-                        self.selected_tiles.append(tile_to_claim)
-                        self.hands[player].remove(tile_to_claim)
-                    else:
-                        # 选择完毕
-                        self.is_selecting_tiles_for_claim = False
+                    # 选择完毕
+                    self.is_selecting_tiles_for_claim = False
 
-                        # 将丢弃的牌加入自己的副露(Melds)中,清空选中的牌
-                        self.last_discarded_tile = -1
-                        self.discard_pile[fromwho, claim["tile"]] = False # 移出弃牌堆
-                        self.discard_pile_seq[fromwho].remove(claim["tile"])
-                        new_meld = {"type":claim["type"], 
-                                    "fromwho":fromwho, "offset":self.get_distance(player, fromwho),
-                                    "m": sorted([t for t in self.selected_tiles] + [claim["tile"]]), 
-                                    "claimed_tile": claim["tile"],
-                                    "opened": True}
+                    # 将丢弃的牌加入自己的副露(Melds)中,清空选中的牌
+                    self.last_discarded_tile = -1
+                    self.discard_pile[fromwho, claim["tile"]] = False # 移出弃牌堆
+                    self.discard_pile_seq[fromwho].remove(claim["tile"])
+                    new_meld = {"type":claim["type"], 
+                                "fromwho":fromwho, "offset":self.get_distance(player, fromwho),
+                                "m": sorted([t for t in self.selected_tiles] + [claim["tile"]]), 
+                                "claimed_tile": claim["tile"],
+                                "opened": True}
 
-                        self.melds[player].append(new_meld)
-                        self.selected_tiles = []
+                    self.melds[player].append(new_meld)
+                    self.selected_tiles = []
 
-                        # 更新待牌状态
-                        self.update_machii(player)
+                    # 更新待牌状态
+                    self.update_machii(player)
 
-                        # （吃碰）接下来进入弃牌阶段，切一张牌
-                        # （杠）接下来进入摸牌阶段，摸一张牌
-                        self.phase="kan_draw" if self.phase == "kan" else "discard"
+                    # （吃碰）接下来进入弃牌阶段，切一张牌
+                    # （杠）接下来进入摸牌阶段，摸一张牌
+                    self.phase="kan_draw" if self.phase == "kan" else "discard"
 
-                        # 清空声明序列
-                        self.claims = []
+                    # 清空声明序列
+                    self.claims = []
 
-                        # 消除所有的一发状态
-                        self.ippatsu = [False for _ in range(self.num_players)]
+                    # 消除所有的一发状态
+                    self.ippatsu = [False for _ in range(self.num_players)]
 
-                        # 吃碰杠时等于开始了新的一巡，可以解除自己的同巡振听状态
-                        self.furiten_1[player] = False
+                    # 吃碰杠时等于开始了新的一巡，可以解除自己的同巡振听状态
+                    self.furiten_1[player] = False
 
-                        # 鸣牌后第一巡役种不再成立（地和，双立直）
-                        self.first_turn = [False for _ in range(self.num_players)]
+                    # 鸣牌后第一巡役种不再成立（地和，双立直）
+                    self.first_turn = [False for _ in range(self.num_players)]
 
-                        # 鸣牌后四风连打不再成立
-                        self.can_kaze4 = False
+                    # 鸣牌后四风连打不再成立
+                    self.can_kaze4 = False
 
-                        # 鸣牌后门清不再成立
-                        self.menzen[player] = False
+                    # 鸣牌后门清不再成立
+                    self.menzen[player] = False
 
-                        # 记录天凤格式log e.g., <N who="2" m="25611" />
-                        self.logger.add_meld(player, new_meld)
-                elif confirm:
-                    self.is_selecting_tiles_for_claim = True
-                    # Pre-fill with selected tiles for NUM_ACTIONS-dim action set
-                    if isinstance(action, tuple):
-                        hand = self.hands[player]
-                        for tile_34 in action:
-                            for idx, tile in enumerate(hand):
-                                if tile // 4 == tile_34:
-                                    self.selected_tiles.append(self.hands[player].pop(idx))
-                                    break
-                            else:
-                                raise ValueError(f"Tile {tile_34} not found in hand")
+                    # 记录天凤格式log e.g., <N who="2" m="25611" />
+                    self.logger.add_meld(player, new_meld)
                 else:
                     # 什么都不做
                     self.claims.pop(0)
@@ -1438,12 +1427,19 @@ class MahjongEnv(MahjongEnvBase):
                 mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
 
-            case "tsumo"|"ryuukyoku":
+            case "tsumo":
                 mask = [False] * NUM_ACTIONS
                 mask[get_action_index(None, self.phase)]=True
                 mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
 
+            case "ryuukyoku":
+                mask = [False] * NUM_ACTIONS
+                mask[get_action_index(None, self.phase)]=True
+                if self.ryuukyoku_type == "九種九牌":
+                    mask[get_action_index(None, ("pass",self.phase))]=True
+                return mask
+            
             case "ankan":
                 # TODO: ankan after riichi should not change the machii
                 mask = [False] * NUM_ACTIONS
@@ -1492,6 +1488,18 @@ class MahjongEnv(MahjongEnvBase):
                     return idx
             raise ValueError(f"tile {tile_34} not found in hand {hand}")
 
+        def _hand_indices(tiles_34: List[int]) -> List[int]:
+            hand = self.hands[self.current_player]
+            out = []
+            for tile_34 in tiles_34:
+                for idx, tile in enumerate(hand):
+                    if tile // 4 == tile_34 and not (idx in out):
+                        out.append(idx)
+                        break
+            if len(out) == len(tiles_34):
+                return tuple(out)
+            raise ValueError(f"tiles {tiles_34} not found in hand {hand}")
+        
         if self.phase == "discard":
             return _hand_index(payload), confirm
 
@@ -1506,6 +1514,11 @@ class MahjongEnv(MahjongEnvBase):
             tile_34 = payload[0]
             return _hand_index(tile_34), True
 
+        if self.phase in {"chi", "pon",  "kan"}:
+            if not confirm:
+                return 0, False
+            return _hand_indices(payload), True
+        
         return payload, confirm
 
 

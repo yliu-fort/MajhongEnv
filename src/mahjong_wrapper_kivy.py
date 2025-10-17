@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
@@ -21,6 +21,8 @@ from kivy.graphics import (
 )
 from kivy.graphics.instructions import InstructionGroup
 from kivy.properties import ObjectProperty
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
@@ -30,6 +32,10 @@ except Exception:  # pragma: no cover - optional dependency
     svg2png = None
 
 import threading
+import time
+
+if TYPE_CHECKING:  # pragma: no cover - typing support only
+    from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 
@@ -350,6 +356,23 @@ class _Rect:
 class MahjongBoardWidget(Widget):
     """Widget that renders the Mahjong play field."""
 
+    wrapper = ObjectProperty(None)
+
+    def on_touch_down(self, touch: Any) -> bool:  # type: ignore[override]
+        if super().on_touch_down(touch):
+            return True
+        pos = getattr(touch, "pos", None)
+        if pos is None or not self.collide_point(*pos):
+            return False
+        if self.wrapper is not None and self.wrapper.handle_board_touch(self, touch):
+            return True
+        return False
+
+
+class ActionPanel(BoxLayout):
+    container = ObjectProperty(None)
+    title_label = ObjectProperty(None)
+
 
 class MahjongRoot(FloatLayout):
     board = ObjectProperty(None)
@@ -360,6 +383,9 @@ class MahjongRoot(FloatLayout):
     auto_button = ObjectProperty(None)
     step_button = ObjectProperty(None)
     language_spinner = ObjectProperty(None)
+    action_panel = ObjectProperty(None)
+    quick_action_bar = ObjectProperty(None)
+    action_timer_label = ObjectProperty(None)
     wrapper = ObjectProperty(None)
 
 
@@ -405,6 +431,13 @@ class MahjongEnvKivyWrapper:
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
         self._root.wrapper = self
+        self._root.bind(board=self._on_board_assigned)
+        self._on_board_assigned(self._root, getattr(self._root, "board", None))
+        self._human_agents: dict[int, "HumanPlayerAgent"] = {}
+        self._active_action_seat: Optional[int] = None
+        self._hand_hitboxes: dict[
+            int, list[tuple[int, tuple[float, float, float, float]]]
+        ] = {}
 
         self._language_code_to_name: dict[str, str] = {
             code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
@@ -425,6 +458,7 @@ class MahjongEnvKivyWrapper:
         self._update_language_fonts(self._language)
         self._update_language_spinner()
         self._apply_font_to_controls()
+        self._clear_human_actions()
 
         self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Regular"
         self._raw_tile_textures: dict[int, Any] = {}
@@ -459,6 +493,8 @@ class MahjongEnvKivyWrapper:
         self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
         self._step_event = threading.Event()
         self._scheduled = False
+        self._action_deadline: Optional[float] = None
+        self._action_timer_event: Optional[Any] = None
         self._load_tile_assets(self._tile_texture_explicit_size)
         self._connect_controls()
 
@@ -551,6 +587,7 @@ class MahjongEnvKivyWrapper:
         self._pending_action = None
         self._step_result = None
         self._render()
+        self._clear_human_actions()
         return observation
 
     def step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
@@ -584,6 +621,19 @@ class MahjongEnvKivyWrapper:
     def action_masks(self) -> Any:
         return self._env.action_masks()
 
+    def bind_human_ui(self, seat: int, agent: "HumanPlayerAgent") -> None:
+        """Register callbacks that display human actions and handle input."""
+
+        if seat < 0:
+            raise ValueError("seat must be non-negative")
+        self._human_agents[seat] = agent
+        agent.bind_presenter(
+            lambda actions, deadline, seat=seat: self._show_human_actions(
+                seat, actions, deadline
+            ),
+            lambda seat=seat: self._clear_human_actions(seat),
+        )
+
     @property
     def phase(self) -> str:
         return getattr(self._env, "phase", "")
@@ -600,6 +650,12 @@ class MahjongEnvKivyWrapper:
         spinner = getattr(self._root, "language_spinner", None)
         if spinner is not None:
             spinner.bind(text=self._on_language_spinner_text)
+
+    def _on_board_assigned(
+        self, _root: MahjongRoot, board: Optional[MahjongBoardWidget]
+    ) -> None:
+        if isinstance(board, MahjongBoardWidget):
+            board.wrapper = self
 
     def _get_language_dict(self, code: Optional[str] = None) -> dict[str, Any]:
         lang_code = code or self._language
@@ -690,6 +746,7 @@ class MahjongEnvKivyWrapper:
             getattr(self._root, "auto_button", None),
             getattr(self._root, "step_button", None),
             getattr(self._root, "language_spinner", None),
+            getattr(getattr(self._root, "action_panel", None), "title_label", None),
         ]
         for widget in widgets:
             if widget is None:
@@ -698,6 +755,21 @@ class MahjongEnvKivyWrapper:
                 widget.font_name = self._font_name
             except Exception:
                 continue
+        panel = getattr(self._root, "action_panel", None)
+        container = getattr(panel, "container", None) if panel is not None else None
+        if container is not None:
+            for child in container.children:
+                try:
+                    child.font_name = self._font_name
+                except Exception:
+                    continue
+        quick_bar = getattr(self._root, "quick_action_bar", None)
+        if quick_bar is not None:
+            for child in quick_bar.children:
+                try:
+                    child.font_name = self._font_name
+                except Exception:
+                    continue
 
     def _on_language_spinner_text(self, _instance: Any, value: str) -> None:
         if self._updating_language_spinner:
@@ -931,6 +1003,8 @@ class MahjongEnvKivyWrapper:
         self._compute_tile_metrics(play_rect)
         self._update_riichi_state()
 
+        self._hand_hitboxes.clear()
+
         canvas = board.canvas
         canvas.clear()
 
@@ -941,6 +1015,171 @@ class MahjongEnvKivyWrapper:
             self._draw_score_panel(canvas, board, play_rect)
         self._draw_status_labels()
         self._update_control_buttons()
+
+    def _show_human_actions(
+        self,
+        seat: int,
+        actions: Sequence[Tuple[int, str]],
+        deadline: Optional[float],
+    ) -> None:
+        actions_list = list(actions)
+
+        def apply(_dt: float) -> None:
+            quick_bar = getattr(self._root, "quick_action_bar", None)
+
+            if not actions_list:
+                if quick_bar is not None:
+                    quick_bar.clear_widgets()
+                    quick_bar.opacity = 0.0
+                    quick_bar.disabled = True
+                self._active_action_seat = None
+                self._stop_action_countdown(clear=True)
+                return
+
+            quick_bar_used = False
+            if quick_bar is not None and seat == self._focus_player:
+                quick_entries: list[Tuple[int, str]] = []
+                for action_id, label in actions_list:
+                    label_text = str(label)
+                    display_text: Optional[str] = None
+                    if action_id > 34:
+                        display_text: Optional[str] = label_text
+                    if display_text is not None:
+                        quick_entries.append((action_id, display_text))
+                if quick_entries:
+                    quick_bar.clear_widgets()
+                    for action_id, label_text in quick_entries:
+                        button = Button(
+                            text=label_text,
+                            size_hint=(None, None),
+                            height=48,
+                            width=max(144, int(len(label_text) * 18)),
+                            background_normal="",
+                            background_color=self._panel_border,
+                            color=self._text_color,
+                        )
+                        button.background_down = ""
+                        try:
+                            button.font_name = self._font_name
+                        except Exception:
+                            pass
+                        button.bind(
+                            on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
+                        )
+                        quick_bar.add_widget(button)
+                    quick_bar.opacity = 1.0
+                    quick_bar.disabled = False
+                    quick_bar_used = True
+                else:
+                    quick_bar.clear_widgets()
+                    quick_bar.opacity = 0.0
+                    quick_bar.disabled = True
+            elif quick_bar is not None:
+                quick_bar.clear_widgets()
+                quick_bar.opacity = 0.0
+                quick_bar.disabled = True
+
+            if quick_bar_used:
+                self._active_action_seat = seat
+                self._start_action_countdown(deadline)
+                return
+
+            self._active_action_seat = seat
+            self._start_action_countdown(deadline)
+
+        Clock.schedule_once(apply, 0)
+
+    def _clear_human_actions(self, seat: Optional[int] = None) -> None:
+        def apply(_dt: float) -> None:
+            if seat is not None and self._active_action_seat != seat:
+                return
+            quick_bar = getattr(self._root, "quick_action_bar", None)
+            if quick_bar is not None:
+                quick_bar.clear_widgets()
+                quick_bar.opacity = 0.0
+                quick_bar.disabled = True
+            self._active_action_seat = None
+            
+            self._stop_action_countdown(clear=True)
+
+        Clock.schedule_once(apply, 0)
+
+    def _on_human_action_selected(self, seat: int, action: int) -> None:
+        agent = self._human_agents.get(seat)
+        if agent is None:
+            return
+        self._stop_action_countdown(clear=True)
+        try:
+            agent.submit_action(action)
+        except Exception:
+            return
+
+    def _start_action_countdown(self, deadline: Optional[float]) -> None:
+        if deadline is None:
+            self._stop_action_countdown(clear=True)
+            return
+        self._action_deadline = float(deadline)
+        self._update_action_timer_text()
+        if self._action_timer_event is None:
+            self._action_timer_event = Clock.schedule_interval(
+                self._on_action_timer_tick, 0.1
+            )
+
+    def _stop_action_countdown(self, clear: bool = False) -> None:
+        if self._action_timer_event is not None:
+            self._action_timer_event.cancel()
+            self._action_timer_event = None
+        self._action_deadline = None
+        if clear:
+            self._set_action_timer_text("")
+
+    def _on_action_timer_tick(self, _dt: float) -> None:
+        self._update_action_timer_text()
+
+    def _update_action_timer_text(self) -> None:
+        if self._action_deadline is None:
+            self._set_action_timer_text("")
+            return
+        remaining = self._action_deadline - time.monotonic()
+        if remaining <= 0:
+            self._set_action_timer_text("")
+            self._stop_action_countdown(clear=False)
+            return
+        self._set_action_timer_text(f"{remaining:0.1f}s")
+
+    def _set_action_timer_text(self, text: str) -> None:
+        label = getattr(self._root, "action_timer_label", None)
+        if label is None:
+            return
+        label.text = text
+        label.opacity = 1.0 if text else 0.0
+
+    def handle_board_touch(self, board: MahjongBoardWidget, touch: Any) -> bool:
+        pos = getattr(touch, "pos", None)
+        if pos is None:
+            return False
+        canvas_x, canvas_y = float(pos[0]), float(pos[1])
+        base_x, base_y = board.pos
+        play_x = canvas_x - base_x
+        play_y = canvas_y - base_y
+        canvas_x = base_x + play_x
+        canvas_y = base_y + play_y
+
+        seat = self._active_action_seat
+        if seat is None:
+            return False
+        hitboxes = self._hand_hitboxes.get(seat)
+        if not hitboxes:
+            return False
+        agent = self._human_agents.get(seat)
+        if agent is None:
+            return False
+
+        for tile_index, rect in reversed(hitboxes):
+            left, bottom, right, top = rect
+            if left <= canvas_x <= right and bottom <= canvas_y <= top:
+                return agent.submit_action(tile_index)
+        return False
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -953,6 +1192,14 @@ class MahjongEnvKivyWrapper:
             base_x + rect.left + x,
             base_y + rect.top + rect.height - y - height,
         )
+
+    def _tile_to_discard_action(self, tile_136: int) -> Optional[int]:
+        if not isinstance(tile_136, int):
+            return None
+        tile_index = tile_136 // 4
+        if 0 <= tile_index < 34:
+            return tile_index
+        return None
 
     def _wrap_text(self, text: str, max_width: float, font_size: Optional[int] = None) -> list[str]:
         if not text:
@@ -1196,9 +1443,24 @@ class MahjongEnvKivyWrapper:
 
         x = play_rect.centerx - 7 * (tile_size[0] + 6)
         y = play_rect.bottom - tile_size[1] - 14
+        is_focus_player = player_idx == self._focus_player
+        if is_focus_player:
+            self._hand_hitboxes[player_idx] = []
         for idx, tile in enumerate(hand_tiles):
             if len(hand_tiles) > 1 and idx == len(hand_tiles) - 1:
                 x += draw_gap
+            if is_focus_player:
+                discard_action = self._tile_to_discard_action(tile)
+                if discard_action is not None:
+                    px, py = self._to_canvas_pos(
+                        board, play_rect, x, y, tile_size[0], tile_size[1]
+                    )
+                    self._hand_hitboxes[player_idx].append(
+                        (
+                            discard_action,
+                            (px, py, px + tile_size[0], py + tile_size[1]),
+                        )
+                    )
             self._draw_tile(canvas, board, play_rect, tile, tile_size, face_up_hand, 0, (x, y))
             x += spacing
 
