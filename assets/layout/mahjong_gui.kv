@@ -1,4 +1,54 @@
 #:kivy 2.1.0
+#:import dp kivy.metrics.dp
+
+<StartMenuScreen@Screen>:
+    name: "start_menu"
+    BoxLayout:
+        orientation: "vertical"
+        padding: dp(48)
+        spacing: dp(24)
+        size_hint: 1, 1
+        canvas.before:
+            Color:
+                rgba: 12/255.0, 30/255.0, 60/255.0, 1
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Widget:
+            size_hint_y: None
+            height: dp(80)
+        Label:
+            text: "Mahjong"
+            font_size: dp(48)
+            size_hint_y: None
+            height: self.texture_size[1] + dp(12)
+            color: 230/255.0, 230/255.0, 230/255.0, 1
+        Widget:
+            size_hint_y: None
+            height: dp(40)
+        Button:
+            text: "AI vs Human"
+            size_hint: None, None
+            size: dp(240), dp(56)
+            pos_hint: {"center_x": 0.5}
+            on_release: app.start_ai_vs_human()
+        Button:
+            text: "AI vs AI"
+            size_hint: None, None
+            size: dp(240), dp(56)
+            pos_hint: {"center_x": 0.5}
+            on_release: app.start_ai_vs_ai()
+        Button:
+            text: "Replay"
+            size_hint: None, None
+            size: dp(240), dp(56)
+            pos_hint: {"center_x": 0.5}
+            on_release: app.start_replay()
+        Widget:
+            size_hint_y: 1
+
+<GameScreen@Screen>:
+    name: "game"
 
 <MahjongRoot>:
     board: board
