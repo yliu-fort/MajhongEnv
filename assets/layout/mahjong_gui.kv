@@ -1,43 +1,5 @@
 #:kivy 2.1.0
 
-<ActionPanel>:
-    title_label: action_title
-    container: action_container
-    orientation: 'vertical'
-    size_hint: None, None
-    width: 220
-    padding: 12
-    spacing: 8
-    opacity: 0
-    disabled: True
-    canvas.before:
-        Color:
-            rgba: 5/255.0, 5/255.0, 5/255.0, self.opacity
-        RoundedRectangle:
-            size: self.size
-            pos: self.pos
-            radius: [12, 12, 12, 12]
-    Label:
-        id: action_title
-        text: "Actions"
-        size_hint_y: None
-        height: self.texture_size[1]
-        text_size: self.width, None
-        halign: 'left'
-        valign: 'middle'
-        color: 235/255.0, 235/255.0, 235/255.0, 1
-    ScrollView:
-        size_hint: 1, 1
-        do_scroll_x: False
-        bar_width: 6
-        GridLayout:
-            id: action_container
-            cols: 1
-            size_hint_y: None
-            height: self.minimum_height
-            spacing: 6
-            padding: 0, 0, 0, 0
-
 <MahjongRoot>:
     board: board
     status_label: status_label
@@ -47,7 +9,6 @@
     auto_button: auto_button
     step_button: step_button
     language_spinner: language_spinner
-    action_panel: action_panel
     quick_action_bar: quick_action_bar
     action_timer_label: action_timer_label
     canvas.before:
@@ -145,22 +106,16 @@
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
         color: 235/255.0, 235/255.0, 235/255.0, 1
-    ActionPanel:
-        id: action_panel
-        size_hint: None, None
-        width: 220
-        height: board.height - 32 if board.height > 32 else board.height
-        pos: 16, 16
     Label:
         id: action_timer_label
         text: ""
         size_hint: None, None
-        width: action_panel.width
+        width: 96
         height: 28
         x: board.right - 32
         y: board.top - 96
-        halign: 'center'
-        valign: 'middle'
+        halign: 'right'
+        valign: 'top'
         text_size: self.size
         color: 235/255.0, 235/255.0, 235/255.0, 1
         opacity: 0

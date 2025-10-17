@@ -458,7 +458,6 @@ class MahjongEnvKivyWrapper:
         self._update_language_fonts(self._language)
         self._update_language_spinner()
         self._apply_font_to_controls()
-        self._refresh_action_panel_title()
         self._clear_human_actions()
 
         self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Regular"
@@ -573,7 +572,6 @@ class MahjongEnvKivyWrapper:
         self._render()
         self._draw_status_labels()
         self._update_control_buttons()
-        self._refresh_action_panel_title()
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
         observation = self._env.reset(*args, **kwargs)
@@ -1027,23 +1025,14 @@ class MahjongEnvKivyWrapper:
         actions_list = list(actions)
 
         def apply(_dt: float) -> None:
-            panel = getattr(self._root, "action_panel", None)
-            if panel is None:
-                return
-            container = getattr(panel, "container", None)
             quick_bar = getattr(self._root, "quick_action_bar", None)
 
             if not actions_list:
-                if container is not None:
-                    container.clear_widgets()
-                panel.opacity = 0.0
-                panel.disabled = True
                 if quick_bar is not None:
                     quick_bar.clear_widgets()
                     quick_bar.opacity = 0.0
                     quick_bar.disabled = True
                 self._active_action_seat = None
-                self._refresh_action_panel_title()
                 self._stop_action_countdown(clear=True)
                 return
 
@@ -1052,14 +1041,9 @@ class MahjongEnvKivyWrapper:
                 quick_entries: list[Tuple[int, str]] = []
                 for action_id, label in actions_list:
                     label_text = str(label)
-                    normalized = label_text.strip().lower()
                     display_text: Optional[str] = None
-                    if normalized.startswith("riichi"):
-                        display_text = label_text
-                    elif normalized in {"chi", "pon", "kan", "ron", "tsumo", "ryuukyoku", "cancel"}:
-                        display_text = label_text
-                    elif normalized in {"ankan", "chakan"}:
-                        display_text = label_text
+                    if action_id > 34:
+                        display_text: Optional[str] = label_text
                     if display_text is not None:
                         quick_entries.append((action_id, display_text))
                 if quick_entries:
@@ -1069,7 +1053,7 @@ class MahjongEnvKivyWrapper:
                             text=label_text,
                             size_hint=(None, None),
                             height=48,
-                            width=max(72, int(len(label_text) * 18)),
+                            width=max(144, int(len(label_text) * 18)),
                             background_normal="",
                             background_color=self._panel_border,
                             color=self._text_color,
@@ -1096,86 +1080,29 @@ class MahjongEnvKivyWrapper:
                 quick_bar.disabled = True
 
             if quick_bar_used:
-                if container is not None:
-                    container.clear_widgets()
-                panel.opacity = 0.0
-                panel.disabled = True
                 self._active_action_seat = seat
-                self._refresh_action_panel_title()
                 self._start_action_countdown(deadline)
                 return
 
-            if container is None:
-                return
-            container.clear_widgets()
-            for action_id, label in actions_list:
-                button = Button(
-                    text=str(label),
-                    size_hint_y=None,
-                    height=44,
-                    background_normal="",
-                    background_color=self._panel_border,
-                    color=self._text_color,
-                )
-                button.background_down = ""
-                try:
-                    button.font_name = self._font_name
-                except Exception:
-                    pass
-                button.bind(
-                    on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
-                )
-                container.add_widget(button)
-            panel.opacity = 1.0
-            panel.disabled = False
             self._active_action_seat = seat
-            self._refresh_action_panel_title()
             self._start_action_countdown(deadline)
 
         Clock.schedule_once(apply, 0)
 
     def _clear_human_actions(self, seat: Optional[int] = None) -> None:
         def apply(_dt: float) -> None:
-            panel = getattr(self._root, "action_panel", None)
-            if panel is None:
-                return
             if seat is not None and self._active_action_seat != seat:
                 return
-            container = getattr(panel, "container", None)
-            if container is not None:
-                container.clear_widgets()
-            panel.opacity = 0.0
-            panel.disabled = True
             quick_bar = getattr(self._root, "quick_action_bar", None)
             if quick_bar is not None:
                 quick_bar.clear_widgets()
                 quick_bar.opacity = 0.0
                 quick_bar.disabled = True
             self._active_action_seat = None
-            self._refresh_action_panel_title()
+            
             self._stop_action_countdown(clear=True)
 
         Clock.schedule_once(apply, 0)
-
-    def _refresh_action_panel_title(self) -> None:
-        panel = getattr(self._root, "action_panel", None)
-        if panel is None:
-            return
-        title = getattr(panel, "title_label", None)
-        if title is None:
-            return
-        base_label = self._translate("action_label")
-        if self._active_action_seat is not None:
-            player_label = self._translate(
-                "player_name_format", index=self._active_action_seat + 1
-            )
-            title.text = f"{base_label}: {player_label}"
-        else:
-            title.text = base_label
-        try:
-            title.font_name = self._font_name
-        except Exception:
-            pass
 
     def _on_human_action_selected(self, seat: int, action: int) -> None:
         agent = self._human_agents.get(seat)

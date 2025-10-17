@@ -1,8 +1,12 @@
 from __future__ import annotations
+import os, sys
+sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 
 import threading
 import time
 from typing import Any, Callable, Iterable, Optional, Sequence, Tuple
+
+from mahjong_tiles_print_style import get_action_printouts
 
 
 _TILE_NAMES: Tuple[str, ...] = (
@@ -80,6 +84,7 @@ class HumanPlayerAgent:
                 Callable[[], None],
             ]
         ] = None
+        self._action_printouts = get_action_printouts()
 
     # ------------------------------------------------------------------
     # Public API
@@ -190,6 +195,7 @@ class HumanPlayerAgent:
         return []
 
     def _format_action_label(self, action_id: int) -> str:
+        return self._action_printouts[action_id]
         if action_id < 34:
             return f"Discard {_TILE_NAMES[action_id]}"
         if action_id < 68:
