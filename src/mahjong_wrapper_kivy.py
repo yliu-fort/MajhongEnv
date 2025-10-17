@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -292,7 +293,6 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "no_tenpai_label": "Pas de Tenpai",
     },
 }
-
 
 @dataclass(slots=True)
 class _RenderPayload:
@@ -1127,6 +1127,30 @@ class MahjongEnvKivyWrapper:
     ) -> None:
         actions_list = list(actions)
 
+        # TODO: update _LANGUAGE_STRINGS to include following action names.
+        def _format_human_action_label(self, action_id: int) -> str:
+            if action_id < 34:
+                return self._translate("action_discard")
+            if action_id < 68:
+                return self._translate("action_riichi")
+            if action_id < 113:
+                return self._translate("action_chi")
+            if action_id < 147:
+                return self._translate("action_pon")
+            if action_id < 181:
+                return self._translate("action_kan")
+            if action_id < 215:
+                return self._translate("action_chakan")
+            if action_id < 249:
+                return self._translate("action_ankan")
+            if action_id == 249:
+                return self._translate("action_ryuukyoku")
+            if action_id == 250:
+                return self._translate("action_ron")
+            if action_id == 251:
+                return self._translate("action_tsumo")
+            return self._translate("action_cancel")
+
         def apply(_dt: float) -> None:
             quick_bar = getattr(self._root, "quick_action_bar", None)
 
@@ -1143,15 +1167,16 @@ class MahjongEnvKivyWrapper:
             if quick_bar is not None and seat == self._focus_player:
                 quick_entries: list[Tuple[int, str]] = []
                 for action_id, label in actions_list:
-                    label_text = str(label)
+                    #label_text = str(label)
+                    label_text = _format_human_action_label(action_id)
                     if action_id > 33:
                         quick_entries.append((action_id, label_text))
                 if quick_entries:
                     quick_bar.clear_widgets()
                     tile_width, tile_height = self._tile_metrics.get("south_hand", (40, 56))
-                    preview_width = max(8, int(tile_width * 0.5))
-                    preview_height = max(12, int(tile_height * 0.5))
-                    label_font_size = max(12, int(self._font_size * 0.85))
+                    preview_width = max(12, int(tile_width * 0.7))
+                    preview_height = max(18, int(tile_height * 0.7))
+                    label_font_size = max(14, int(self._font_size))
                     tile_spacing = 2
 
                     for action_id, label_text in quick_entries:
@@ -1169,63 +1194,10 @@ class MahjongEnvKivyWrapper:
                         except Exception:
                             pass
 
-                        content = BoxLayout(orientation="vertical", padding=(6, 4), spacing=4)
+                        content = BoxLayout(orientation="horizontal", padding=(4, 4), spacing=2)
                         horizontal_padding = content.padding[0] + content.padding[2]
                         tile_indices = self._preview_tiles_for_action(action_id)
                         tile_row_width = 0
-
-                        if tile_indices:
-                            tile_container = AnchorLayout(
-                                anchor_x="center",
-                                anchor_y="center",
-                                size_hint=(1, None),
-                                height=preview_height,
-                                padding=(0, 0),
-                            )
-                            tile_row = BoxLayout(
-                                orientation="horizontal",
-                                size_hint=(None, None),
-                                height=preview_height,
-                                spacing=tile_spacing,
-                                padding=(0, 0),
-                            )
-                            rendered_tiles = 0
-                            for tile_index in tile_indices:
-                                texture = self._raw_tile_textures.get(tile_index)
-                                if texture is None:
-                                    placeholder = Label(
-                                        text=_TILE_SYMBOLS[tile_index] if 0 <= tile_index < len(_TILE_SYMBOLS) else "?",
-                                        size_hint=(None, None),
-                                        color=self._text_color,
-                                        halign="center",
-                                        valign="middle",
-                                        font_size=max(10, int(label_font_size * 0.6)),
-                                    )
-                                    try:
-                                        placeholder.font_name = self._font_name
-                                    except Exception:
-                                        pass
-                                    placeholder.width = preview_width
-                                    placeholder.height = preview_height
-                                    placeholder.text_size = (preview_width, preview_height)
-                                    tile_row.add_widget(placeholder)
-                                    rendered_tiles += 1
-                                    continue
-                                image = Image(
-                                    texture=texture,
-                                    size_hint=(None, None),
-                                    allow_stretch=True,
-                                    keep_ratio=True,
-                                )
-                                image.width = preview_width
-                                image.height = preview_height
-                                tile_row.add_widget(image)
-                                rendered_tiles += 1
-                            if rendered_tiles:
-                                tile_row_width = rendered_tiles * preview_width + max(0, rendered_tiles - 1) * tile_spacing
-                                tile_row.width = tile_row_width
-                                tile_container.add_widget(tile_row)
-                                content.add_widget(tile_container)
 
                         label_texture = CoreLabel(
                             text=label_text,
@@ -1250,27 +1222,66 @@ class MahjongEnvKivyWrapper:
                         except Exception:
                             pass
                         content.add_widget(label_widget)
+                        
+                        if tile_indices:
+                            '''
+                            tile_container = AnchorLayout(
+                                anchor_x="center",
+                                anchor_y="center",
+                                size_hint=(1, None),
+                                height=preview_height,
+                                padding=(0, 0),
+                            )
+                            '''
+                            tile_row = BoxLayout(
+                                orientation="horizontal",
+                                size_hint=(None, None),
+                                height=preview_height,
+                                spacing=tile_spacing,
+                                padding=(0, 0),
+                            )
+                            rendered_tiles = 0
+                            for tile_index in tile_indices:
+                                texture = self._raw_tile_textures.get(tile_index)
+                                image = Image(
+                                    texture=texture,
+                                    size_hint=(None, None),
+                                    #allow_stretch=True,
+                                    #keep_ratio=True,
+                                )
+                                image.width = preview_width
+                                image.height = preview_height
+                                tile_row.add_widget(image)
+                                rendered_tiles += 1
+                            if rendered_tiles:
+                                tile_row_width = rendered_tiles * preview_width + max(0, rendered_tiles - 1) * tile_spacing
+                                tile_row.width = tile_row_width
+                                #tile_container.add_widget(tile_row)
+                                content.add_widget(tile_row)
 
-                        inner_width = max(label_width, tile_row_width)
+                        inner_width = label_width + tile_row_width
                         button_width = max(int(inner_width + horizontal_padding), 96)
                         button.width = button_width
                         label_widget.text_size = (
                             max(1.0, button_width - horizontal_padding),
                             None,
                         )
+                        button.height = preview_height + 8
+                        label_widget.height = button.height
 
                         content.size_hint = (None, None)
                         content.size = (button.width, button.height)
                         content.pos = (0, 0)
 
-                        def _sync_content_size(instance: Button, value: tuple[float, float], widget=content) -> None:
-                            widget.size = value
-
-                        def _sync_label_text_size(instance: Button, value: float, widget=label_widget, padding=horizontal_padding) -> None:
-                            widget.text_size = (max(1.0, value - padding), None)
-
-                        button.bind(size=_sync_content_size)
-                        button.bind(width=_sync_label_text_size)
+                        def _place(btn, content, *_):
+                            content.size=btn.size
+                            content.x = btn.x
+                            content.y = btn.y
+                        cb = partial(_place, button, content)
+                        button.bind(pos=cb, size=cb)
+                        content.bind(size=cb)
+                        #button.bind(size=_sync_content_size)
+                        #button.bind(width=_sync_label_text_size)
                         button.add_widget(content)
 
                         button.bind(
