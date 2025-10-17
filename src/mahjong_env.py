@@ -1461,6 +1461,8 @@ class MahjongEnv(MahjongEnvBase):
             case "ankan":
                 # TODO: ankan after riichi should not change the machii
                 mask = [False] * NUM_ACTIONS
+                if self.is_selecting_tiles_for_claim:
+                    return mask
                 hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
  
                 for tile, count in Counter(hands_34).items():
@@ -1473,6 +1475,8 @@ class MahjongEnv(MahjongEnvBase):
 
             case "chakan":
                 mask = [False] * NUM_ACTIONS
+                if self.is_selecting_tiles_for_claim:
+                    return mask
                 hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
  
                 for m in self.melds[self.current_player]:
