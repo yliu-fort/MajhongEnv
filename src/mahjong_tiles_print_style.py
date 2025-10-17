@@ -10,7 +10,7 @@ class MahjongTileStyle:
                     + tuple(range(0x1F000, 0x1F004)) \
                     + (0x1F006, 0x1F005, 0x1F004))
     
-    _use_emoji = False
+    _use_emoji = True
     
     @staticmethod
     def get_style(hai):
