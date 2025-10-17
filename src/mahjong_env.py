@@ -144,6 +144,7 @@ class MahjongEnvBase(gym.Env):
         for p in range(self.num_players):
                 # 发1张牌
                 self.hands[(p+self.oya)%self.num_players].append(self.deck.pop())
+                self.hands[p] = sorted(self.hands[p])
         self.last_draw_tiles = [-1 for _ in range(self.num_players)]
         self.last_discarded_tile = -1
         self.last_discarder = -1
@@ -192,6 +193,7 @@ class MahjongEnvBase(gym.Env):
         reward = 0.0
         match self.phase:
             case "draw":
+                self.hands[player] = sorted(self.hands[player])
                 self.draw_tile(player)
 
                 # 如果不处于立直状态，则解除同巡振听状态
@@ -215,6 +217,7 @@ class MahjongEnvBase(gym.Env):
                 self.to_open_dora += 1
 
                 # 摸岭上牌
+                self.hands[player] = sorted(self.hands[player])
                 self.draw_tile_from_dead_wall(player)
 
                 # 如果连续杠，则在摸岭上牌时翻开之前的宝牌

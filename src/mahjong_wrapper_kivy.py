@@ -1522,14 +1522,6 @@ class MahjongEnvKivyWrapper:
 
         hands = getattr(self._env, "hands", [])
         hand_tiles = list(hands[player_idx]) if player_idx < len(hands) else []
-        if (
-            getattr(self._env, "phase", "") in ["draw", "kan_draw"]
-            and self._env.current_player == player_idx
-            and len(hand_tiles) > 0
-        ):
-            hand_tiles = sorted(hand_tiles[:-1]) + [hand_tiles[-1]]
-        else:
-            hand_tiles = sorted(hand_tiles)
 
         canvas.add(PushMatrix())
         center_px, center_py = self._to_canvas_pos(
