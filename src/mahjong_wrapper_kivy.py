@@ -763,9 +763,15 @@ class MahjongEnvKivyWrapper:
             fallback_entries.append(str(_FALLBACK_FONT))
         self._fallback_fonts = tuple(fallback_entries)
 
+    def _resolve_font_names(self) -> Union[str, Sequence[str]]:
+        if self._fallback_fonts:
+            return [self._font_name, *self._fallback_fonts]
+        return self._font_name
+
     def _apply_font_to_controls(self) -> None:
         if not self._root:
             return
+        font_names = self._resolve_font_names()
         widgets = [
             getattr(self._root, "status_label", None),
             getattr(self._root, "reward_label", None),
@@ -781,7 +787,7 @@ class MahjongEnvKivyWrapper:
             if widget is None:
                 continue
             try:
-                widget.font_name = self._font_name
+                widget.font_name = font_names
             except Exception:
                 continue
         panel = getattr(self._root, "action_panel", None)
@@ -789,14 +795,14 @@ class MahjongEnvKivyWrapper:
         if container is not None:
             for child in container.children:
                 try:
-                    child.font_name = self._font_name
+                    child.font_name = font_names
                 except Exception:
                     continue
         quick_bar = getattr(self._root, "quick_action_bar", None)
         if quick_bar is not None:
             for child in quick_bar.children:
                 try:
-                    child.font_name = self._font_name
+                    child.font_name = font_names
                 except Exception:
                     continue
 
@@ -1159,7 +1165,7 @@ class MahjongEnvKivyWrapper:
                         )
                         button.background_down = ""
                         try:
-                            button.font_name = self._font_name
+                            button.font_name = self._resolve_font_names()
                         except Exception:
                             pass
                         button.bind(
