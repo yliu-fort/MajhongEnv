@@ -9,7 +9,7 @@ from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
 from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_features import get_action_index, get_action_from_index, NUM_ACTIONS
-from typing import List
+from typing import List, Optional
 
 class MahjongEnvBase(gym.Env):
     """
@@ -45,7 +45,7 @@ class MahjongEnvBase(gym.Env):
 
     def __init__(self, num_players=4, num_rounds=4):
         super(MahjongEnvBase, self).__init__()
-        
+
         # 设置玩家数量
         self.num_players = num_players
 
@@ -58,12 +58,21 @@ class MahjongEnvBase(gym.Env):
  
         # 初始化游戏需要在子类中实现
         #self.reset()
+        self._seed_override: Optional[str] = None
+
+    def set_seed(self, seed: Optional[str]) -> None:
+        """Override the shuffle seed used for subsequent resets."""
+
+        self._seed_override = seed
  
     def reset(self):
         # 初始化牌局，重新洗牌、发牌等
         # 在此进行游戏状态的重置
         self.hand_checker = MahjongHandChecker()
-        self.yama_generator = YamaGenerator()
+        if self._seed_override:
+            self.yama_generator = YamaGenerator(seed=self._seed_override)
+        else:
+            self.yama_generator = YamaGenerator()
         self.logger = MahjongLogger(self.yama_generator.seed_str)
         self.msg = ""
         self.done = False
@@ -1380,7 +1389,7 @@ class MahjongEnv(MahjongEnvBase):
 
     def get_observation(self, player):
         """根据当前玩家，返回相应的状态表示。"""
-        return self.logger.snapshot_before_action(player), {'who':player}
+        return self.logger.snapshot_before_action(player), {'who':player, 'phase': self.phase}
     
     def action_masks(self) -> list[bool]:
         match self.phase:

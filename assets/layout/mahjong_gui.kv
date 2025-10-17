@@ -1,4 +1,33 @@
 #:kivy 2.1.0
+#:import dp kivy.metrics.dp
+
+<StartMenuScreen@Screen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: dp(48), dp(64)
+        spacing: dp(24)
+        size_hint: 1, 1
+        Widget:
+            size_hint_y: None
+            height: dp(48)
+        Button:
+            text: 'AI vs Human'
+            size_hint_y: None
+            height: dp(48)
+            on_release: app.start_ai_vs_human()
+        Button:
+            text: 'AI vs AI'
+            size_hint_y: None
+            height: dp(48)
+            on_release: app.start_ai_vs_ai()
+        Button:
+            text: 'Replay'
+            size_hint_y: None
+            height: dp(48)
+            on_release: app.start_replay()
+        Widget:
+            size_hint_y: None
+            height: dp(48)
 
 <MahjongRoot>:
     board: board
