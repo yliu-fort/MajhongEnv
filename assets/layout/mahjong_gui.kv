@@ -1,5 +1,37 @@
 #:kivy 2.1.0
 
+<StartMenuScreen>:
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+            source: root.background_source if root.background_source else ''
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint: 0.4, 0.5
+        pos_hint: {"center_x": 0.5, "center_y": 0.5}
+        spacing: '18dp'
+        padding: '24dp'
+        canvas.before:
+            Color:
+                rgba: 0, 0, 0, 0.55
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [16, 16, 16, 16]
+        Button:
+            text: "AI vs Human"
+            size_hint_y: None
+            height: '48dp'
+            on_release: app.start_ai_vs_human()
+        Button:
+            text: "AI vs AI"
+            size_hint_y: None
+            height: '48dp'
+            on_release: app.start_ai_vs_ai()
+
 <MahjongRoot>:
     board: board
     status_label: status_label

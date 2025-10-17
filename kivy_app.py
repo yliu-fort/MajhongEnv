@@ -13,7 +13,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.factory import Factory
 from kivy.lang import Builder
+from kivy.properties import StringProperty
+from kivy.uix.screenmanager import Screen, ScreenManager
 
 from agent.human_player_agent import HumanPlayerAgent
 from agent.visual_agent import VisualAgent
@@ -112,6 +115,10 @@ class AgentController:
                 break
 
 
+class StartMenuScreen(Screen):
+    background_source = StringProperty("assets/texture/main_menu.png")
+
+
 class MahjongKivyApp(App):
     """Entry point for the Kivy Mahjong visualiser."""
 
@@ -119,11 +126,16 @@ class MahjongKivyApp(App):
         super().__init__(**kwargs)
         self._controllers: list[AgentController] = []
         self._agents: list[Any] = []
-        self._fallback_agent: RandomDiscardAgent = None
+        self._fallback_agent: Optional[RandomDiscardAgent] = None
         self._pending_requests: dict[int, _PendingRequest] = {}
         self._request_ids = count()
         self._action_timeout = 5.0
         self._observation: Any = None
+        self.env: Optional[MahjongEnv] = None
+        self.wrapper: Optional[MahjongEnvKivyWrapper] = None
+        self._screen_manager: Optional[ScreenManager] = None
+        self._game_screen: Optional[Screen] = None
+        self._drive_event = None
 
     def build(self):
         base_path = Path(__file__).resolve().parent
@@ -131,19 +143,18 @@ class MahjongKivyApp(App):
         if layout_path.exists():
             Builder.load_file(str(layout_path))
 
-        self.env = MahjongEnv(num_players=4)
-        self.wrapper = MahjongEnvKivyWrapper(env=self.env)
-        self._initialise_agents()
-        self._initialise_human()
-        self._initialise_controllers()
-        self._observation = self.wrapper.reset()
-        self._start_controllers()
+        self._screen_manager = ScreenManager()
+        start_menu = Factory.StartMenuScreen(name="start_menu")
+        self._game_screen = Screen(name="game")
+        self._screen_manager.add_widget(start_menu)
+        self._screen_manager.add_widget(self._game_screen)
 
-        interval = 1.0 / max(1, self.wrapper.fps)
-        Clock.schedule_interval(self._drive_environment, interval)
-        return self.wrapper.root
+        return self._screen_manager
 
     def _drive_environment(self, _dt: float) -> None:
+        if self.env is None or self.wrapper is None or not self._controllers:
+            return
+
         result = self.wrapper.fetch_step_result()
         if result is not None:
             self._observation, _, done, _ = result
@@ -189,27 +200,36 @@ class MahjongKivyApp(App):
 
     def on_stop(self) -> None:
         self._shutdown_controllers()
-        if hasattr(self, "wrapper"):
+        if self._drive_event is not None:
+            self._drive_event.cancel()
+            self._drive_event = None
+        if self.wrapper is not None:
             self.wrapper.close()
+            self.wrapper = None
+        self.env = None
         super().on_stop()
 
-    def _initialise_agents(self) -> None:
+    def _initialise_agents(self, human_seats: Sequence[int]) -> None:
+        if self.env is None or self.wrapper is None:
+            return
+
         num_players = self.env.num_players
         self._agents = [None] * num_players
-
-        for seat in range(num_players):
-            agent = VisualAgent(self.env, backbone="resnet50")
-            agent.load_model("model_weights/latest.pt")
-            self._agents[seat] = agent
         self._fallback_agent = RandomDiscardAgent(env=self.env)
 
-    def _initialise_human(self) -> None:
-        human_agent = HumanPlayerAgent()
-        if self.wrapper is not None:
-            self.wrapper.bind_human_ui(0, human_agent)
-        self._agents[0] = human_agent
+        human_seat_set = set(human_seats)
+        for seat in range(num_players):
+            if seat in human_seat_set:
+                agent = HumanPlayerAgent()
+                self.wrapper.bind_human_ui(seat, agent)
+            else:
+                agent = VisualAgent(self.env, backbone="resnet50")
+                agent.load_model("model_weights/latest.pt")
+            self._agents[seat] = agent
 
     def _initialise_controllers(self) -> None:
+        if self.env is None:
+            return
         self._controllers = [
             AgentController(seat=index, agent=self._agents[index])
             for index in range(self.env.num_players)
@@ -218,6 +238,44 @@ class MahjongKivyApp(App):
     def _start_controllers(self) -> None:
         for controller in self._controllers:
             controller.start()
+
+    def _start_game(self, human_seats: Sequence[int]) -> None:
+        self._flush_pending_requests()
+        self._shutdown_controllers()
+
+        if self._drive_event is not None:
+            self._drive_event.cancel()
+            self._drive_event = None
+
+        if self.wrapper is not None:
+            self.wrapper.close()
+            self.wrapper = None
+
+        self.env = MahjongEnv(num_players=4)
+        self.wrapper = MahjongEnvKivyWrapper(env=self.env)
+        self._pending_requests = {}
+        self._request_ids = count()
+
+        if self._game_screen is not None:
+            self._game_screen.clear_widgets()
+            self._game_screen.add_widget(self.wrapper.root)
+
+        self._initialise_agents(human_seats)
+        self._initialise_controllers()
+        self._observation = self.wrapper.reset()
+        self._start_controllers()
+
+        interval = 1.0 / max(1, self.wrapper.fps)
+        self._drive_event = Clock.schedule_interval(self._drive_environment, interval)
+
+        if self._screen_manager is not None:
+            self._screen_manager.current = "game"
+
+    def start_ai_vs_human(self) -> None:
+        self._start_game(human_seats=(0,))
+
+    def start_ai_vs_ai(self) -> None:
+        self._start_game(human_seats=())
 
     def _queue_action_and_clear(
         self, seat: int, controller: AgentController, action: Optional[int]
@@ -228,9 +286,12 @@ class MahjongKivyApp(App):
             action = self._fallback_agent.predict(self._observation)
         if action is None:
             return
-        self.wrapper.queue_action(action)
+        if self.wrapper is not None:
+            self.wrapper.queue_action(action)
 
     def _handle_environment_reset(self) -> None:
+        if self.wrapper is None:
+            return
         self._flush_pending_requests()
         self._observation = self.wrapper.reset()
 
@@ -242,6 +303,7 @@ class MahjongKivyApp(App):
     def _shutdown_controllers(self) -> None:
         for controller in self._controllers:
             controller.stop()
+        self._controllers = []
 
 
 if __name__ == "__main__":
