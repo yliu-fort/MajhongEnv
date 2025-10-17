@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -155,6 +156,8 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_on": "On-Auto Next",
         "auto_next_off": "OFF-Auto Next",
         "step_next": "Next",
+        "hints_on": "Hints On",
+        "hints_off": "Hints Off",
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "No Tenpai",
@@ -194,6 +197,8 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_on": "开启-自动进行",
         "auto_next_off": "关闭-自动进行",
         "step_next": "下一步",
+        "hints_on": "开启-提示颜色",
+        "hints_off": "关闭-提示颜色",
         "riichi_flag": "立直",
         "tenpai_label": "听牌",
         "no_tenpai_label": "无听牌",
@@ -233,6 +238,8 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_on": "オン-自動進行",
         "auto_next_off": "オフ-自動進行",
         "step_next": "次へ",
+        "hints_on": "ヒント表示オン",
+        "hints_off": "ヒント表示オフ",
         "riichi_flag": "立直",
         "tenpai_label": "聴牌",
         "no_tenpai_label": "ノーテン",
@@ -272,6 +279,8 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_on": "Marche-Auto suivant",
         "auto_next_off": "Arrêt-Auto suivant",
         "step_next": "Suivant",
+        "hints_on": "Astuces activées",
+        "hints_off": "Astuces désactivées",
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "Pas de Tenpai",
@@ -382,6 +391,7 @@ class MahjongRoot(FloatLayout):
     pause_button = ObjectProperty(None)
     auto_button = ObjectProperty(None)
     step_button = ObjectProperty(None)
+    hint_button = ObjectProperty(None)
     language_spinner = ObjectProperty(None)
     action_panel = ObjectProperty(None)
     quick_action_bar = ObjectProperty(None)
@@ -427,6 +437,13 @@ class MahjongEnvKivyWrapper:
         self._face_down_color = (18 / 255.0, 18 / 255.0, 22 / 255.0, 1)
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
         self._tile_texture_background = "#FFFFFF"
+        self._hint_colors: dict[str, Tuple[float, float, float, float]] = {
+            "dora": (0.95, 0.35, 0.35, 0.35),
+            "dora_indicator": (1.0, 0.6, 0.2, 0.4),
+            "last_draw": (0.35, 0.75, 1.0, 0.35),
+            "last_discard": (1.0, 0.9, 0.25, 0.4),
+        }
+        self._show_tile_hints = True
 
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
@@ -469,6 +486,9 @@ class MahjongEnvKivyWrapper:
         self._discard_counts: list[int] = []
         self._riichi_declarations: dict[int, int] = {}
         self._focus_player = 0
+        self._last_known_hands: list[list[int]] = []
+        self._last_draw_tiles: list[Optional[int]] = []
+        self._dora_tile_indices: set[int] = set()
 
         if tile_texture_size is not None:
             width, height = tile_texture_size
@@ -584,6 +604,9 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending = []
         self._discard_counts = []
         self._riichi_declarations = {}
+        self._last_known_hands = []
+        self._last_draw_tiles = []
+        self._dora_tile_indices = set()
         self._pending_action = None
         self._step_result = None
         self._render()
@@ -647,6 +670,9 @@ class MahjongEnvKivyWrapper:
         self._root.auto_button.bind(on_release=lambda *_: self._toggle_auto())
         self._root.step_button.bind(on_release=lambda *_: self._trigger_step_once())
         self._root.pause_button.bind(on_release=lambda *_: self._toggle_pause())
+        hint_button = getattr(self._root, "hint_button", None)
+        if hint_button is not None:
+            hint_button.bind(on_release=lambda *_: self._toggle_hints())
         spinner = getattr(self._root, "language_spinner", None)
         if spinner is not None:
             spinner.bind(text=self._on_language_spinner_text)
@@ -745,6 +771,7 @@ class MahjongEnvKivyWrapper:
             getattr(self._root, "pause_button", None),
             getattr(self._root, "auto_button", None),
             getattr(self._root, "step_button", None),
+            getattr(self._root, "hint_button", None),
             getattr(self._root, "language_spinner", None),
             getattr(getattr(self._root, "action_panel", None), "title_label", None),
         ]
@@ -961,6 +988,67 @@ class MahjongEnvKivyWrapper:
                     self._riichi_pending[idx] = False
             self._discard_counts[idx] = current_count
 
+    def _update_hint_sources(self) -> None:
+        hands = list(getattr(self._env, "hands", []))
+        num_players = len(hands)
+        self._ensure_hand_tracking_capacity(num_players)
+        for idx in range(num_players):
+            current_hand = list(hands[idx])
+            previous_hand = self._last_known_hands[idx]
+            diff = len(current_hand) - len(previous_hand)
+            if diff == 1:
+                new_tile = self._find_new_tile(previous_hand, current_hand)
+                self._last_draw_tiles[idx] = new_tile
+            elif diff <= 0 and self._last_draw_tiles[idx] is not None:
+                if self._last_draw_tiles[idx] not in current_hand:
+                    self._last_draw_tiles[idx] = None
+            else:
+                self._last_draw_tiles[idx] = None
+            self._last_known_hands[idx] = current_hand
+        self._dora_tile_indices = self._compute_dora_tile_indices()
+
+    def _ensure_hand_tracking_capacity(self, count: int) -> None:
+        while len(self._last_known_hands) < count:
+            self._last_known_hands.append([])
+        while len(self._last_draw_tiles) < count:
+            self._last_draw_tiles.append(None)
+        if len(self._last_known_hands) > count:
+            self._last_known_hands = self._last_known_hands[:count]
+        if len(self._last_draw_tiles) > count:
+            self._last_draw_tiles = self._last_draw_tiles[:count]
+
+    @staticmethod
+    def _find_new_tile(previous: Sequence[int], current: Sequence[int]) -> Optional[int]:
+        prev_counter = Counter(previous)
+        for tile in current:
+            if prev_counter.get(tile, 0):
+                prev_counter[tile] -= 1
+            else:
+                return tile
+        return None
+
+    def _compute_dora_tile_indices(self) -> set[int]:
+        indices: set[int] = set()
+        indicators = getattr(self._env, "dora_indicator", [])
+        for tile in indicators:
+            base = tile // 4
+            indices.add(self._indicator_to_dora(base))
+        return indices
+
+    @staticmethod
+    def _indicator_to_dora(tile_index: int) -> int:
+        if 0 <= tile_index <= 8:
+            return (tile_index + 1) % 9
+        if 9 <= tile_index <= 17:
+            return 9 + ((tile_index - 9 + 1) % 9)
+        if 18 <= tile_index <= 26:
+            return 18 + ((tile_index - 18 + 1) % 9)
+        if 27 <= tile_index <= 30:
+            return 27 + ((tile_index - 27 + 1) % 4)
+        if 31 <= tile_index <= 33:
+            return 31 + ((tile_index - 31 + 1) % 3)
+        return tile_index
+
     def _on_frame(self, dt: float) -> None:
         if self._pending_action is not None and self._step_result is None:
             can_step = True
@@ -1002,6 +1090,7 @@ class MahjongEnvKivyWrapper:
 
         self._compute_tile_metrics(play_rect)
         self._update_riichi_state()
+        self._update_hint_sources()
 
         self._hand_hitboxes.clear()
 
@@ -1342,7 +1431,17 @@ class MahjongEnvKivyWrapper:
             x = start_x - i * (wall_tile[0] + gap) - wall_tile[0]
             if i < len(self._env.dora_indicator):
                 tile = self._env.dora_indicator[i]
-                self._draw_tile(canvas, board, play_rect, tile, wall_tile, True, 0, (x, y))
+                self._draw_tile(
+                    canvas,
+                    board,
+                    play_rect,
+                    tile,
+                    wall_tile,
+                    True,
+                    0,
+                    (x, y),
+                    hint_role="indicator",
+                )
             else:
                 self._draw_tile(canvas, board, play_rect, 0, wall_tile, False, 0, (x, y))
 
@@ -1461,7 +1560,18 @@ class MahjongEnvKivyWrapper:
                             (px, py, px + tile_size[0], py + tile_size[1]),
                         )
                     )
-            self._draw_tile(canvas, board, play_rect, tile, tile_size, face_up_hand, 0, (x, y))
+            self._draw_tile(
+                canvas,
+                board,
+                play_rect,
+                tile,
+                tile_size,
+                face_up_hand,
+                0,
+                (x, y),
+                hint_owner=player_idx,
+                hint_role="hand",
+            )
             x += spacing
 
         riichi_flags = list(getattr(self._env, "riichi", []))
@@ -1854,6 +1964,8 @@ class MahjongEnvKivyWrapper:
             0,
             cols,
             orientation_map,
+            owner_idx=player_idx,
+            role="discard",
         )
 
     def _draw_melds(
@@ -1905,6 +2017,8 @@ class MahjongEnvKivyWrapper:
                     tile_face_up,
                     tile_orientation,
                     (cur_x, cur_y),
+                    hint_owner=player_idx,
+                    hint_role="meld",
                 )
                 if sideways_index is not None and idx in {sideways_index - 1, sideways_index}:
                     cur_x -= (meld_tile[0]+meld_tile[1])/2 + 4
@@ -1923,6 +2037,8 @@ class MahjongEnvKivyWrapper:
         orientation: int,
         columns: int,
         orientation_map: Optional[dict[int, int]] = None,
+        owner_idx: Optional[int] = None,
+        role: Optional[str] = None,
     ) -> None:
         if not tiles:
             return
@@ -1946,7 +2062,18 @@ class MahjongEnvKivyWrapper:
             else:
                 x += tile_size[0] + spacing
             y = area.top + row * (tile_size[1] + spacing)
-            self._draw_tile(canvas, board, play_rect, tile, tile_size, True, tile_orientation, (x, y))
+            self._draw_tile(
+                canvas,
+                board,
+                play_rect,
+                tile,
+                tile_size,
+                True,
+                tile_orientation,
+                (x, y),
+                hint_owner=owner_idx,
+                hint_role=role,
+            )
 
     def _draw_tile(
         self,
@@ -1958,6 +2085,8 @@ class MahjongEnvKivyWrapper:
         face_up: bool,
         orientation: int,
         origin: Tuple[float, float],
+        hint_owner: Optional[int] = None,
+        hint_role: Optional[str] = None,
     ) -> None:
         width, height = size
         x, y = origin
@@ -1987,13 +2116,24 @@ class MahjongEnvKivyWrapper:
             tile_34 = 36
 
         texture = self._raw_tile_textures.get(tile_34)
+        hints = self._collect_tile_hints(tile_136, face_up, hint_owner, hint_role)
         if texture is None:
             self._draw_tile_placeholder(canvas, board, play_rect, tile_34, size, origin, local=True)
+            if hints:
+                for color in hints:
+                    canvas.add(Color(*color))
+                    canvas.add(RoundedRectangle(pos=(0, 0), size=size, radius=[6, 6, 6, 6]))
+                canvas.add(Color(1, 1, 1, 1))
             canvas.add(PopMatrix())
             return
 
         canvas.add(Color(1, 1, 1, 1))
         canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
+        if hints:
+            for color in hints:
+                canvas.add(Color(*color))
+                canvas.add(RoundedRectangle(pos=(0, 0), size=size, radius=[6, 6, 6, 6]))
+            canvas.add(Color(1, 1, 1, 1))
         canvas.add(PopMatrix())
 
     def _draw_tile_placeholder(
@@ -2030,6 +2170,36 @@ class MahjongEnvKivyWrapper:
         )
         canvas.add(Color(20 / 255.0, 20 / 255.0, 20 / 255.0, 1))
         canvas.add(Rectangle(texture=label.texture, size=label.texture.size, pos=label_pos))
+
+    def _collect_tile_hints(
+        self,
+        tile_136: int,
+        face_up: bool,
+        hint_owner: Optional[int],
+        hint_role: Optional[str],
+    ) -> list[Tuple[float, float, float, float]]:
+        if not face_up or not self._show_tile_hints:
+            return []
+        hints: list[Tuple[float, float, float, float]] = []
+        tile_index = tile_136 // 4
+        if hint_role == "indicator":
+            color = self._hint_colors.get("dora_indicator")
+            if color:
+                hints.append(color)
+        if tile_index in self._dora_tile_indices:
+            color = self._hint_colors.get("dora")
+            if color:
+                hints.append(color)
+        if hint_owner is not None and 0 <= hint_owner < len(self._last_draw_tiles):
+            if self._last_draw_tiles[hint_owner] == tile_136:
+                color = self._hint_colors.get("last_draw")
+                if color:
+                    hints.append(color)
+        if hint_role == "discard" and tile_136 == getattr(self._env, "last_discarded_tile", -1):
+            color = self._hint_colors.get("last_discard")
+            if color:
+                hints.append(color)
+        return hints
 
     def _get_tile_color(self, tile_34: int) -> Tuple[int, int, int]:
         symbol = _TILE_SYMBOLS[tile_34]
@@ -2099,4 +2269,17 @@ class MahjongEnvKivyWrapper:
         step_enabled = (not self._auto_advance) or self._score_pause_active
         self._root.step_button.disabled = not step_enabled
         self._root.step_button.text = self._translate("step_next")
+        hint_label = (
+            self._translate("hints_on")
+            if self._show_tile_hints
+            else self._translate("hints_off")
+        )
+        hint_button = getattr(self._root, "hint_button", None)
+        if hint_button is not None:
+            hint_button.text = hint_label
+
+    def _toggle_hints(self) -> None:
+        self._show_tile_hints = not self._show_tile_hints
+        self._update_control_buttons()
+        self._render()
 

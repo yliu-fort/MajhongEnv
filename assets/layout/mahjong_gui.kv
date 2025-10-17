@@ -8,6 +8,7 @@
     pause_button: pause_button
     auto_button: auto_button
     step_button: step_button
+    hint_button: hint_button
     language_spinner: language_spinner
     quick_action_bar: quick_action_bar
     action_timer_label: action_timer_label
@@ -96,13 +97,21 @@
         pos: auto_button.x, auto_button.top + 10
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
+    Button:
+        id: hint_button
+        text: ""
+        size_hint: None, None
+        size: 160, 44
+        pos: pause_button.x, pause_button.top + 10
+        background_normal: ''
+        background_color: 5/255.0, 5/255.0, 5/255.0, 1
     Spinner:
         id: language_spinner
         text: ""
         values: ()
         size_hint: None, None
         size: 160, 44
-        pos: pause_button.x, pause_button.top + 10
+        pos: hint_button.x, hint_button.top + 10
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
         color: 235/255.0, 235/255.0, 235/255.0, 1
