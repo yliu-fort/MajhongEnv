@@ -196,32 +196,6 @@ class HumanPlayerAgent:
 
     def _format_action_label(self, action_id: int) -> str:
         return self._action_printouts[action_id if action_id < 252 else 252]
-        if action_id < 34:
-            return f"Discard {_TILE_NAMES[action_id]}"
-        if action_id < 68:
-            tile_index = action_id - 34
-            if 0 <= tile_index < len(_TILE_NAMES):
-                return f"Riichi {_TILE_NAMES[tile_index]}"
-            return "Riichi"
-        if action_id < 113:
-            return "Chi"
-        if action_id < 147:
-            return "Pon"
-        if action_id < 181:
-            return "Kan"
-        if action_id < 215:
-            return "Chakan"
-        if action_id < 249:
-            return "Ankan"
-        if action_id in _PASS_LABELS:
-            return "Cancel"
-        if action_id == 249:
-            return "Ryuukyoku"
-        if action_id == 250:
-            return "Ron"
-        if action_id == 251:
-            return "Tsumo"
-        return f"Action {action_id}"
 
     def _invoke_show(
         self, actions: Sequence[Tuple[int, str]], deadline: Optional[float]

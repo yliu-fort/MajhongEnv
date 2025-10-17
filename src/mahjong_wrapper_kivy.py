@@ -1225,7 +1225,7 @@ class MahjongEnvKivyWrapper:
                         button = Button(
                             text="",
                             size_hint=(None, None),
-                            height=56,
+                            height=min(80, preview_height + 8),
                             background_normal="",
                             background_color=self._panel_border,
                             color=self._text_color,
@@ -1236,7 +1236,7 @@ class MahjongEnvKivyWrapper:
                         except Exception:
                             pass
 
-                        content = BoxLayout(orientation="horizontal", padding=(4, 4), spacing=2)
+                        content = BoxLayout(orientation="horizontal", padding=(4, 4), spacing=4)
                         horizontal_padding = content.padding[0] + content.padding[2]
                         tile_indices = self._preview_tiles_for_action(action_id)
                         tile_row_width = 0
@@ -1271,7 +1271,7 @@ class MahjongEnvKivyWrapper:
                                 size_hint=(None, None),
                                 height=preview_height,
                                 spacing=tile_spacing,
-                                padding=(0, 0),
+                                padding=(0, max(0, (button.height-8-preview_height)//2)),
                             )
                             rendered_tiles = 0
                             for tile_index in tile_indices:
@@ -1296,12 +1296,7 @@ class MahjongEnvKivyWrapper:
                             max(1.0, button_width - horizontal_padding),
                             None,
                         )
-                        button.height = preview_height + 8
                         label_widget.height = button.height
-
-                        content.size_hint = (None, None)
-                        content.size = (button.width, button.height)
-                        content.pos = (0, 0)
 
                         def _place(btn, content, *_):
                             content.size=btn.size
