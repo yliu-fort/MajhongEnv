@@ -24,6 +24,8 @@ from kivy.properties import ObjectProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image
+from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 
 try:  # pragma: no cover - optional dependency
@@ -38,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
     from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
+from mahjong_features import get_action_from_index
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -1115,6 +1118,34 @@ class MahjongEnvKivyWrapper:
         self._draw_status_labels()
         self._update_control_buttons()
 
+    def _preview_tiles_for_action(self, action_id: int) -> Sequence[int]:
+        try:
+            payload, requires_confirmation = get_action_from_index(int(action_id))
+        except Exception:
+            return ()
+
+        if not requires_confirmation:
+            return ()
+
+        tiles: list[int] = []
+
+        def _append_tile(value: int) -> None:
+            if isinstance(value, int) and 0 <= value < len(_TILE_SYMBOLS):
+                tiles.append(value)
+
+        if isinstance(payload, int):
+            _append_tile(payload)
+        elif isinstance(payload, Iterable) and not isinstance(payload, (bytes, str)):
+            for item in payload:
+                if isinstance(item, Iterable) and not isinstance(item, (bytes, str, int)):
+                    for sub_item in item:
+                        if isinstance(sub_item, int):
+                            _append_tile(sub_item)
+                elif isinstance(item, int):
+                    _append_tile(item)
+
+        return tuple(tiles)
+
     def _show_human_actions(
         self,
         seat: int,
@@ -1147,23 +1178,174 @@ class MahjongEnvKivyWrapper:
                         quick_entries.append((action_id, display_text))
                 if quick_entries:
                     quick_bar.clear_widgets()
+                    bar_height = getattr(quick_bar, "height", 56)
+                    padding = getattr(quick_bar, "padding", 0)
+                    pad_y = 0.0
+                    if isinstance(padding, (list, tuple)):
+                        if len(padding) == 2:
+                            pad_y = float(padding[1]) * 2
+                        elif len(padding) == 4:
+                            pad_y = float(padding[1]) + float(padding[3])
+                    inner_height = max(0.0, float(bar_height) - pad_y)
+                    tile_width, tile_height = self._tile_metrics.get("south_hand", (40, 56))
+                    aspect_ratio = tile_width / float(tile_height or 1)
+                    base_preview_height = max(18.0, float(tile_height) * 0.5)
+                    content_padding = (6.0, 4.0, 6.0, 4.0)
+                    content_spacing = 4.0
+                    min_label_height = 16.0
+                    label_font_size = max(12, int(inner_height * 0.36))
                     for action_id, label_text in quick_entries:
+                        preview_tiles = tuple(self._preview_tiles_for_action(action_id))
+                        tile_row_width = 0.0
+                        preview_tile_height = 0.0
+                        preview_tile_width = 0.0
+                        spacing_value = content_spacing if preview_tiles else 0.0
+                        vertical_padding = content_padding[1] + content_padding[3]
+                        available_label_space = inner_height - vertical_padding
+                        if preview_tiles:
+                            max_tile_height = max(
+                                0.0,
+                                available_label_space
+                                - spacing_value
+                                - min_label_height,
+                            )
+                            preview_tile_height = min(base_preview_height, max_tile_height)
+                            if preview_tile_height <= 0:
+                                preview_tiles = ()
+                                spacing_value = 0.0
+                                preview_tile_height = 0.0
+                                preview_tile_width = 0.0
+                                available_label_space = inner_height - vertical_padding
+                            else:
+                                preview_tile_width = max(4.0, preview_tile_height * aspect_ratio)
+                                available_label_space = max(
+                                    0.0,
+                                    available_label_space
+                                    - spacing_value
+                                    - preview_tile_height,
+                                )
+                                tile_row_width = (
+                                    len(preview_tiles) * preview_tile_width
+                                    + max(0, len(preview_tiles) - 1) * 2.0
+                                )
+                        else:
+                            available_label_space = max(0.0, available_label_space)
+                        try:
+                            label_measure = CoreLabel(
+                                text=label_text,
+                                font_size=label_font_size,
+                                font_name=self._font_name,
+                            )
+                        except Exception:
+                            label_measure = CoreLabel(
+                                text=label_text,
+                                font_size=label_font_size,
+                            )
+                        label_measure.refresh()
+                        label_width, _label_height = label_measure.texture.size
+                        content_width = max(tile_row_width, float(label_width))
+                        button_width = max(
+                            96,
+                            int(
+                                content_width
+                                + content_padding[0]
+                                + content_padding[2]
+                            ),
+                        )
+                        button_height = max(32, int(inner_height))
                         button = Button(
-                            text=label_text,
+                            text="",
                             size_hint=(None, None),
-                            height=48,
-                            width=max(144, int(len(label_text) * 18)),
+                            height=button_height,
+                            width=button_width,
                             background_normal="",
                             background_color=self._panel_border,
                             color=self._text_color,
                         )
                         button.background_down = ""
+
+                        content_layout = BoxLayout(
+                            orientation="vertical",
+                            padding=content_padding,
+                            spacing=content_spacing if preview_tiles else 0,
+                            size_hint=(None, None),
+                        )
+                        content_layout.height = button_height
+                        content_layout.width = button_width
+
+                        if preview_tiles:
+                            tile_row_container = BoxLayout(
+                                orientation="horizontal",
+                                size_hint=(1, None),
+                                height=max(1.0, preview_tile_height),
+                                spacing=2,
+                            )
+                            tile_row_container.add_widget(
+                                Widget(size_hint_x=1)
+                            )
+                            for tile_index in preview_tiles:
+                                texture = self._raw_tile_textures.get(tile_index)
+                                if texture is None:
+                                    continue
+                                tile_image = Image(
+                                    size_hint=(None, None),
+                                    allow_stretch=True,
+                                    keep_ratio=True,
+                                )
+                                tile_image.texture = texture
+                                tile_image.size = (
+                                    max(1.0, preview_tile_width),
+                                    max(1.0, preview_tile_height),
+                                )
+                                tile_row_container.add_widget(tile_image)
+                            tile_row_container.add_widget(
+                                Widget(size_hint_x=1)
+                            )
+                            if len(tile_row_container.children) > 2:
+                                content_layout.add_widget(tile_row_container)
+
+                        available_label_space = max(
+                            0.0,
+                            button_height
+                            - (content_layout.padding[1] + content_layout.padding[3])
+                            - (preview_tile_height if preview_tiles else 0.0)
+                            - (content_layout.spacing if preview_tiles else 0.0),
+                        )
+                        if available_label_space > 0:
+                            available_label_height = min(
+                                available_label_space,
+                                max(12.0, available_label_space),
+                            )
+                        else:
+                            available_label_height = max(12.0, inner_height * 0.3)
+                        quick_label = Label(
+                            text=label_text,
+                            size_hint=(1, None),
+                            height=available_label_height,
+                            color=self._text_color,
+                            font_size=label_font_size,
+                            halign="center",
+                            valign="middle",
+                        )
                         try:
-                            button.font_name = self._font_name
+                            quick_label.font_name = self._font_name
                         except Exception:
                             pass
+                        label_width_available = max(
+                            1.0,
+                            button_width
+                            - (content_layout.padding[0] + content_layout.padding[2]),
+                        )
+                        quick_label.text_size = (
+                            label_width_available,
+                            available_label_height,
+                        )
+                        content_layout.add_widget(quick_label)
+                        button.add_widget(content_layout)
                         button.bind(
-                            on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
+                            on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(
+                                seat_idx, act
+                            )
                         )
                         quick_bar.add_widget(button)
                     quick_bar.opacity = 1.0
