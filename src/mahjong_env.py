@@ -51,10 +51,13 @@ class MahjongEnvBase(gym.Env):
 
         # 设置局数, 4: 东风场, 8: 半庄， 16: 全庄
         self.num_rounds = num_rounds
- 
+
         # 环境内部的其他状态记录
         self.current_player = 0
         self.done = False
+        self.last_draw_tiles = [-1 for _ in range(self.num_players)]
+        self.last_discarded_tile = -1
+        self.last_discarder = -1
  
         # 初始化游戏需要在子类中实现
         #self.reset()
@@ -141,7 +144,9 @@ class MahjongEnvBase(gym.Env):
         for p in range(self.num_players):
                 # 发1张牌
                 self.hands[(p+self.oya)%self.num_players].append(self.deck.pop())
+        self.last_draw_tiles = [-1 for _ in range(self.num_players)]
         self.last_discarded_tile = -1
+        self.last_discarder = -1
         self.agari = None
         self.first_turn = [True for _ in range(self.num_players)]
         self.daburu_riichi = [False for _ in range(self.num_players)]
@@ -267,6 +272,12 @@ class MahjongEnvBase(gym.Env):
                     tile_to_discard = self.hands[player][action]
                     self.hands[player].remove(tile_to_discard)
                     self.last_discarded_tile = tile_to_discard
+                    self.last_discarder = player
+                    if (
+                        0 <= player < len(self.last_draw_tiles)
+                        and self.last_draw_tiles[player] == tile_to_discard
+                    ):
+                        self.last_draw_tiles[player] = -1
                     self.discard_pile[player, tile_to_discard] = True # 加入弃牌堆
                     self.discard_pile_seq[player].append(tile_to_discard)
 
@@ -827,6 +838,8 @@ class MahjongEnvBase(gym.Env):
         assert len(self.hands[player]) in [1, 4, 7, 10, 13], "摸牌：手牌数不对"
         tile = self.deck.pop()
         self.hands[player].append(tile)
+        if 0 <= player < len(self.last_draw_tiles):
+            self.last_draw_tiles[player] = tile
         # 输出天凤格式的log. e.g. <T86/>
         self.logger.add_draw(player, tile)
         # 更新待牌状态
@@ -839,6 +852,8 @@ class MahjongEnvBase(gym.Env):
         tile = self.kan_tile.pop(0)
         self.hands[player].append(tile)
         self.dead_wall.append(self.deck.pop(0))
+        if 0 <= player < len(self.last_draw_tiles):
+            self.last_draw_tiles[player] = tile
         # 输出天凤格式的log. e.g. <T86/>
         self.logger.add_draw(player, tile)
         # 更新待牌状态
