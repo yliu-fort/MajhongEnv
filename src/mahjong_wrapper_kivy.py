@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -21,9 +22,12 @@ from kivy.graphics import (
 )
 from kivy.graphics.instructions import InstructionGroup
 from kivy.properties import ObjectProperty
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image
+from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 
 try:  # pragma: no cover - optional dependency
@@ -38,6 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
     from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
+from mahjong_features import get_action_from_index
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -163,6 +168,17 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "No Tenpai",
+        "action_discard": "Discard",
+        "action_riichi": "Riichi",
+        "action_chi": "Chi",
+        "action_pon": "Pon",
+        "action_kan": "Kan",
+        "action_chakan": "Chakan",
+        "action_ankan": "Ankan",
+        "action_ryuukyoku": "Ryuukyoku",
+        "action_ron": "Ron",
+        "action_tsumo": "Tsumo",
+        "action_cancel": "Cancel",
     },
     "zh-Hans": {
         "language_name": "ZH",
@@ -204,6 +220,17 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "立直",
         "tenpai_label": "听牌",
         "no_tenpai_label": "无听牌",
+        "action_discard": "出牌",
+        "action_riichi": "立直",
+        "action_chi": "吃",
+        "action_pon": "碰",
+        "action_kan": "杠",
+        "action_chakan": "加杠",
+        "action_ankan": "暗杠",
+        "action_ryuukyoku": "流局",
+        "action_ron": "荣和",
+        "action_tsumo": "自摸",
+        "action_cancel": "取消",
     },
     "ja": {
         "language_name": "JP",
@@ -245,6 +272,17 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "立直",
         "tenpai_label": "聴牌",
         "no_tenpai_label": "ノーテン",
+        "action_discard": "切る",
+        "action_riichi": "立直",
+        "action_chi": "チー",
+        "action_pon": "ポン",
+        "action_kan": "カン",
+        "action_chakan": "加槓",
+        "action_ankan": "暗槓",
+        "action_ryuukyoku": "流局",
+        "action_ron": "ロン",
+        "action_tsumo": "ツモ",
+        "action_cancel": "キャンセル",
     },
     "fr": {
         "language_name": "FR",
@@ -286,9 +324,19 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "Pas de Tenpai",
+        "action_discard": "Défausser",
+        "action_riichi": "Riichi",
+        "action_chi": "Chi",
+        "action_pon": "Pon",
+        "action_kan": "Kan",
+        "action_chakan": "Kan ajouté",
+        "action_ankan": "Kan fermé",
+        "action_ryuukyoku": "Ryuukyoku",
+        "action_ron": "Ron",
+        "action_tsumo": "Tsumo",
+        "action_cancel": "Annuler",
     },
 }
-
 
 @dataclass(slots=True)
 class _RenderPayload:
@@ -1123,6 +1171,29 @@ class MahjongEnvKivyWrapper:
     ) -> None:
         actions_list = list(actions)
 
+        def _format_human_action_label(action_id: int) -> str:
+            if action_id < 34:
+                return self._translate("action_discard")
+            if action_id < 68:
+                return self._translate("action_riichi")
+            if action_id < 113:
+                return self._translate("action_chi")
+            if action_id < 147:
+                return self._translate("action_pon")
+            if action_id < 181:
+                return self._translate("action_kan")
+            if action_id < 215:
+                return self._translate("action_chakan")
+            if action_id < 249:
+                return self._translate("action_ankan")
+            if action_id == 249:
+                return self._translate("action_ryuukyoku")
+            if action_id == 250:
+                return self._translate("action_ron")
+            if action_id == 251:
+                return self._translate("action_tsumo")
+            return self._translate("action_cancel")
+
         def apply(_dt: float) -> None:
             quick_bar = getattr(self._root, "quick_action_bar", None)
 
@@ -1139,20 +1210,22 @@ class MahjongEnvKivyWrapper:
             if quick_bar is not None and seat == self._focus_player:
                 quick_entries: list[Tuple[int, str]] = []
                 for action_id, label in actions_list:
-                    label_text = str(label)
-                    display_text: Optional[str] = None
+                    label_text = _format_human_action_label(action_id)
                     if action_id > 33:
-                        display_text: Optional[str] = label_text
-                    if display_text is not None:
-                        quick_entries.append((action_id, display_text))
+                        quick_entries.append((action_id, label_text))
                 if quick_entries:
                     quick_bar.clear_widgets()
+                    tile_width, tile_height = self._tile_metrics.get("south_hand", (40, 56))
+                    preview_width = max(12, int(tile_width * 0.7))
+                    preview_height = max(18, int(tile_height * 0.7))
+                    label_font_size = max(14, int(self._font_size))
+                    tile_spacing = 2
+
                     for action_id, label_text in quick_entries:
                         button = Button(
-                            text=label_text,
+                            text="",
                             size_hint=(None, None),
-                            height=48,
-                            width=max(144, int(len(label_text) * 18)),
+                            height=56,
                             background_normal="",
                             background_color=self._panel_border,
                             color=self._text_color,
@@ -1162,10 +1235,88 @@ class MahjongEnvKivyWrapper:
                             button.font_name = self._font_name
                         except Exception:
                             pass
+
+                        content = BoxLayout(orientation="horizontal", padding=(4, 4), spacing=2)
+                        horizontal_padding = content.padding[0] + content.padding[2]
+                        tile_indices = self._preview_tiles_for_action(action_id)
+                        tile_row_width = 0
+
+                        label_texture = CoreLabel(
+                            text=label_text,
+                            font_size=label_font_size,
+                            font_name=self._font_name,
+                        )
+                        label_texture.refresh()
+                        label_width = float(label_texture.texture.size[0])
+                        label_height = float(label_texture.texture.size[1])
+
+                        label_widget = Label(
+                            text=label_text,
+                            size_hint=(1, None),
+                            color=self._text_color,
+                            halign="center",
+                            valign="center",
+                        )
+                        label_widget.height = label_height
+                        label_widget.font_size = label_font_size
+                        try:
+                            label_widget.font_name = self._font_name
+                        except Exception:
+                            pass
+                        content.add_widget(label_widget)
+                        
+                        if tile_indices:
+                            tile_row = BoxLayout(
+                                orientation="horizontal",
+                                size_hint=(None, None),
+                                height=preview_height,
+                                spacing=tile_spacing,
+                                padding=(0, 0),
+                            )
+                            rendered_tiles = 0
+                            for tile_index in tile_indices:
+                                texture = self._raw_tile_textures.get(tile_index)
+                                image = Image(
+                                    texture=texture,
+                                    size_hint=(None, None),
+                                )
+                                image.width = preview_width
+                                image.height = preview_height
+                                tile_row.add_widget(image)
+                                rendered_tiles += 1
+                            if rendered_tiles:
+                                tile_row_width = rendered_tiles * preview_width + max(0, rendered_tiles - 1) * tile_spacing
+                                tile_row.width = tile_row_width
+                                content.add_widget(tile_row)
+
+                        inner_width = label_width + tile_row_width
+                        button_width = max(int(inner_width + horizontal_padding), 96)
+                        button.width = button_width
+                        label_widget.text_size = (
+                            max(1.0, button_width - horizontal_padding),
+                            None,
+                        )
+                        button.height = preview_height + 8
+                        label_widget.height = button.height
+
+                        content.size_hint = (None, None)
+                        content.size = (button.width, button.height)
+                        content.pos = (0, 0)
+
+                        def _place(btn, content, *_):
+                            content.size=btn.size
+                            content.x = btn.x
+                            content.y = btn.y
+                        cb = partial(_place, button, content)
+                        button.bind(pos=cb, size=cb)
+                        content.bind(size=cb)
+                        button.add_widget(content)
+
                         button.bind(
                             on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
                         )
                         quick_bar.add_widget(button)
+
                     quick_bar.opacity = 1.0
                     quick_bar.disabled = False
                     quick_bar_used = True
@@ -1299,6 +1450,34 @@ class MahjongEnvKivyWrapper:
         if 0 <= tile_index < 34:
             return tile_index
         return None
+
+    def _preview_tiles_for_action(self, action_id: int) -> Sequence[int]:
+        try:
+            payload, confirm = get_action_from_index(int(action_id))
+        except Exception:
+            return []
+        if not confirm:
+            return []
+
+        preview: list[int] = []
+
+        def add_tile(candidate: Any) -> None:
+            if isinstance(candidate, bool):
+                return
+            if isinstance(candidate, int) and 0 <= candidate < len(_TILE_SYMBOLS):
+                preview.append(int(candidate))
+
+        if isinstance(payload, Iterable) and not isinstance(payload, (str, bytes)):
+            for value in payload:
+                if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+                    for nested in value:
+                        add_tile(nested)
+                else:
+                    add_tile(value)
+        else:
+            add_tile(payload)
+
+        return preview
 
     def _wrap_text(self, text: str, max_width: float, font_size: Optional[int] = None) -> list[str]:
         if not text:
@@ -2258,4 +2437,3 @@ class MahjongEnvKivyWrapper:
         step_enabled = (not self._auto_advance) or self._score_pause_active
         self._root.step_button.disabled = not step_enabled
         self._root.step_button.text = self._translate("step_next")
-
