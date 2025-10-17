@@ -195,7 +195,7 @@ class HumanPlayerAgent:
         return []
 
     def _format_action_label(self, action_id: int) -> str:
-        return self._action_printouts[action_id]
+        return self._action_printouts[action_id if action_id < 252 else 252]
         if action_id < 34:
             return f"Discard {_TILE_NAMES[action_id]}"
         if action_id < 68:

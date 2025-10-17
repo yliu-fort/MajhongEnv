@@ -80,8 +80,8 @@ _TILE_SYMBOLS: Tuple[str, ...] = (
 )
 
 
-_DEFAULT_LANGUAGE = "en"
-_LANGUAGE_ORDER: Tuple[str, ...] = ("en", "zh-Hans", "ja", "fr")
+_DEFAULT_LANGUAGE = "zh-Hans"
+_LANGUAGE_ORDER: Tuple[str, ...] = ("zh-Hans", "en", "ja", "fr")
 _ASSET_FONT_ROOT = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 _FONT_PATHS: dict[str, Path] = {
     "en": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
@@ -484,7 +484,7 @@ class MahjongEnvKivyWrapper:
 
         self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
         self._auto_advance = True
-        self._pause_on_score = False
+        self._pause_on_score = True
         self._score_pause_active = False
         self._score_pause_pending = False
         self._step_once_requested = False
