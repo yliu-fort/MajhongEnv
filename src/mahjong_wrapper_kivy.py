@@ -796,9 +796,36 @@ class MahjongEnvKivyWrapper:
         if quick_bar is not None:
             for child in quick_bar.children:
                 try:
-                    child.font_name = self._font_name
+                    text = getattr(child, "text", "")
+                    child.font_name = self._font_for_text(text)
                 except Exception:
                     continue
+
+    def _font_for_text(self, text: str) -> str:
+        """Return a font path that can render *text*.
+
+        Emoji glyphs are primarily used for the tile quick action buttons and
+        require the bundled emoji font in order to render correctly.  When no
+        emoji are present we fall back to the primary UI font so that regular
+        text continues to match the rest of the interface.
+        """
+
+        if text:
+            has_emoji = False
+            has_non_emoji = False
+            for char in text:
+                codepoint = ord(char)
+                if 0x1F000 <= codepoint <= 0x1FAFF:
+                    has_emoji = True
+                elif not char.isspace():
+                    has_non_emoji = True
+                if has_emoji and has_non_emoji:
+                    break
+            if has_emoji and not has_non_emoji:
+                for fallback_font in self._fallback_fonts:
+                    if fallback_font:
+                        return fallback_font
+        return self._font_name
 
     def _on_language_spinner_text(self, _instance: Any, value: str) -> None:
         if self._updating_language_spinner:
@@ -1159,7 +1186,7 @@ class MahjongEnvKivyWrapper:
                         )
                         button.background_down = ""
                         try:
-                            button.font_name = self._font_name
+                            button.font_name = self._font_for_text(label_text)
                         except Exception:
                             pass
                         button.bind(
