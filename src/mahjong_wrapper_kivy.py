@@ -466,6 +466,7 @@ class MahjongEnvKivyWrapper:
             int, list[tuple[int, tuple[float, float, float, float]]]
         ] = {}
 
+        self._fallback_fonts: Tuple[str, ...] = ()
         self._language_code_to_name: dict[str, str] = {
             code: data.get("language_name", code) for code, data in _LANGUAGE_STRINGS.items()
         }
@@ -751,6 +752,27 @@ class MahjongEnvKivyWrapper:
             spinner.text = display_name
             self._updating_language_spinner = False
 
+    def _resolve_font_spec(self) -> Union[str, Sequence[str]]:
+        fonts: list[str] = []
+        if isinstance(self._font_name, (list, tuple)):
+            fonts.extend(str(name) for name in self._font_name if name)
+        elif self._font_name:
+            fonts.append(str(self._font_name))
+        fonts.extend(str(name) for name in getattr(self, "_fallback_fonts", ()) if name)
+        if not fonts:
+            return self._font_name
+        if len(fonts) == 1:
+            return fonts[0]
+        return fonts
+
+    def _apply_font_to_widget(self, widget: Any) -> None:
+        if widget is None:
+            return
+        try:
+            widget.font_name = self._resolve_font_spec()
+        except Exception:
+            return
+
     def _update_language_fonts(self, language: str) -> None:
         font_path = _FONT_PATHS.get(language)
         if font_path is not None and font_path.exists():
@@ -778,27 +800,16 @@ class MahjongEnvKivyWrapper:
             getattr(getattr(self._root, "action_panel", None), "title_label", None),
         ]
         for widget in widgets:
-            if widget is None:
-                continue
-            try:
-                widget.font_name = self._font_name
-            except Exception:
-                continue
+            self._apply_font_to_widget(widget)
         panel = getattr(self._root, "action_panel", None)
         container = getattr(panel, "container", None) if panel is not None else None
         if container is not None:
             for child in container.children:
-                try:
-                    child.font_name = self._font_name
-                except Exception:
-                    continue
+                self._apply_font_to_widget(child)
         quick_bar = getattr(self._root, "quick_action_bar", None)
         if quick_bar is not None:
             for child in quick_bar.children:
-                try:
-                    child.font_name = self._font_name
-                except Exception:
-                    continue
+                self._apply_font_to_widget(child)
 
     def _on_language_spinner_text(self, _instance: Any, value: str) -> None:
         if self._updating_language_spinner:
@@ -1158,10 +1169,7 @@ class MahjongEnvKivyWrapper:
                             color=self._text_color,
                         )
                         button.background_down = ""
-                        try:
-                            button.font_name = self._font_name
-                        except Exception:
-                            pass
+                        self._apply_font_to_widget(button)
                         button.bind(
                             on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
                         )
