@@ -1509,20 +1509,21 @@ class MahjongEnv(MahjongEnvBase):
         payload, confirm = get_action_from_index(action_grp)
 
         def _hand_index(tile_34: int) -> int:
-            hand = self.hands[self.current_player]
+            hand = list(reversed(self.hands[self.current_player]))
             for idx, tile in enumerate(hand):
                 if tile // 4 == tile_34:
-                    return idx
+                    return len(hand)-idx-1
             raise ValueError(f"tile {tile_34} not found in hand {hand}")
 
         def _hand_indices(tiles_34: List[int]) -> List[int]:
-            hand = self.hands[self.current_player]
+            hand = list(reversed(self.hands[self.current_player]))
             out = []
             for tile_34 in tiles_34:
                 for idx, tile in enumerate(hand):
                     if tile // 4 == tile_34 and not (idx in out):
                         out.append(idx)
                         break
+            out = [len(hand)-idx-1 for idx in out]
             if len(out) == len(tiles_34):
                 return tuple(out)
             raise ValueError(f"tiles {tiles_34} not found in hand {hand}")
