@@ -32,6 +32,38 @@
             height: '48dp'
             on_release: app.start_ai_vs_ai()
 
+<ActionPanel>:
+    container: container
+    title_label: title_label
+    orientation: 'vertical'
+    size_hint: None, None
+    width: max(240, self.minimum_width)
+    height: self.minimum_height + self.padding[1] + self.padding[3]
+    padding: 12, 12
+    spacing: 8
+    canvas.before:
+        Color:
+            rgba: 5/255.0, 5/255.0, 5/255.0, 1
+        RoundedRectangle:
+            size: self.size
+            pos: self.pos
+            radius: [12, 12, 12, 12]
+    Label:
+        id: title_label
+        text: ''
+        size_hint_y: None
+        height: self.texture_size[1] if self.texture_size[1] else 0
+        color: 170/255.0, 190/255.0, 210/255.0, 1
+        halign: 'left'
+        valign: 'middle'
+        text_size: self.width, None
+    BoxLayout:
+        id: container
+        orientation: 'vertical'
+        size_hint_y: None
+        height: self.minimum_height
+        spacing: 4
+
 <MahjongRoot>:
     board: board
     status_label: status_label
@@ -41,10 +73,12 @@
     auto_button: auto_button
     step_button: step_button
     hints_button: hints_button
+    assist_button: assist_button
     language_spinner: language_spinner
     quick_action_bar: quick_action_bar
     action_timer_label: action_timer_label
     exit_button: exit_button
+    assist_panel: assist_panel
     canvas.before:
         Color:
             rgba: 12/255.0, 30/255.0, 60/255.0, 1
@@ -139,6 +173,14 @@
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
     Button:
+        id: assist_button
+        text: ""
+        size_hint: None, None
+        size: 160, 44
+        pos: hints_button.x, hints_button.top + 10
+        background_normal: ''
+        background_color: 5/255.0, 5/255.0, 5/255.0, 1
+    Button:
         id: exit_button
         text: ""
         size_hint: None, None
@@ -153,7 +195,7 @@
         values: ()
         size_hint: None, None
         size: 160, 44
-        pos: hints_button.x, hints_button.top + 10
+        pos: assist_button.x, assist_button.top + 10
         background_normal: ''
         background_color: 5/255.0, 5/255.0, 5/255.0, 1
         color: 235/255.0, 235/255.0, 235/255.0, 1

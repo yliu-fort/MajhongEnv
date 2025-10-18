@@ -43,6 +43,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 from mahjong_features import get_action_from_index
+from agent.visual_agent import VisualAgent
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -164,6 +165,11 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_off": "OFF-Auto Next",
         "hints_on": "On-Hints",
         "hints_off": "OFF-Hints",
+        "assist_on": "On-Assist",
+        "assist_off": "OFF-Assist",
+        "assist_title": "AI Assist",
+        "assist_waiting": "Waiting for turn",
+        "assist_unavailable": "Assist unavailable",
         "step_next": "Next",
         "exit_to_menu": "Exit to Menu",
         "riichi_flag": "Riichi",
@@ -217,6 +223,11 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_off": "关闭-自动进行",
         "hints_on": "开启-提示",
         "hints_off": "关闭-提示",
+        "assist_on": "开启-辅助",
+        "assist_off": "关闭-辅助",
+        "assist_title": "AI辅助",
+        "assist_waiting": "等待出牌",
+        "assist_unavailable": "暂无辅助",
         "step_next": "下一步",
         "exit_to_menu": "返回菜单",
         "riichi_flag": "立直",
@@ -270,6 +281,11 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_off": "オフ-自動進行",
         "hints_on": "オン-ヒント",
         "hints_off": "オフ-ヒント",
+        "assist_on": "オン-補助",
+        "assist_off": "オフ-補助",
+        "assist_title": "AI補助",
+        "assist_waiting": "手番待機中",
+        "assist_unavailable": "補助なし",
         "step_next": "次へ",
         "exit_to_menu": "メニューに戻る",
         "riichi_flag": "立直",
@@ -323,6 +339,11 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "auto_next_off": "Arrêt-Auto suivant",
         "hints_on": "Marche-Indices",
         "hints_off": "Arrêt-Indices",
+        "assist_on": "Marche-Assistance",
+        "assist_off": "Arrêt-Assistance",
+        "assist_title": "Assistance IA",
+        "assist_waiting": "En attente du tour",
+        "assist_unavailable": "Assistance indisponible",
         "step_next": "Suivant",
         "exit_to_menu": "Retour au menu",
         "riichi_flag": "Riichi",
@@ -452,8 +473,10 @@ class MahjongRoot(FloatLayout):
     auto_button = ObjectProperty(None)
     step_button = ObjectProperty(None)
     hints_button = ObjectProperty(None)
+    assist_button = ObjectProperty(None)
     language_spinner = ObjectProperty(None)
     action_panel = ObjectProperty(None)
+    assist_panel = ObjectProperty(None)
     quick_action_bar = ObjectProperty(None)
     action_timer_label = ObjectProperty(None)
     exit_button = ObjectProperty(None)
@@ -501,6 +524,7 @@ class MahjongEnvKivyWrapper:
         self._wind_label_oya_color = "#F9246B"
         self._wind_label_normal_color = "#FFFFFF"
         self._show_hints = True
+        self._assist_enabled = False
         self._dora_overlay_color = (250 / 255.0, 210 / 255.0, 120 / 255.0, 0.45)
         self._last_draw_outline_color = (120 / 255.0, 190 / 255.0, 255 / 255.0, 1)
         self._last_discard_outline_color = (255 / 255.0, 170 / 255.0, 90 / 255.0, 1)
@@ -509,6 +533,13 @@ class MahjongEnvKivyWrapper:
         self._cached_last_draw_tiles: list[int] = []
         self._cached_last_discard_tile: int = -1
         self._cached_last_discarder: int = -1
+        self._assist_dirty = True
+        self._seat_agents: dict[int, Any] = {}
+        self._assist_helpers: dict[int, VisualAgent] = {}
+        self._assist_model_path = (
+            Path(__file__).resolve().parent.parent / "model_weights" / "latest.pt"
+        )
+        self._latest_observation: Optional[Any] = None
 
         self._root = root_widget or MahjongRoot()
         self._root.size = window_size
@@ -579,6 +610,7 @@ class MahjongEnvKivyWrapper:
         self._action_timer_event: Optional[Any] = None
         self._load_tile_assets(self._tile_texture_explicit_size)
         self._connect_controls()
+        self._update_assist_panel(force=True)
 
         self._clock_event = Clock.schedule_interval(self._on_frame, 1.0 / self._fps)
         self._scheduled = True
@@ -607,6 +639,7 @@ class MahjongEnvKivyWrapper:
         if sanitized == self._focus_player:
             return
         self._focus_player = sanitized
+        self._assist_dirty = True
         self._render()
 
     def _get_focus_index(self, num_players: int) -> int:
@@ -651,9 +684,120 @@ class MahjongEnvKivyWrapper:
         self._update_language_fonts(self._language)
         self._apply_font_to_controls()
         self._update_language_spinner()
+        self._assist_dirty = True
         self._render()
         self._draw_status_labels()
         self._update_control_buttons()
+        self._update_assist_panel()
+
+    def _update_assist_panel(self, force: bool = False) -> None:
+        if not self._root:
+            return
+        panel = getattr(self._root, "assist_panel", None)
+        if panel is None:
+            return
+        title_label = getattr(panel, "title_label", None)
+        if title_label is not None:
+            title_label.text = self._translate("assist_title")
+            title_label.color = self._accent_color if self._assist_enabled else self._muted_text_color
+            try:
+                title_label.font_name = self._font_name
+                title_label.font_size = self._font_size + 2
+            except Exception:
+                pass
+        container = getattr(panel, "container", None)
+        if not self._assist_enabled:
+            panel.opacity = 0.0
+            panel.disabled = True
+            if container is not None and (force or container.children):
+                container.clear_widgets()
+            return
+        panel.opacity = 1.0
+        panel.disabled = False
+        if container is None:
+            return
+        if not force and not self._assist_dirty:
+            return
+        self._assist_dirty = False
+        container.clear_widgets()
+
+        seat = self._focus_player
+        current_player = getattr(self._env, "current_player", seat)
+        if seat != current_player:
+            self._add_assist_entry(
+                container,
+                self._translate("assist_waiting"),
+                color=self._muted_text_color,
+            )
+            return
+
+        agent = self._get_assist_agent(seat)
+        if agent is None:
+            self._add_assist_entry(
+                container,
+                self._translate("assist_unavailable"),
+                color=self._muted_text_color,
+            )
+            return
+        try:
+            observation = self._env.get_observation(seat)
+        except Exception:
+            observation = None
+        if observation is None:
+            self._add_assist_entry(
+                container,
+                self._translate("assist_unavailable"),
+                color=self._muted_text_color,
+            )
+            return
+        try:
+            _distribution, top_actions = agent.policy_distribution(observation, top_k=5)
+        except Exception:
+            self._add_assist_entry(
+                container,
+                self._translate("assist_unavailable"),
+                color=self._muted_text_color,
+            )
+            return
+        if not top_actions:
+            self._add_assist_entry(
+                container,
+                self._translate("assist_unavailable"),
+                color=self._muted_text_color,
+            )
+            return
+
+        for rank, (action_id, probability) in enumerate(top_actions, start=1):
+            label = self._format_action_label(action_id)
+            entry_text = f"{rank}. {label} - {probability:.1%}"
+            self._add_assist_entry(container, entry_text)
+
+    def _add_assist_entry(
+        self,
+        container: BoxLayout,
+        text: str,
+        *,
+        color: Optional[Sequence[float]] = None,
+    ) -> None:
+        if color is None:
+            color = self._text_color
+        entry = Label(
+            text=text,
+            size_hint_y=None,
+            height=self._font_size + 10,
+            size_hint_x=1.0,
+            halign="left",
+            valign="middle",
+            color=color,
+        )
+        entry.text_size = (container.width, None)
+        entry.bind(width=lambda inst, value: setattr(inst, "text_size", (value, None)))
+        try:
+            entry.font_name = self._font_name
+            entry.font_size = self._font_size
+        except Exception:
+            pass
+        container.add_widget(entry)
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
         observation = self._env.reset(*args, **kwargs)
@@ -668,6 +812,8 @@ class MahjongEnvKivyWrapper:
         self._riichi_declarations = {}
         self._pending_action = None
         self._step_result = None
+        self._latest_observation = observation
+        self._assist_dirty = True
         self._render()
         self._clear_human_actions()
         return observation
@@ -716,6 +862,20 @@ class MahjongEnvKivyWrapper:
             lambda seat=seat: self._clear_human_actions(seat),
         )
 
+    def register_seat_agent(self, seat: int, agent: Any) -> None:
+        if seat < 0:
+            raise ValueError("seat must be non-negative")
+        self._seat_agents[seat] = agent
+        if isinstance(agent, VisualAgent):
+            self._assist_helpers[seat] = agent
+        self._assist_dirty = True
+
+    def set_assist_agent(self, seat: int, agent: VisualAgent) -> None:
+        if seat < 0:
+            raise ValueError("seat must be non-negative")
+        self._assist_helpers[seat] = agent
+        self._assist_dirty = True
+
     @property
     def phase(self) -> str:
         return getattr(self._env, "phase", "")
@@ -730,6 +890,7 @@ class MahjongEnvKivyWrapper:
         self._root.step_button.bind(on_release=lambda *_: self._trigger_step_once())
         self._root.pause_button.bind(on_release=lambda *_: self._toggle_pause())
         self._root.hints_button.bind(on_release=lambda *_: self._toggle_hints())
+        self._root.assist_button.bind(on_release=lambda *_: self._toggle_assist())
         spinner = getattr(self._root, "language_spinner", None)
         if spinner is not None:
             spinner.bind(text=self._on_language_spinner_text)
@@ -829,9 +990,11 @@ class MahjongEnvKivyWrapper:
             getattr(self._root, "auto_button", None),
             getattr(self._root, "step_button", None),
             getattr(self._root, "hints_button", None),
+            getattr(self._root, "assist_button", None),
             getattr(self._root, "exit_button", None),
             getattr(self._root, "language_spinner", None),
             getattr(getattr(self._root, "action_panel", None), "title_label", None),
+            getattr(getattr(self._root, "assist_panel", None), "title_label", None),
         ]
         for widget in widgets:
             if widget is None:
@@ -840,9 +1003,16 @@ class MahjongEnvKivyWrapper:
                 widget.font_name = self._font_name
             except Exception:
                 continue
-        panel = getattr(self._root, "action_panel", None)
-        container = getattr(panel, "container", None) if panel is not None else None
-        if container is not None:
+        panels = [
+            getattr(self._root, "action_panel", None),
+            getattr(self._root, "assist_panel", None),
+        ]
+        for panel in panels:
+            if panel is None:
+                continue
+            container = getattr(panel, "container", None)
+            if container is None:
+                continue
             for child in container.children:
                 try:
                     child.font_name = self._font_name
@@ -945,6 +1115,40 @@ class MahjongEnvKivyWrapper:
 
     def _toggle_hints(self) -> None:
         self._show_hints = not self._show_hints
+
+    def _toggle_assist(self) -> None:
+        self._assist_enabled = not self._assist_enabled
+        self._assist_dirty = True
+        self._update_control_buttons()
+        self._update_assist_panel(force=True)
+
+    def _create_assist_helper(self, seat: int) -> Optional[VisualAgent]:
+        try:
+            helper = VisualAgent(self._env, backbone="resnet50")
+        except Exception:
+            return None
+        model_path = getattr(self, "_assist_model_path", None)
+        if isinstance(model_path, Path) and model_path.exists():
+            try:
+                helper.load_model(str(model_path))
+            except Exception:
+                pass
+        return helper
+
+    def _get_assist_agent(self, seat: int) -> Optional[VisualAgent]:
+        helper = self._assist_helpers.get(seat)
+        if helper is not None:
+            return helper
+        if seat not in self._seat_agents and seat not in self._assist_helpers:
+            return None
+        registered = self._seat_agents.get(seat)
+        if isinstance(registered, VisualAgent):
+            self._assist_helpers[seat] = registered
+            return registered
+        helper = self._create_assist_helper(seat)
+        if helper is not None:
+            self._assist_helpers[seat] = helper
+        return helper
 
     def _score_last(self) -> bool:
         return (
@@ -1123,6 +1327,8 @@ class MahjongEnvKivyWrapper:
                     done=done,
                     info=info,
                 )
+                self._latest_observation = observation
+                self._assist_dirty = True
                 self._step_event.set()
         self._update_pause_state()
         self._render()
@@ -1170,6 +1376,63 @@ class MahjongEnvKivyWrapper:
             self._draw_score_panel(canvas, board, play_rect)
         self._draw_status_labels()
         self._update_control_buttons()
+        self._update_assist_panel()
+
+    def _format_tile_short(self, tile_index: int) -> str:
+        try:
+            idx = int(tile_index)
+        except Exception:
+            return str(tile_index)
+        if idx < 0:
+            return str(tile_index)
+        if idx < 9:
+            return f"{idx + 1}m"
+        if idx < 18:
+            return f"{idx - 8}p"
+        if idx < 27:
+            return f"{idx - 17}s"
+        if 27 <= idx <= 30:
+            winds = self._translate_sequence("wind_names")
+            if len(winds) >= 4:
+                return str(winds[idx - 27])
+            return ("East", "South", "West", "North")[idx - 27]
+        if idx == 31:
+            return "White"
+        if idx == 32:
+            return "Green"
+        if idx == 33:
+            return "Red"
+        if 0 <= idx < len(_TILE_SYMBOLS):
+            return _TILE_SYMBOLS[idx]
+        return str(tile_index)
+
+    def _format_action_label(self, action_id: int) -> str:
+        try:
+            normalized = int(action_id)
+        except Exception:
+            return str(action_id)
+        if normalized < 34:
+            return f"{self._translate('action_discard')} {self._format_tile_short(normalized)}"
+        if normalized < 68:
+            tile_idx = normalized - 34
+            return f"{self._translate('action_riichi')} {self._format_tile_short(tile_idx)}"
+        if normalized < 113:
+            return self._translate("action_chi")
+        if normalized < 147:
+            return self._translate("action_pon")
+        if normalized < 181:
+            return self._translate("action_kan")
+        if normalized < 215:
+            return self._translate("action_chakan")
+        if normalized < 249:
+            return self._translate("action_ankan")
+        if normalized == 249:
+            return self._translate("action_ryuukyoku")
+        if normalized == 250:
+            return self._translate("action_ron")
+        if normalized == 251:
+            return self._translate("action_tsumo")
+        return self._translate("action_cancel")
 
     def _show_human_actions(
         self,
@@ -1178,29 +1441,6 @@ class MahjongEnvKivyWrapper:
         deadline: Optional[float],
     ) -> None:
         actions_list = list(actions)
-
-        def _format_human_action_label(action_id: int) -> str:
-            if action_id < 34:
-                return self._translate("action_discard")
-            if action_id < 68:
-                return self._translate("action_riichi")
-            if action_id < 113:
-                return self._translate("action_chi")
-            if action_id < 147:
-                return self._translate("action_pon")
-            if action_id < 181:
-                return self._translate("action_kan")
-            if action_id < 215:
-                return self._translate("action_chakan")
-            if action_id < 249:
-                return self._translate("action_ankan")
-            if action_id == 249:
-                return self._translate("action_ryuukyoku")
-            if action_id == 250:
-                return self._translate("action_ron")
-            if action_id == 251:
-                return self._translate("action_tsumo")
-            return self._translate("action_cancel")
 
         def apply(_dt: float) -> None:
             quick_bar = getattr(self._root, "quick_action_bar", None)
@@ -1218,7 +1458,7 @@ class MahjongEnvKivyWrapper:
             if quick_bar is not None and seat == self._focus_player:
                 quick_entries: list[Tuple[int, str]] = []
                 for action_id, label in actions_list:
-                    label_text = _format_human_action_label(action_id)
+                    label_text = self._format_action_label(action_id)
                     if action_id > 33:
                         quick_entries.append((action_id, label_text))
                 if quick_entries:
@@ -2509,6 +2749,14 @@ class MahjongEnvKivyWrapper:
             else self._translate("hints_off")
         )
         self._root.hints_button.text = hints_label
+        assist_button = getattr(self._root, "assist_button", None)
+        if assist_button is not None:
+            assist_label = (
+                self._translate("assist_on")
+                if self._assist_enabled
+                else self._translate("assist_off")
+            )
+            assist_button.text = assist_label
         step_enabled = (not self._auto_advance) or self._score_pause_active
         self._root.step_button.disabled = not step_enabled
         self._root.step_button.text = self._translate("step_next")
