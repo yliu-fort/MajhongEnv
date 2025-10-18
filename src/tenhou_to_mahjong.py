@@ -94,9 +94,8 @@ except Exception:
         aka5s: bool = False
         legal_discards_mask: Optional[Sequence[int]] = None
 '''
-from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, NUM_ACTIONS
+from mahjong_features_numpy import RiichiState, PlayerPublic, NUM_TILES, NUM_ACTIONS, get_action_index
 from shanten_dp import compute_ukeire_advanced
-from mahjong_features import get_action_index
 
 # ----------------------------
 # Tenhou basics
