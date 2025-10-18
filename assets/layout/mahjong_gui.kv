@@ -1,4 +1,5 @@
 #:kivy 2.1.0
+#:import dp kivy.metrics.dp
 
 <StartMenuScreen>:
     canvas.before:
@@ -185,4 +186,10 @@
         Line:
             rounded_rectangle: (*self.pos, *self.size, 16)
             width: 3
+    seat_wind_label_offsets: [
+        (0, -dp(32)),
+        (dp(32), 0),
+        (0, dp(32)),
+        (-dp(32), 0),
+    ]
 

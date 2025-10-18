@@ -22,7 +22,7 @@ from kivy.graphics import (
     Translate,
 )
 from kivy.graphics.instructions import InstructionGroup
-from kivy.properties import ObjectProperty
+from kivy.properties import ListProperty, ObjectProperty
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -427,6 +427,7 @@ class MahjongBoardWidget(Widget):
     """Widget that renders the Mahjong play field."""
 
     wrapper = ObjectProperty(None)
+    seat_wind_label_offsets = ListProperty([])
 
     def on_touch_down(self, touch: Any) -> bool:  # type: ignore[override]
         if super().on_touch_down(touch):
@@ -1598,10 +1599,12 @@ class MahjongEnvKivyWrapper:
             (center_rect.centerx, center_rect.top - 14),
             (center_rect.left - 18, center_rect.centery),
         )
+        seat_wind_offsets: Sequence[Tuple[float, float]]
+        seat_wind_offsets = tuple(getattr(board, "seat_wind_label_offsets", []) or ())
         scores = getattr(self._env, "scores", [])
         current_player = getattr(self._env, "current_player", 0)
         dealer_idx = getattr(self._env, "oya", -1)
-        wind_font_size = max(10, self._font_size - 4)
+        wind_font_size = max(10, self._font_size + 2)
         order = self._get_display_order()
         for relative_position, player_idx in enumerate(order):
             if relative_position >= len(score_positions):
@@ -1648,21 +1651,26 @@ class MahjongEnvKivyWrapper:
             )
             wind_label.refresh()
 
-            dx = position[0] - center_rect.centerx
-            dy = position[1] - center_rect.centery
-            length = math.hypot(dx, dy)
-            if length == 0:
-                direction_x, direction_y = 0.0, -1.0
+            if relative_position < len(seat_wind_offsets):
+                offset_x, offset_y = seat_wind_offsets[relative_position]
+                wind_center_x = position[0] + offset_x
+                wind_center_y = position[1] + offset_y
             else:
-                direction_x, direction_y = dx / length, dy / length
+                dx = position[0] - center_rect.centerx
+                dy = position[1] - center_rect.centery
+                length = math.hypot(dx, dy)
+                if length == 0:
+                    direction_x, direction_y = 0.0, -1.0
+                else:
+                    direction_x, direction_y = dx / length, dy / length
 
-            offset_distance = (
-                score_label.texture.size[1] / 2
-                + wind_label.texture.size[1] / 2
-                + 6
-            )
-            wind_center_x = position[0] + direction_x * offset_distance
-            wind_center_y = position[1] + direction_y * offset_distance
+                offset_distance = (
+                    score_label.texture.size[1] / 2
+                    + wind_label.texture.size[1] / 2
+                    + 6
+                )
+                wind_center_x = position[0] + direction_x * offset_distance
+                wind_center_y = position[1] + direction_y * offset_distance
             wind_px, wind_py = self._to_canvas_pos(
                 board,
                 play_rect,
