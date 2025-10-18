@@ -165,6 +165,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "hints_on": "On-Hints",
         "hints_off": "OFF-Hints",
         "step_next": "Next",
+        "exit_to_menu": "Exit to Menu",
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "No Tenpai",
@@ -217,6 +218,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "hints_on": "开启-提示",
         "hints_off": "关闭-提示",
         "step_next": "下一步",
+        "exit_to_menu": "返回菜单",
         "riichi_flag": "立直",
         "tenpai_label": "听牌",
         "no_tenpai_label": "无听牌",
@@ -269,6 +271,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "hints_on": "オン-ヒント",
         "hints_off": "オフ-ヒント",
         "step_next": "次へ",
+        "exit_to_menu": "メニューに戻る",
         "riichi_flag": "立直",
         "tenpai_label": "聴牌",
         "no_tenpai_label": "ノーテン",
@@ -321,6 +324,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "hints_on": "Marche-Indices",
         "hints_off": "Arrêt-Indices",
         "step_next": "Suivant",
+        "exit_to_menu": "Retour au menu",
         "riichi_flag": "Riichi",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "Pas de Tenpai",
@@ -452,6 +456,7 @@ class MahjongRoot(FloatLayout):
     action_panel = ObjectProperty(None)
     quick_action_bar = ObjectProperty(None)
     action_timer_label = ObjectProperty(None)
+    exit_button = ObjectProperty(None)
     wrapper = ObjectProperty(None)
 
 
@@ -822,6 +827,7 @@ class MahjongEnvKivyWrapper:
             getattr(self._root, "auto_button", None),
             getattr(self._root, "step_button", None),
             getattr(self._root, "hints_button", None),
+            getattr(self._root, "exit_button", None),
             getattr(self._root, "language_spinner", None),
             getattr(getattr(self._root, "action_panel", None), "title_label", None),
         ]
@@ -2432,3 +2438,4 @@ class MahjongEnvKivyWrapper:
         step_enabled = (not self._auto_advance) or self._score_pause_active
         self._root.step_button.disabled = not step_enabled
         self._root.step_button.text = self._translate("step_next")
+        self._root.exit_button.text = self._translate("exit_to_menu")
