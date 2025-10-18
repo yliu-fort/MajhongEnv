@@ -25,7 +25,7 @@ class RandomDiscardAgent:
             raise ValueError("RandomDiscardAgent requires an environment with an action_masks method")
 
         action_masks = self.env.action_masks()
-        valid_action_list = [i for i in list(range(253)) if action_masks[i] == 1]
+        valid_action_list = [i for i in list(range(len(action_masks))) if action_masks[i] == 1]
 
         # Randomly pick one tile from the hand to discard
         if valid_action_list:

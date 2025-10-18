@@ -19,7 +19,8 @@ from kivy.properties import StringProperty
 from kivy.uix.screenmanager import Screen, ScreenManager
 
 from agent.human_player_agent import HumanPlayerAgent
-from agent.visual_agent import VisualAgent
+from agent.visual_agent import VisualAgent as _AIAgent
+#from agent.rule_based_agent import RuleBasedAgent as _AIAgent
 from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_env import MahjongEnv
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
@@ -216,9 +217,9 @@ class MahjongKivyApp(App):
             if seat in human_seat_set:
                 agent = HumanPlayerAgent()
                 self.wrapper.bind_human_ui(seat, agent)
-                assist_agent: Optional[VisualAgent] = None
+                assist_agent: Optional[_AIAgent] = None
                 try:
-                    assist_agent = VisualAgent(self.env, backbone="resnet50")
+                    assist_agent = _AIAgent(self.env, backbone="resnet50")
                     if model_path.exists():
                         assist_agent.load_model(str(model_path))
                 except Exception:
@@ -226,7 +227,7 @@ class MahjongKivyApp(App):
                 if assist_agent is not None and self.wrapper is not None:
                     self.wrapper.set_assist_agent(seat, assist_agent)
             else:
-                agent = VisualAgent(self.env, backbone="resnet50")
+                agent = _AIAgent(self.env, backbone="resnet50")
                 agent.load_model("model_weights/latest.pt")
             if self.wrapper is not None:
                 self.wrapper.register_seat_agent(seat, agent)

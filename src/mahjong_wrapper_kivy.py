@@ -42,8 +42,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
     from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
-from mahjong_features import get_action_from_index
-from agent.visual_agent import VisualAgent
+from mahjong_features_numpy import get_action_from_index
+#from agent.visual_agent import VisualAgent as _AIAgent
+from agent.rule_based_agent import RuleBasedAgent as _AIAgent
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -535,7 +536,7 @@ class MahjongEnvKivyWrapper:
         self._cached_last_discarder: int = -1
         self._assist_dirty = True
         self._seat_agents: dict[int, Any] = {}
-        self._assist_helpers: dict[int, VisualAgent] = {}
+        self._assist_helpers: dict[int, _AIAgent] = {}
         self._assist_model_path = (
             Path(__file__).resolve().parent.parent / "model_weights" / "latest.pt"
         )
@@ -866,11 +867,11 @@ class MahjongEnvKivyWrapper:
         if seat < 0:
             raise ValueError("seat must be non-negative")
         self._seat_agents[seat] = agent
-        if isinstance(agent, VisualAgent):
+        if isinstance(agent, _AIAgent):
             self._assist_helpers[seat] = agent
         self._assist_dirty = True
 
-    def set_assist_agent(self, seat: int, agent: VisualAgent) -> None:
+    def set_assist_agent(self, seat: int, agent: _AIAgent) -> None:
         if seat < 0:
             raise ValueError("seat must be non-negative")
         self._assist_helpers[seat] = agent
@@ -1122,9 +1123,9 @@ class MahjongEnvKivyWrapper:
         self._update_control_buttons()
         self._update_assist_panel(force=True)
 
-    def _create_assist_helper(self, seat: int) -> Optional[VisualAgent]:
+    def _create_assist_helper(self, seat: int) -> Optional[_AIAgent]:
         try:
-            helper = VisualAgent(self._env, backbone="resnet50")
+            helper = _AIAgent(self._env, backbone="resnet50")
         except Exception:
             return None
         model_path = getattr(self, "_assist_model_path", None)
@@ -1135,14 +1136,14 @@ class MahjongEnvKivyWrapper:
                 pass
         return helper
 
-    def _get_assist_agent(self, seat: int) -> Optional[VisualAgent]:
+    def _get_assist_agent(self, seat: int) -> Optional[_AIAgent]:
         helper = self._assist_helpers.get(seat)
         if helper is not None:
             return helper
         if seat not in self._seat_agents and seat not in self._assist_helpers:
             return None
         registered = self._seat_agents.get(seat)
-        if isinstance(registered, VisualAgent):
+        if isinstance(registered, _AIAgent):
             self._assist_helpers[seat] = registered
             return registered
         helper = self._create_assist_helper(seat)

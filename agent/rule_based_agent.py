@@ -7,7 +7,7 @@ import numpy as np
 
 from shanten_dp import compute_ukeire_advanced
 from random_discard_agent import RandomDiscardAgent
-from mahjong_features import RiichiResNetFeatures, NUM_TILES
+from mahjong_features_numpy import RiichiResNetFeatures, NUM_TILES
 from mahjong.tile import TilesConverter
 from mahjong_tiles_print_style import tile_printout
 
