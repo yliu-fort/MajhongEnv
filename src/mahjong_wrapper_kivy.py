@@ -92,10 +92,10 @@ _DEFAULT_LANGUAGE = "zh-Hans"
 _LANGUAGE_ORDER: Tuple[str, ...] = ("zh-Hans", "en", "ja", "fr")
 _ASSET_FONT_ROOT = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 _FONT_PATHS: dict[str, Path] = {
-    "en": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
-    "zh-Hans": _ASSET_FONT_ROOT / "Noto_Sans_SC" / "static" / "NotoSansSC-Regular.ttf",
-    "ja": _ASSET_FONT_ROOT / "Noto_Sans_JP" / "static" / "NotoSansJP-Regular.ttf",
-    "fr": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
+    "en": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-SemiBold.ttf",
+    "zh-Hans": _ASSET_FONT_ROOT / "Noto_Sans_SC" / "static" / "NotoSansSC-SemiBold.ttf",
+    "ja": _ASSET_FONT_ROOT / "Noto_Sans_JP" / "static" / "NotoSansJP-SemiBold.ttf",
+    "fr": _ASSET_FONT_ROOT / "Noto_Sans" / "static" / "NotoSans-SemiBold.ttf",
 }
 _FALLBACK_FONT = _ASSET_FONT_ROOT / "Noto_Color_Emoji" / "NotoColorEmoji-Regular.ttf"
 
