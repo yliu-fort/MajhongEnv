@@ -524,7 +524,7 @@ class MahjongEnvKivyWrapper:
         self._wind_label_oya_color = "#F9246B"
         self._wind_label_normal_color = "#FFFFFF"
         self._show_hints = True
-        self._assist_enabled = True
+        self._assist_enabled = False
         self._dora_overlay_color = (250 / 255.0, 210 / 255.0, 120 / 255.0, 0.45)
         self._last_draw_outline_color = (120 / 255.0, 190 / 255.0, 255 / 255.0, 1)
         self._last_discard_outline_color = (255 / 255.0, 170 / 255.0, 90 / 255.0, 1)

@@ -96,11 +96,11 @@ class VisualAgent:
     def policy_distribution(self, observation, top_k: int = 5):
         """Return the policy distribution and top-k pairs for an observation."""
         _, distribution, top_actions = self.predict_with_distribution(
-            observation, top_k=top_k
+            observation, top_k=top_k, enable_all_actions=True
         )
         return distribution, top_actions
 
-    def predict_with_distribution(self, observation, top_k: int = 5):
+    def predict_with_distribution(self, observation, top_k: int = 5, enable_all_actions=False):
         legal_mask_full = np.asarray(self.env.action_masks())
         legal_sum = int(legal_mask_full.sum())
         distribution = np.zeros(NUM_ACTIONS, dtype=np.float32)
@@ -118,19 +118,24 @@ class VisualAgent:
             return action, distribution, [(action, 1.0)]
 
         # 如果当前状态是和牌状态，直接返回和牌动作
-        if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):
-            action = get_action_index(None, self.env.phase)
-            if action < NUM_ACTIONS:
-                distribution[action] = 1.0
-            return action, distribution, [(action, 1.0)]
+        if enable_all_actions:
+            valid_phases = {"tsumo", "ron", "ryuukyoku", "kan", "chakan", "ankan", \
+                            "discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"}
+        else:
+            valid_phases = {"discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"}
 
-        if self.env and (self.env.phase in ["kan", "chakan", "ankan"]):
-            action = 252
-            if action < NUM_ACTIONS:
-                distribution[action] = 1.0
-            return action, distribution, [(action, 1.0)]
+            if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):
+                action = get_action_index(None, self.env.phase)
+                if action < NUM_ACTIONS:
+                    distribution[action] = 1.0
+                return action, distribution, [(action, 1.0)]
 
-        valid_phases = {"discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"}
+            if self.env and (self.env.phase in ["kan", "chakan", "ankan"]):
+                action = 252
+                if action < NUM_ACTIONS:
+                    distribution[action] = 1.0
+                return action, distribution, [(action, 1.0)]
+
         if self.env and (self.env.phase in valid_phases):
             with torch.no_grad():
                 out = self.extractor(observation[0])
