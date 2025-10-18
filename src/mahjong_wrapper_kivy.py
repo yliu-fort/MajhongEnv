@@ -498,6 +498,8 @@ class MahjongEnvKivyWrapper:
         self._face_down_color = (18 / 255.0, 18 / 255.0, 22 / 255.0, 1)
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
         self._tile_texture_background = "#FFFFFF"
+        self._wind_label_oya_color = "#F9246B"
+        self._wind_label_normal_color = "#FFFFFF"
         self._show_hints = True
         self._dora_overlay_color = (250 / 255.0, 210 / 255.0, 120 / 255.0, 0.45)
         self._last_draw_outline_color = (120 / 255.0, 190 / 255.0, 255 / 255.0, 1)
@@ -651,6 +653,7 @@ class MahjongEnvKivyWrapper:
         self._update_language_spinner()
         self._render()
         self._draw_status_labels()
+        self._draw_wind_labels()
         self._update_control_buttons()
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
@@ -1167,6 +1170,7 @@ class MahjongEnvKivyWrapper:
         if self._score_last():
             self._draw_score_panel(canvas, board, play_rect)
         self._draw_status_labels()
+        self._draw_wind_labels()
         self._update_control_buttons()
 
     def _show_human_actions(
@@ -2414,6 +2418,52 @@ class MahjongEnvKivyWrapper:
             self._root.done_label.text = self._translate("episode_finished")
         else:
             self._root.done_label.text = ""
+
+    def _seat_wind_label(self, player_idx: int) -> str:
+        wind_names = self._translate_sequence("wind_names") or (
+            "East",
+            "South",
+            "West",
+            "North",
+        )
+        if not wind_names:
+            return ""
+
+        num_winds = len(wind_names)
+        num_players = getattr(self._env, "num_players", num_winds)
+        try:
+            dealer_idx = int(getattr(self._env, "oya", -1))
+        except Exception:
+            dealer_idx = -1
+
+        try:
+            normalized_player = int(player_idx)
+        except Exception:
+            return ""
+
+        if num_players <= 0 or not (0 <= dealer_idx < num_players):
+            relative = normalized_player % num_winds
+        else:
+            relative = (normalized_player - dealer_idx) % num_winds
+        return str(wind_names[relative])
+    
+    def _draw_wind_labels(self) -> None:
+        if not self._root:
+            return
+        num_players = getattr(self._env, "num_players", 0)
+        try:
+            dealer_idx = int(getattr(self._env, "oya", -1))
+        except Exception:
+            dealer_idx = -1
+        wind_labels = [self._root.wind_label_0, self._root.wind_label_1, self._root.wind_label_2, self._root.wind_label_3]
+        for i in range(num_players):
+            wind_labels[i].text = self._seat_wind_label(i)
+            wind_labels[i].font_name = self._font_name
+            wind_labels[i].font_size = self._font_size + 8
+            if i == dealer_idx:
+                wind_labels[i].color = self._wind_label_oya_color
+            else:
+                wind_labels[i].color = self._wind_label_normal_color
 
     def _update_control_buttons(self) -> None:
         pause_label = (
