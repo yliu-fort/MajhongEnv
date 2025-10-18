@@ -1569,9 +1569,9 @@ class MahjongEnvKivyWrapper:
 
         score_positions = (
             (center_rect.centerx, center_rect.bottom + 14),
-            (center_rect.right + 18, center_rect.centery),
+            (center_rect.right + 24, center_rect.centery),
             (center_rect.centerx, center_rect.top - 14),
-            (center_rect.left - 18, center_rect.centery),
+            (center_rect.left - 24, center_rect.centery),
         )
         scores = getattr(self._env, "scores", [])
         current_player = getattr(self._env, "current_player", 0)

@@ -275,13 +275,16 @@ class MahjongEnvBase(gym.Env):
                     self.hands[player].remove(tile_to_discard)
                     self.last_discarded_tile = tile_to_discard
                     self.last_discarder = player
-                    if (
-                        0 <= player < len(self.last_draw_tiles)
-                        and self.last_draw_tiles[player] == tile_to_discard
-                    ):
-                        self.last_draw_tiles[player] = -1
+                    #if (
+                    #    0 <= player < len(self.last_draw_tiles)
+                        #and self.last_draw_tiles[player] == tile_to_discard
+                    #):
+                    #    self.last_draw_tiles[player] = -1
                     self.discard_pile[player, tile_to_discard] = True # 加入弃牌堆
                     self.discard_pile_seq[player].append(tile_to_discard)
+
+                    self.last_draw_tiles[player] = -1
+                    self.hands[player] = sorted(self.hands[player])
 
                     # 输出天凤格式的log. e.g. <D122/>
                     self.logger.add_discard(player, tile_to_discard)
@@ -647,6 +650,9 @@ class MahjongEnvBase(gym.Env):
                         self.logger.add_meld(player, new_meld)
 
                     self.selected_tiles = []
+
+                    self.hands[player] = sorted(self.hands[player])
+                    self.last_draw_tiles[player] = -1
 
                     # 消除所有的一发状态
                     self.ippatsu = [False for _ in range(self.num_players)]
