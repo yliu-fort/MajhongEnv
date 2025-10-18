@@ -1378,6 +1378,7 @@ class MahjongEnvKivyWrapper:
         self._draw_status_labels()
         self._draw_wind_labels()
         self._update_control_buttons()
+        self._update_assist_panel()
 
     def _format_tile_short(self, tile_index: int) -> str:
         try:
