@@ -159,7 +159,7 @@ class MahjongKivyApp(App):
         if result is not None:
             self._observation, _, done, _ = result
             if done:
-                self._flush_pending_requests()
+                self.return_to_menu()
                 return
 
         if self.env.done and self.wrapper.pending_action is None:
@@ -199,14 +199,7 @@ class MahjongKivyApp(App):
             self._queue_action_and_clear(current_seat, controller, None)
 
     def on_stop(self) -> None:
-        self._shutdown_controllers()
-        if self._drive_event is not None:
-            self._drive_event.cancel()
-            self._drive_event = None
-        if self.wrapper is not None:
-            self.wrapper.close()
-            self.wrapper = None
-        self.env = None
+        self._cleanup_game()
         super().on_stop()
 
     def _initialise_agents(self, human_seats: Sequence[int]) -> None:
@@ -240,16 +233,7 @@ class MahjongKivyApp(App):
             controller.start()
 
     def _start_game(self, human_seats: Sequence[int]) -> None:
-        self._flush_pending_requests()
-        self._shutdown_controllers()
-
-        if self._drive_event is not None:
-            self._drive_event.cancel()
-            self._drive_event = None
-
-        if self.wrapper is not None:
-            self.wrapper.close()
-            self.wrapper = None
+        self._cleanup_game()
 
         self.env = MahjongEnv(num_players=4)
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
@@ -271,6 +255,9 @@ class MahjongKivyApp(App):
         if self._screen_manager is not None:
             self._screen_manager.current = "game"
 
+    def return_to_menu(self, *args: Any) -> None:
+        self._cleanup_game()
+
     def start_ai_vs_human(self) -> None:
         self._start_game(human_seats=(0,))
 
@@ -290,10 +277,7 @@ class MahjongKivyApp(App):
             self.wrapper.queue_action(action)
 
     def _handle_environment_reset(self) -> None:
-        if self.wrapper is None:
-            return
-        self._flush_pending_requests()
-        self._observation = self.wrapper.reset()
+        self.return_to_menu()
 
     def _flush_pending_requests(self) -> None:
         self._pending_requests.clear()
@@ -304,6 +288,26 @@ class MahjongKivyApp(App):
         for controller in self._controllers:
             controller.stop()
         self._controllers = []
+
+    def _cleanup_game(self, *args: Any) -> None:
+        if self._drive_event is not None:
+            self._drive_event.cancel()
+            self._drive_event = None
+        self._flush_pending_requests()
+        self._shutdown_controllers()
+        self._agents = []
+        self._fallback_agent = None
+        if self.wrapper is not None:
+            self.wrapper.close()
+            self.wrapper = None
+        self.env = None
+        self._observation = None
+        self._pending_requests = {}
+        self._request_ids = count()
+        if self._game_screen is not None:
+            self._game_screen.clear_widgets()
+        if self._screen_manager is not None:
+            self._screen_manager.current = "start_menu"
 
 
 if __name__ == "__main__":
