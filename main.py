@@ -211,25 +211,17 @@ class MahjongKivyApp(App):
         self._agents = [None] * num_players
         self._fallback_agent = RandomDiscardAgent(env=self.env)
 
+        agent0 = _AIAgent(self.env, backbone="resnet50")
+        agent0.load_model("model_weights/latest.pt")
+
         human_seat_set = set(human_seats)
-        model_path = Path("model_weights/latest.pt")
         for seat in range(num_players):
             if seat in human_seat_set:
                 agent = HumanPlayerAgent()
                 self.wrapper.bind_human_ui(seat, agent)
-                assist_agent: Optional[_AIAgent] = None
-                try:
-                    assist_agent = _AIAgent(self.env, backbone="resnet50")
-                    if model_path.exists():
-                        assist_agent.load_model(str(model_path))
-                except Exception:
-                    assist_agent = None
-                if assist_agent is not None and self.wrapper is not None:
-                    self.wrapper.set_assist_agent(seat, assist_agent)
+                self.wrapper.set_assist_agent(seat, agent0)
             else:
-                agent = _AIAgent(self.env, backbone="resnet50")
-                agent.load_model("model_weights/latest.pt")
-            if self.wrapper is not None:
+                agent = agent0
                 self.wrapper.register_seat_agent(seat, agent)
             self._agents[seat] = agent
 

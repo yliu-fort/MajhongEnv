@@ -535,7 +535,7 @@ class MahjongEnvKivyWrapper:
         self._face_down_color = (18 / 255.0, 18 / 255.0, 22 / 255.0, 1)
         self._face_down_border = (60 / 255.0, 60 / 255.0, 70 / 255.0, 1)
         self._tile_texture_background = "#FFFFFF"
-        self._wind_label_oya_color = "#F9246B"
+        self._wind_label_oya_color = (249 / 255.0, 36 / 255.0, 107 / 255.0, 1)
         self._wind_label_normal_color = "#FFFFFF"
         self._show_hints = True
         self._assist_enabled = False
@@ -880,9 +880,6 @@ class MahjongEnvKivyWrapper:
         if seat < 0:
             raise ValueError("seat must be non-negative")
         self._seat_agents[seat] = agent
-        if isinstance(agent, _AIAgent):
-            self._assist_helpers[seat] = agent
-        self._assist_dirty = True
 
     def set_assist_agent(self, seat: int, agent: _AIAgent) -> None:
         if seat < 0:
