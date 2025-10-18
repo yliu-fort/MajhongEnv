@@ -45,10 +45,6 @@
     quick_action_bar: quick_action_bar
     action_timer_label: action_timer_label
     exit_button: exit_button
-    wind_label_0: wind_label_0
-    wind_label_1: wind_label_1
-    wind_label_2: wind_label_2
-    wind_label_3: wind_label_3
     canvas.before:
         Color:
             rgba: 12/255.0, 30/255.0, 60/255.0, 1
@@ -174,46 +170,6 @@
         text_size: self.size
         color: 235/255.0, 235/255.0, 235/255.0, 1
         opacity: 0
-    Label:
-        id: wind_label_0
-        text: ""
-        halign: 'center'
-        valign: 'middle'
-        text_size: self.width, None
-        size_hint: None, None
-        size: 96, 96
-        pos: root.center_x - self.width / 2, root.center_y - self.height / 2 - board.height * 0.16
-        color: 170/255.0, 190/255.0, 210/255.0, 1
-    Label:
-        id: wind_label_1
-        text: ""
-        halign: 'center'
-        valign: 'middle'
-        text_size: self.width, None
-        size_hint: None, None
-        size: 96, 96
-        pos: root.center_x - self.width / 2 + board.width * 0.16 + 16, root.center_y - self.height / 2
-        color: 170/255.0, 190/255.0, 210/255.0, 1
-    Label:
-        id: wind_label_2
-        text: ""
-        halign: 'center'
-        valign: 'middle'
-        text_size: self.width, None
-        size_hint: None, None
-        size: 96, 96
-        pos: root.center_x - self.width / 2, root.center_y - self.height / 2 + board.height * 0.16
-        color: 170/255.0, 190/255.0, 210/255.0, 1
-    Label:
-        id: wind_label_3
-        text: ""
-        halign: 'center'
-        valign: 'middle'
-        text_size: self.width, None
-        size_hint: None, None
-        size: 96, 96
-        pos: root.center_x - self.width / 2 - board.width * 0.16 - 16, root.center_y - self.height / 2
-        color: 170/255.0, 190/255.0, 210/255.0, 1
 
 <MahjongBoardWidget>:
     canvas.before:

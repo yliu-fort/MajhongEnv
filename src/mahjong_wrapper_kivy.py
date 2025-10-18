@@ -653,7 +653,6 @@ class MahjongEnvKivyWrapper:
         self._update_language_spinner()
         self._render()
         self._draw_status_labels()
-        self._draw_wind_labels()
         self._update_control_buttons()
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
@@ -1170,7 +1169,6 @@ class MahjongEnvKivyWrapper:
         if self._score_last():
             self._draw_score_panel(canvas, board, play_rect)
         self._draw_status_labels()
-        self._draw_wind_labels()
         self._update_control_buttons()
 
     def _show_human_actions(
@@ -1567,6 +1565,7 @@ class MahjongEnvKivyWrapper:
             canvas.add(Rectangle(texture=label.texture, size=label.texture.size, pos=(px, py)))
             next_top += label.texture.size[1] + 4
 
+        # Scores
         score_positions = (
             (center_rect.centerx, center_rect.bottom + 14),
             (center_rect.right + 24, center_rect.centery),
@@ -1591,6 +1590,49 @@ class MahjongEnvKivyWrapper:
             label = CoreLabel(
                 text=f"{score_value:5d}",
                 font_size=self._font_size,
+                font_name=self._font_name,
+            )
+            label.refresh()
+            px, py = self._to_canvas_pos(
+                board,
+                play_rect,
+                position[0] - label.texture.size[0] / 2,
+                position[1] - label.texture.size[1] / 2,
+                *label.texture.size,
+            )
+            canvas.add(Color(*color))
+            canvas.add(
+                Rectangle(
+                    texture=label.texture,
+                    size=label.texture.size,
+                    pos=(px, py),
+                )
+            )
+
+        # Wind
+        wind_positions = (
+            (center_rect.centerx, center_rect.bottom + 14+36),
+            (center_rect.right + 24+48, center_rect.centery),
+            (center_rect.centerx, center_rect.top - 14-36),
+            (center_rect.left - 24-48, center_rect.centery),
+        )
+
+        num_players = getattr(self._env, "num_players", 0)
+        try:
+            dealer_idx = int(getattr(self._env, "oya", -1))
+        except Exception:
+            dealer_idx = -1
+        for player_idx in range(num_players):
+            wind = self._seat_wind_label(player_idx)
+            position = wind_positions[player_idx]
+            color = (
+                self._wind_label_oya_color
+                if player_idx == dealer_idx
+                else self._wind_label_normal_color
+            )
+            label = CoreLabel(
+                text=f"{wind}",
+                font_size=self._font_size + 8,
                 font_name=self._font_name,
             )
             label.refresh()
@@ -1893,7 +1935,7 @@ class MahjongEnvKivyWrapper:
             else:
                 message_lines.append(self._translate("draw_no_tenpai"))
 
-        yaku_font_size = max(18, self._font_size - 4)
+        yaku_font_size = max(18, self._font_size - 4 + 8)
         yaku_label_proto = CoreLabel(
             text=self._translate("yaku_prefix"),
             font_size=yaku_font_size,
@@ -1920,10 +1962,10 @@ class MahjongEnvKivyWrapper:
             label.refresh()
             return label
 
-        title_font_size = self._font_size + 6
-        info_font_size = max(10, self._font_size - 2)
-        message_font_size = max(10, self._font_size - 2)
-        player_font_size = self._font_size
+        title_font_size = self._font_size + 6 + 8
+        info_font_size = max(10, self._font_size - 2 + 8)
+        message_font_size = max(10, self._font_size - 2 + 8)
+        player_font_size = self._font_size + 8
 
         title_label = make_label(self._translate("round_results_title"), title_font_size)
         content_width = title_label.texture.size[0]
@@ -2045,7 +2087,7 @@ class MahjongEnvKivyWrapper:
 
         required_width = padding * 2 + content_width
         required_height = panel_height
-        panel_size = max(required_width, required_height)
+        panel_size = max(required_width, required_height) * 1.25
         if available_side > 0:
             panel_size = min(panel_size, available_side)
         else:
@@ -2447,24 +2489,6 @@ class MahjongEnvKivyWrapper:
             relative = (normalized_player - dealer_idx) % num_winds
         return str(wind_names[relative])
     
-    def _draw_wind_labels(self) -> None:
-        if not self._root:
-            return
-        num_players = getattr(self._env, "num_players", 0)
-        try:
-            dealer_idx = int(getattr(self._env, "oya", -1))
-        except Exception:
-            dealer_idx = -1
-        wind_labels = [self._root.wind_label_0, self._root.wind_label_1, self._root.wind_label_2, self._root.wind_label_3]
-        for i in range(num_players):
-            wind_labels[i].text = self._seat_wind_label(i)
-            wind_labels[i].font_name = self._font_name
-            wind_labels[i].font_size = self._font_size + 8
-            if i == dealer_idx:
-                wind_labels[i].color = self._wind_label_oya_color
-            else:
-                wind_labels[i].color = self._wind_label_normal_color
-
     def _update_control_buttons(self) -> None:
         pause_label = (
             self._translate("pause_on_score_on")
