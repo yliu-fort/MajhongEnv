@@ -1,0 +1,5 @@
+numpy>=1.21.0
+mahjong>=1.0.0
+cairosvg>=2.7.0
+kivy>=2.3.1
+gymnasium>=0.29.0
