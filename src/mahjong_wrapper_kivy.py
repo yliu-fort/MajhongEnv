@@ -43,8 +43,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 from mahjong_features_numpy import get_action_from_index
-#from agent.visual_agent import VisualAgent as _AIAgent
-from agent.rule_based_agent import RuleBasedAgent as _AIAgent
+
+# Dummy AI Agent class
+class _AIAgent:
+    pass
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
