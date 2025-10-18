@@ -11,6 +11,9 @@ from typing import Any, Optional, Sequence, Tuple
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
 
+# 1) 彻底关闭 Kivy 的参数解析
+os.environ["KIVY_NO_ARGS"] = "1"   # 必须在 import kivy 之前
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.factory import Factory

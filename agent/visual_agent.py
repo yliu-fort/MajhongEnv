@@ -2,7 +2,6 @@ from __future__ import annotations
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import gymnasium as gym
 import torch
 import numpy as np
 
@@ -61,7 +60,7 @@ class VisualClassifier(nn.Module):
         return self.model(x)
 
 class VisualAgent:
-    def __init__(self, env: gym.Env, backbone: str = "resnet18", device = None):
+    def __init__(self, env, backbone: str = "resnet18", device = None):
         self.env = env
         self._device = _select_device(device)
         self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_ACTIONS, pretrained = False)

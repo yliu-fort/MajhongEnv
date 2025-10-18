@@ -2,7 +2,6 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
 
-import gymnasium as gym
 import numpy as np
 from mahjong_env import MahjongEnv
 from agent.random_discard_agent import RandomDiscardAgent

@@ -1,6 +1,4 @@
-import gymnasium as gym
 import numpy as np
-from gymnasium import spaces
 from collections import Counter
 from gen_yama import YamaGenerator
 from mahjong_tiles_print_style import tile_printout, tiles_printout
@@ -9,7 +7,7 @@ from mahjong_logger import MahjongLogger
 from mahjong_features import get_action_index, get_action_from_index, NUM_ACTIONS
 from typing import List
 
-class MahjongEnvBase(gym.Env):
+class MahjongEnvBase():
     """
     一个简化的麻将环境示例。
     """
@@ -1385,6 +1383,9 @@ class MahjongEnvBase(gym.Env):
     def action_map(self, action_grp):
         return action_grp
 
+    def close(self):
+        pass
+
 
 class MahjongEnv(MahjongEnvBase):
     """
@@ -1395,7 +1396,7 @@ class MahjongEnv(MahjongEnvBase):
 
         # 定义动作空间
         # 维度1: 0 ~ 252: NUM_ACTIONS-dim action space
-        self.action_space = spaces.MultiDiscrete([NUM_ACTIONS,])
+        #self.action_space = spaces.MultiDiscrete([NUM_ACTIONS,])
  
         # 定义状态空间 (仅示例，具体需要你根据状态表示来定)
 

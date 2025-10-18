@@ -1,4 +1,3 @@
-import gymnasium as gym
 import random
 
 class RandomDiscardAgent:
@@ -6,7 +5,7 @@ class RandomDiscardAgent:
     A dummy agent that discards a random tile from the current hand.
     Supports fixed seed for reproducibility.
     """
-    def __init__(self, env: gym.Env, backbone=None, seed=None):
+    def __init__(self, env, backbone=None, seed=None):
         self.env = env
         self.random_generator = random.Random(seed)  # Use a separate Random instance with optional seed
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import gymnasium as gym
 import numpy as np
 
 from shanten_dp import compute_ukeire_advanced
@@ -41,7 +40,7 @@ def good_moves(hand_34, remaining):
 
 
 class RuleBasedAgent:
-    def __init__(self, env: gym.Env, backbone: str = ""):
+    def __init__(self, env, backbone: str = ""):
         self.env = env
         self._alt_model = RandomDiscardAgent(env)
         self.extractor = RiichiResNetFeatures()
