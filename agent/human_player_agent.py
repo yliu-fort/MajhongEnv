@@ -9,57 +9,6 @@ from typing import Any, Callable, Iterable, Optional, Sequence, Tuple
 from mahjong_tiles_print_style import get_action_printouts
 
 
-_TILE_NAMES: Tuple[str, ...] = (
-    "1m",
-    "2m",
-    "3m",
-    "4m",
-    "5m",
-    "6m",
-    "7m",
-    "8m",
-    "9m",
-    "1p",
-    "2p",
-    "3p",
-    "4p",
-    "5p",
-    "6p",
-    "7p",
-    "8p",
-    "9p",
-    "1s",
-    "2s",
-    "3s",
-    "4s",
-    "5s",
-    "6s",
-    "7s",
-    "8s",
-    "9s",
-    "East",
-    "South",
-    "West",
-    "North",
-    "Haku",
-    "Hatsu",
-    "Chun",
-)
-
-_PASS_LABELS: dict[int, str] = {
-    252: "Cancel",
-    253: "Pass Riichi",
-    254: "Pass Chi",
-    255: "Pass Pon",
-    256: "Pass Kan",
-    257: "Pass Ankan",
-    258: "Pass Chakan",
-    259: "Pass Ryuukyoku",
-    260: "Pass Ron",
-    261: "Pass Tsumo",
-}
-
-
 class HumanPlayerAgent:
     """Coordinator for human-controlled seats.
 
