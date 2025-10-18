@@ -130,11 +130,13 @@ _ORDINAL_FUNCTIONS: dict[str, Callable[[int], str]] = {
     "fr": _ordinal_fr,
 }
 
-
 _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
     "en": {
         "language_name": "EN",
         "wind_names": ["East", "South", "West", "North"],
+        "honor_names": ["East", "South", "West", "North", "White", "Green", "Red"],
+        "suit_names": "mps",
+        "numbers": "123456789",
         "round_format": "{wind} {hand}",
         "counter_honba": "Honba {count}",
         "counter_riichi": "Riichi {count}",
@@ -193,6 +195,9 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
     "zh-Hans": {
         "language_name": "ZH",
         "wind_names": ["东", "南", "西", "北"],
+        "honor_names": ["东", "南", "西", "北", "白", "发", "中"],
+        "suit_names": "万筒索",
+        "numbers": "一二三四五六七八九",
         "round_format": "{wind}{hand}局",
         "counter_honba": "本场 {count}",
         "counter_riichi": "立直棒 {count}",
@@ -251,6 +256,9 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
     "ja": {
         "language_name": "JP",
         "wind_names": ["東", "南", "西", "北"],
+        "honor_names": ["東", "南", "西", "北", "白", "発", "中"],
+        "suit_names": "萬筒索",
+        "numbers": "一二三四五六七八九",
         "round_format": "{wind}{hand}局",
         "counter_honba": "本場 {count}",
         "counter_riichi": "立直棒 {count}",
@@ -309,6 +317,9 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
     "fr": {
         "language_name": "FR",
         "wind_names": ["Est", "Sud", "Ouest", "Nord"],
+        "honor_names": ["Est", "Sud", "Ouest", "Nord", "Blanc", "Vert", "Rouge"],
+        "suit_names": "mps",
+        "numbers": "123456789",
         "round_format": "{wind} {hand}",
         "counter_honba": "Honba {count}",
         "counter_riichi": "Riichi {count}",
@@ -1389,26 +1400,42 @@ class MahjongEnvKivyWrapper:
         if idx < 0:
             return str(tile_index)
         if idx < 9:
-            return f"{idx + 1}m"
+            return f"{self._translate("numbers")[idx]}{self._translate("suit_names")[0]}"
         if idx < 18:
-            return f"{idx - 8}p"
+            return f"{self._translate("numbers")[idx - 9]}{self._translate("suit_names")[1]}"
         if idx < 27:
-            return f"{idx - 17}s"
-        if 27 <= idx <= 30:
-            winds = self._translate_sequence("wind_names")
-            if len(winds) >= 4:
-                return str(winds[idx - 27])
-            return ("East", "South", "West", "North")[idx - 27]
-        if idx == 31:
-            return "White"
-        if idx == 32:
-            return "Green"
-        if idx == 33:
-            return "Red"
-        if 0 <= idx < len(_TILE_SYMBOLS):
-            return _TILE_SYMBOLS[idx]
+            return f"{self._translate("numbers")[idx - 18]}{self._translate("suit_names")[2]}"
+        if 27 <= idx <= 33:
+            return self._translate_sequence("honor_names")[idx - 27]
         return str(tile_index)
 
+    def _format_action_label_short(self, action_id: int) -> str:
+        try:
+            normalized = int(action_id)
+        except Exception:
+            return str(action_id)
+        if normalized < 34:
+            return f"{self._translate('action_discard')}"
+        if normalized < 68:
+            return f"{self._translate('action_riichi')}"
+        if normalized < 113:
+            return f"{self._translate("action_chi")}"
+        if normalized < 147:
+            return f"{self._translate("action_pon")}"
+        if normalized < 181:
+            return f"{self._translate("action_kan")}"
+        if normalized < 215:
+            return f"{self._translate("action_chakan")}"
+        if normalized < 249:
+            return f"{self._translate("action_ankan")}"
+        if normalized == 249:
+            return f"{self._translate("action_ryuukyoku")}"
+        if normalized == 250:
+            return self._translate("action_ron")
+        if normalized == 251:
+            return self._translate("action_tsumo")
+        return self._translate("action_cancel")
+    
     def _format_action_label(self, action_id: int) -> str:
         try:
             normalized = int(action_id)
@@ -1420,17 +1447,22 @@ class MahjongEnvKivyWrapper:
             tile_idx = normalized - 34
             return f"{self._translate('action_riichi')} {self._format_tile_short(tile_idx)}"
         if normalized < 113:
-            return self._translate("action_chi")
+            payload, _ = get_action_from_index(normalized)
+            return f"{self._translate("action_chi")} {self._format_tile_short(payload[0])[:-1]}{self._format_tile_short(payload[1])}"
         if normalized < 147:
-            return self._translate("action_pon")
+            payload, _ = get_action_from_index(normalized)
+            return f"{self._translate("action_pon")} {self._format_tile_short(payload[0])}"
         if normalized < 181:
-            return self._translate("action_kan")
+            payload, _ = get_action_from_index(normalized)
+            return f"{self._translate("action_kan")} {self._format_tile_short(payload[0])}"
         if normalized < 215:
-            return self._translate("action_chakan")
+            payload, _ = get_action_from_index(normalized)
+            return f"{self._translate("action_chakan")} {self._format_tile_short(payload[0])}"
         if normalized < 249:
-            return self._translate("action_ankan")
+            payload, _ = get_action_from_index(normalized)
+            return f"{self._translate("action_ankan")} {self._format_tile_short(payload[0])}"
         if normalized == 249:
-            return self._translate("action_ryuukyoku")
+            return f"{self._translate("action_ryuukyoku")}"
         if normalized == 250:
             return self._translate("action_ron")
         if normalized == 251:
@@ -1461,7 +1493,7 @@ class MahjongEnvKivyWrapper:
             if quick_bar is not None and seat == self._focus_player:
                 quick_entries: list[Tuple[int, str]] = []
                 for action_id, label in actions_list:
-                    label_text = self._format_action_label(action_id)
+                    label_text = self._format_action_label_short(action_id)
                     if action_id > 33:
                         quick_entries.append((action_id, label_text))
                 if quick_entries:
