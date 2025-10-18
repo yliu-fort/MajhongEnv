@@ -4,7 +4,7 @@ from gen_yama import YamaGenerator
 from mahjong_tiles_print_style import tile_printout, tiles_printout
 from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
-from mahjong_features import get_action_index, get_action_from_index, NUM_ACTIONS
+from mahjong_features_numpy import get_action_index, get_action_from_index, NUM_ACTIONS
 from typing import List
 
 class MahjongEnvBase():
