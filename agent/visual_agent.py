@@ -90,35 +90,106 @@ class VisualAgent:
 
     
     def predict(self, observation):
-        legal_mask = np.asarray(self.env.action_masks())
-        if sum(legal_mask) == 0:
-            return 252
-        if sum(legal_mask) == 1:
-            return np.where(legal_mask==1)[0].item()
-        
+        action, _, _ = self.predict_with_distribution(observation)
+        return action
+
+    def policy_distribution(self, observation, top_k: int = 5):
+        """Return the policy distribution and top-k pairs for an observation."""
+        _, distribution, top_actions = self.predict_with_distribution(
+            observation, top_k=top_k
+        )
+        return distribution, top_actions
+
+    def predict_with_distribution(self, observation, top_k: int = 5):
+        legal_mask_full = np.asarray(self.env.action_masks())
+        legal_sum = int(legal_mask_full.sum())
+        distribution = np.zeros(NUM_ACTIONS, dtype=np.float32)
+
+        if legal_sum == 0:
+            fallback = 252
+            if fallback < NUM_ACTIONS:
+                distribution[fallback] = 1.0
+            return fallback, distribution, [(fallback, 1.0)]
+
+        if legal_sum == 1:
+            action = int(np.where(legal_mask_full == 1)[0].item())
+            if action < NUM_ACTIONS:
+                distribution[action] = 1.0
+            return action, distribution, [(action, 1.0)]
+
         # 如果当前状态是和牌状态，直接返回和牌动作
         if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):
-            return get_action_index(None, self.env.phase)
-        
-        if self.env and (self.env.phase in ["kan", "chakan", "ankan"]):
-            return 252
+            action = get_action_index(None, self.env.phase)
+            if action < NUM_ACTIONS:
+                distribution[action] = 1.0
+            return action, distribution, [(action, 1.0)]
 
-        if self.env and (self.env.phase in ["discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"]):
-            # 推理时获取动作
+        if self.env and (self.env.phase in ["kan", "chakan", "ankan"]):
+            action = 252
+            if action < NUM_ACTIONS:
+                distribution[action] = 1.0
+            return action, distribution, [(action, 1.0)]
+
+        valid_phases = {"discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"}
+        if self.env and (self.env.phase in valid_phases):
             with torch.no_grad():
                 out = self.extractor(observation[0])
-                x = out["x"][None,:,:,:1].to(self._device, non_blocking=True)
+                x = out["x"][None, :, :, :1].to(self._device, non_blocking=True)
                 x = _resize_batch(x)
                 self.model.eval()
                 logits = self.model(x).detach()
                 if logits.device.type != "cpu":
                     logits = logits.cpu()
-                logits = logits.numpy().squeeze()
-                legal_mask = np.asarray(self.env.action_masks())[:NUM_ACTIONS]
-                logits += -1e9*(1-legal_mask) # mask to valid logits
-                pred = int(logits.argmax()) # 253-dim
-                return pred
+                logits = logits.view(-1)
+                legal_mask_np = np.asarray(legal_mask_full[:NUM_ACTIONS], dtype=bool)
+                if not legal_mask_np.any():
+                    fallback = self._alt_model.predict(observation)
+                    if fallback < NUM_ACTIONS:
+                        distribution[fallback] = 1.0
+                    return fallback, distribution, [(fallback, 1.0)]
 
-                        
+                legal_mask_tensor = torch.from_numpy(legal_mask_np)
+                masked_logits = torch.full_like(logits, float("-inf"))
+                masked_logits[legal_mask_tensor] = logits[legal_mask_tensor]
+
+                valid_logits = masked_logits[legal_mask_tensor]
+                max_logit = torch.max(valid_logits)
+                stable_logits = valid_logits - max_logit
+                exp_logits = torch.exp(stable_logits)
+                denom = torch.sum(exp_logits)
+                if denom <= 0:
+                    fallback = self._alt_model.predict(observation)
+                    if fallback < NUM_ACTIONS:
+                        distribution[fallback] = 1.0
+                    return fallback, distribution, [(fallback, 1.0)]
+
+                probs = torch.zeros_like(logits, dtype=torch.float32)
+                probs[legal_mask_tensor] = exp_logits / denom
+                distribution = probs.numpy()
+
+                legal_indices = np.where(legal_mask_np)[0]
+                if legal_indices.size == 0:
+                    fallback = self._alt_model.predict(observation)
+                    if fallback < NUM_ACTIONS:
+                        distribution[fallback] = 1.0
+                    return fallback, distribution, [(fallback, 1.0)]
+
+                sorted_idx = legal_indices[np.argsort(distribution[legal_indices])[::-1]]
+                if sorted_idx.size == 0:
+                    fallback = self._alt_model.predict(observation)
+                    if fallback < NUM_ACTIONS:
+                        distribution[fallback] = 1.0
+                    return fallback, distribution, [(fallback, 1.0)]
+
+                top = [
+                    (int(idx), float(distribution[idx]))
+                    for idx in sorted_idx[: max(1, top_k)]
+                ]
+                pred = int(sorted_idx[0])
+                return pred, distribution, top
+
         # if preds not in action_masks, return a random choice from action_masks.
-        return self._alt_model.predict(observation)
+        fallback = self._alt_model.predict(observation)
+        if fallback < NUM_ACTIONS:
+            distribution[fallback] = 1.0
+        return fallback, distribution, [(fallback, 1.0)]
