@@ -1397,11 +1397,11 @@ class MahjongEnvKivyWrapper:
         if idx < 0:
             return str(tile_index)
         if idx < 9:
-            return f"{self._translate("numbers")[idx]}{self._translate("suit_names")[0]}"
+            return f'{self._translate("numbers")[idx]}{self._translate("suit_names")[0]}'
         if idx < 18:
-            return f"{self._translate("numbers")[idx - 9]}{self._translate("suit_names")[1]}"
+            return f'{self._translate("numbers")[idx - 9]}{self._translate("suit_names")[1]}'
         if idx < 27:
-            return f"{self._translate("numbers")[idx - 18]}{self._translate("suit_names")[2]}"
+            return f'{self._translate("numbers")[idx - 18]}{self._translate("suit_names")[2]}'
         if 27 <= idx <= 33:
             return self._translate_sequence("honor_names")[idx - 27]
         return str(tile_index)
@@ -1412,21 +1412,21 @@ class MahjongEnvKivyWrapper:
         except Exception:
             return str(action_id)
         if normalized < 34:
-            return f"{self._translate('action_discard')}"
+            return f'{self._translate("action_discard")}'
         if normalized < 68:
-            return f"{self._translate('action_riichi')}"
+            return f'{self._translate("action_riichi")}'
         if normalized < 113:
-            return f"{self._translate("action_chi")}"
+            return f'{self._translate("action_chi")}'
         if normalized < 147:
-            return f"{self._translate("action_pon")}"
+            return f'{self._translate("action_pon")}'
         if normalized < 181:
-            return f"{self._translate("action_kan")}"
+            return f'{self._translate("action_kan")}'
         if normalized < 215:
-            return f"{self._translate("action_chakan")}"
+            return f'{self._translate("action_chakan")}'
         if normalized < 249:
-            return f"{self._translate("action_ankan")}"
+            return f'{self._translate("action_ankan")}'
         if normalized == 249:
-            return f"{self._translate("action_ryuukyoku")}"
+            return f'{self._translate("action_ryuukyoku")}'
         if normalized == 250:
             return self._translate("action_ron")
         if normalized == 251:
@@ -1439,27 +1439,27 @@ class MahjongEnvKivyWrapper:
         except Exception:
             return str(action_id)
         if normalized < 34:
-            return f"{self._translate('action_discard')} {self._format_tile_short(normalized)}"
+            return f'{self._translate("action_discard")} {self._format_tile_short(normalized)}'
         if normalized < 68:
             tile_idx = normalized - 34
-            return f"{self._translate('action_riichi')} {self._format_tile_short(tile_idx)}"
+            return f'{self._translate("action_riichi")} {self._format_tile_short(tile_idx)}'
         if normalized < 113:
             payload, _ = get_action_from_index(normalized)
-            return f"{self._translate("action_chi")} {self._format_tile_short(payload[0])[:-1]}{self._format_tile_short(payload[1])}"
+            return f'{self._translate("action_chi")} {self._format_tile_short(payload[0])[:-1]}{self._format_tile_short(payload[1])}'
         if normalized < 147:
             payload, _ = get_action_from_index(normalized)
-            return f"{self._translate("action_pon")} {self._format_tile_short(payload[0])}"
+            return f'{self._translate("action_pon")} {self._format_tile_short(payload[0])}'
         if normalized < 181:
             payload, _ = get_action_from_index(normalized)
-            return f"{self._translate("action_kan")} {self._format_tile_short(payload[0])}"
+            return f'{self._translate("action_kan")} {self._format_tile_short(payload[0])}'
         if normalized < 215:
             payload, _ = get_action_from_index(normalized)
-            return f"{self._translate("action_chakan")} {self._format_tile_short(payload[0])}"
+            return f'{self._translate("action_chakan")} {self._format_tile_short(payload[0])}'
         if normalized < 249:
             payload, _ = get_action_from_index(normalized)
-            return f"{self._translate("action_ankan")} {self._format_tile_short(payload[0])}"
+            return f'{self._translate("action_ankan")} {self._format_tile_short(payload[0])}'
         if normalized == 249:
-            return f"{self._translate("action_ryuukyoku")}"
+            return f'{self._translate("action_ryuukyoku")}'
         if normalized == 250:
             return self._translate("action_ron")
         if normalized == 251:
