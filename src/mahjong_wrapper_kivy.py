@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from functools import partial
 from dataclasses import dataclass
 from io import BytesIO
@@ -761,6 +762,34 @@ class MahjongEnvKivyWrapper:
         if isinstance(default_value, (list, tuple)):
             return tuple(default_value)
         return ()
+
+    def _seat_wind_label(self, player_idx: int) -> str:
+        wind_names = self._translate_sequence("wind_names") or (
+            "East",
+            "South",
+            "West",
+            "North",
+        )
+        if not wind_names:
+            return ""
+
+        num_winds = len(wind_names)
+        num_players = getattr(self._env, "num_players", num_winds)
+        try:
+            dealer_idx = int(getattr(self._env, "oya", -1))
+        except Exception:
+            dealer_idx = -1
+
+        try:
+            normalized_player = int(player_idx)
+        except Exception:
+            return ""
+
+        if num_players <= 0 or not (0 <= dealer_idx < num_players):
+            relative = normalized_player % num_winds
+        else:
+            relative = (normalized_player - dealer_idx) % num_winds
+        return str(wind_names[relative])
 
     def _format_ordinal(self, value: int) -> str:
         try:
@@ -1571,6 +1600,8 @@ class MahjongEnvKivyWrapper:
         )
         scores = getattr(self._env, "scores", [])
         current_player = getattr(self._env, "current_player", 0)
+        dealer_idx = getattr(self._env, "oya", -1)
+        wind_font_size = max(10, self._font_size - 4)
         order = self._get_display_order()
         for relative_position, player_idx in enumerate(order):
             if relative_position >= len(score_positions):
@@ -1584,25 +1615,72 @@ class MahjongEnvKivyWrapper:
                 if player_idx == current_player
                 else self._text_color
             )
-            label = CoreLabel(
+            score_label = CoreLabel(
                 text=f"{score_value:5d}",
                 font_size=self._font_size,
                 font_name=self._font_name,
             )
-            label.refresh()
+            score_label.refresh()
             px, py = self._to_canvas_pos(
                 board,
                 play_rect,
-                position[0] - label.texture.size[0] / 2,
-                position[1] - label.texture.size[1] / 2,
-                *label.texture.size,
+                position[0] - score_label.texture.size[0] / 2,
+                position[1] - score_label.texture.size[1] / 2,
+                *score_label.texture.size,
             )
             canvas.add(Color(*color))
             canvas.add(
                 Rectangle(
-                    texture=label.texture,
-                    size=label.texture.size,
+                    texture=score_label.texture,
+                    size=score_label.texture.size,
                     pos=(px, py),
+                )
+            )
+
+            wind_text = self._seat_wind_label(player_idx)
+            if not wind_text:
+                continue
+
+            wind_label = CoreLabel(
+                text=wind_text,
+                font_size=wind_font_size,
+                font_name=self._font_name,
+            )
+            wind_label.refresh()
+
+            dx = position[0] - center_rect.centerx
+            dy = position[1] - center_rect.centery
+            length = math.hypot(dx, dy)
+            if length == 0:
+                direction_x, direction_y = 0.0, -1.0
+            else:
+                direction_x, direction_y = dx / length, dy / length
+
+            offset_distance = (
+                score_label.texture.size[1] / 2
+                + wind_label.texture.size[1] / 2
+                + 6
+            )
+            wind_center_x = position[0] + direction_x * offset_distance
+            wind_center_y = position[1] + direction_y * offset_distance
+            wind_px, wind_py = self._to_canvas_pos(
+                board,
+                play_rect,
+                wind_center_x - wind_label.texture.size[0] / 2,
+                wind_center_y - wind_label.texture.size[1] / 2,
+                *wind_label.texture.size,
+            )
+            wind_color = (
+                self._accent_color
+                if player_idx == dealer_idx
+                else self._muted_text_color
+            )
+            canvas.add(Color(*wind_color))
+            canvas.add(
+                Rectangle(
+                    texture=wind_label.texture,
+                    size=wind_label.texture.size,
+                    pos=(wind_px, wind_py),
                 )
             )
 
