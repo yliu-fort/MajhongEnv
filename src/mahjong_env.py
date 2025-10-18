@@ -2,12 +2,10 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 from collections import Counter
-from random import randint
 from gen_yama import YamaGenerator
 from mahjong_tiles_print_style import tile_printout, tiles_printout
 from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
-from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_features import get_action_index, get_action_from_index, NUM_ACTIONS
 from typing import List
 
@@ -174,6 +172,7 @@ class MahjongEnvBase(gym.Env):
 
         # 输出天凤格式的log
         self.logger.add_init(self.round, self.num_kyoutaku, self.dice, self.dora_indicator, self.scores, self.oya, self.hands)
+    
     def step(self, action_grp):
         """
         处理当前玩家的动作，然后判断是否有其他玩家吃碰杠和的机会，
