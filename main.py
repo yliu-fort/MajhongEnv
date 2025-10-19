@@ -251,6 +251,9 @@ class MahjongKivyApp(App):
         if self._game_screen is not None:
             self._game_screen.clear_widgets()
             self._game_screen.add_widget(self.wrapper.root)
+        
+        if len(human_seats) > 0:
+            self.wrapper.set_focus_player(human_seats[0])
 
         self._initialise_agents(human_seats)
         self._initialise_controllers()
@@ -267,7 +270,8 @@ class MahjongKivyApp(App):
         self._cleanup_game()
 
     def start_ai_vs_human(self) -> None:
-        self._start_game(human_seats=(0,))
+        import random
+        self._start_game(human_seats=(random.choice([0, 1, 2, 3]),))
 
     def start_ai_vs_ai(self) -> None:
         self._start_game(human_seats=())
