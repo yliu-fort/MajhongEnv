@@ -455,7 +455,7 @@ class MahjongEnvBase():
                 ""       -> 荒牌流局
                 '''
                 self.ryuukyoku_type = ""
-                is_yao9 = False
+                is_yao9 = self.is_yao9(self.current_player)
                 if is_yao9:
                     if confirm:
                         self.ryuukyoku_type = "九種九牌"
@@ -919,8 +919,8 @@ class MahjongEnvBase():
             self.claims.append({"type": "tsumo", "fromwho": player, "who": player, "config": config[0]})
 
         # 5. 检查流局 (在抓牌的时候只有九种九牌流局)
-        #if self.is_yao9(player):
-        #    self.claims.append({"type": "ryuukyoku", "fromwho": player, "who": player})
+        if self.is_yao9(player):
+            self.claims.append({"type": "ryuukyoku", "fromwho": player, "who": player})
 
         # 如果没有任何响应动作，返回 pass
         if not self.claims:
@@ -933,6 +933,15 @@ class MahjongEnvBase():
         
         return True
     
+    def is_yao9(self, player):
+        if self.first_turn[player]:
+            num_yao9 = 0
+            for pai in self.hands[player]:
+                if pai // 4 in [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33]:
+                    num_yao9 += 1
+            return True if num_yao9 >= 9 else False
+        return False
+
     def can_riichi(self, player):
         # 立直要求手牌听牌，门清，且分数大于1000点
         if  self.menzen[player] and \
@@ -1460,7 +1469,7 @@ class MahjongEnv(MahjongEnvBase):
             case "ryuukyoku":
                 mask = [False] * NUM_ACTIONS
                 mask[get_action_index(None, self.phase)]=True
-                if self.ryuukyoku_type == "九種九牌":
+                if self.is_yao9(self.current_player):
                     mask[get_action_index(None, ("pass",self.phase))]=True
                 return mask
             
