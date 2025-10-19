@@ -175,7 +175,7 @@ class TestWebDatasetEncoderDecoder(unittest.TestCase):
         assert (aka & 0x1) == 1 and (aka & 0x2) == 0x2 and (aka & 0x4) == 0, "aka flags mismatch"
 
         # Last tiles
-        assert int(d1["last_draw"].item()) == s["last_draw_136"], f"last_draw mismatch: {int(d1["last_draw"].item())} True:{s["last_draw_136"]}"
+        assert int(d1["last_draw"].item()) == s["last_draw_136"], f'last_draw mismatch: {int(d1["last_draw"].item())} True:{s["last_draw_136"]}'
         assert int(d1["last_disc"].item()) == s["last_discarded_tile_136"], "last_disc mismatch"
 
         assert int(d1["score"].item()) == s["score"], "score mismatch"
