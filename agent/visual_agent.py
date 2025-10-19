@@ -123,12 +123,18 @@ class VisualAgent:
         else:
             valid_phases = {"discard", "riichi", "chi", "pon", "kan", "chakan", "ankan"}
 
-            if self.env and (self.env.phase in ["tsumo", "ron", "ryuukyoku"]):
+            if self.env and (self.env.phase in ["tsumo", "ron"]):
                 action = get_action_index(None, self.env.phase)
                 if action < NUM_ACTIONS:
                     distribution[action] = 1.0
                 return action, distribution, [(action, 1.0)]
 
+            if self.env and (self.env.phase in ["ryuukyoku"]):
+                action = get_action_index(None, "cancel")
+                if action < NUM_ACTIONS:
+                    distribution[action] = 1.0
+                return action, distribution, [(action, 1.0)]
+            
             if self.env and (self.env.phase in ["kan", "chakan", "ankan"]):
                 action = 252
                 if action < NUM_ACTIONS:
