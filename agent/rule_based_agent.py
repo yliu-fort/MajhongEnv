@@ -97,6 +97,7 @@ class RuleBasedAgent:
             new_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
             turn_number = state.turn_number
             should_call = ( new_sh < base_sh ) & (turn_number >= 4)
+            should_call = True
 
             return self._alt_model.predict(observation) if should_call else 252
         
