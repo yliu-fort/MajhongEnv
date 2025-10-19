@@ -470,7 +470,7 @@ class MahjongEnvBase():
                             self.current_player = self.claims[0]["who"]
                         else:
                             # 九种九牌是在摸牌后，丢牌前检查，所以不会有其他玩家的询问
-                            self.phase = "draw"
+                            self.phase = "discard"
                 else:
                     if self.can_kaze4 and self.kaze4_tile[1] == 4:
                         self.ryuukyoku_type = "四風連打"
