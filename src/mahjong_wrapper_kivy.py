@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from functools import partial
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Sequence, Tuple, Union
 
@@ -22,18 +21,12 @@ from kivy.graphics import (
 )
 from kivy.graphics.instructions import InstructionGroup
 from kivy.properties import ObjectProperty
-from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-
-try:  # pragma: no cover - optional dependency
-    from cairosvg import svg2png
-except Exception:  # pragma: no cover - optional dependency
-    svg2png = None
 
 import threading
 import time
@@ -587,7 +580,7 @@ class MahjongEnvKivyWrapper:
         self._apply_font_to_controls()
         self._clear_human_actions()
 
-        self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Regular"
+        self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Export"/ "Regular"
         self._raw_tile_textures: dict[int, Any] = {}
         self._placeholder_cache: dict[tuple[int, Tuple[int, int]], CoreLabel] = {}
         self._tile_metrics: dict[str, Tuple[int, int]] = {}
@@ -1060,28 +1053,10 @@ class MahjongEnvKivyWrapper:
             return
 
         for tile_index, symbol in enumerate(_TILE_SYMBOLS):
-            path = self._asset_root / f"{symbol}.svg"
+            path = self._asset_root / f"{symbol}.png"
             if not path.exists():
                 continue
             texture = None
-            if svg2png is not None:
-                svg_kwargs: dict[str, Any] = {"url": str(path)}
-                if sanitized_size is not None:
-                    svg_kwargs["output_width"] = sanitized_size[0]
-                    svg_kwargs["output_height"] = sanitized_size[1]
-                if self._tile_texture_background is not None:
-                    svg_kwargs["background_color"] = self._tile_texture_background
-                try:
-                    png_bytes = svg2png(**svg_kwargs)
-                except Exception:
-                    png_bytes = None
-                else:
-                    try:
-                        buffer = BytesIO(png_bytes)
-                        image = CoreImage(buffer, ext="png")
-                        texture = image.texture
-                    except Exception:
-                        texture = None
             if texture is None:
                 try:
                     image = CoreImage(str(path))
@@ -2622,6 +2597,11 @@ class MahjongEnvKivyWrapper:
             canvas.add(Line(rounded_rectangle=(0, 0, width, height, 6), width=2))
             canvas.add(PopMatrix())
             return
+        else:
+            canvas.add(Color(*self._tile_texture_background))
+            canvas.add(RoundedRectangle(pos=(0, 0), size=size, radius=[6, 6, 6, 6]))
+            canvas.add(Color(*self._tile_texture_background))
+            canvas.add(Line(rounded_rectangle=(0, 0, width, height, 6), width=1))
 
         tile_34 = self._tile_texture_index(tile_136)
         highlight_data = highlight if highlight else None
@@ -2632,11 +2612,10 @@ class MahjongEnvKivyWrapper:
             canvas.add(PopMatrix())
             return
 
-        canvas.add(Color(1, 1, 1, 1))
-        canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
         if highlight_data and highlight_data.dora:
             canvas.add(Color(*self._dora_overlay_color))
             canvas.add(RoundedRectangle(pos=(0, 0), size=size, radius=[6, 6, 6, 6]))
+
         if highlight_data and highlight_data.outline_color is not None:
             canvas.add(Color(*highlight_data.outline_color))
             canvas.add(
@@ -2645,6 +2624,9 @@ class MahjongEnvKivyWrapper:
                     width=self._hint_outline_width,
                 )
             )
+
+        canvas.add(Color(1, 1, 1, 1))
+        canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
         canvas.add(PopMatrix())
 
     def _draw_tile_placeholder(
