@@ -2482,6 +2482,7 @@ class MahjongEnvKivyWrapper:
             opened = meld.get("opened", True)
             meld_type = meld.get("type", "")
             claimed_tile = meld.get("claimed_tile")
+            offset = meld.get("offset")
             sideways_index: Optional[int] = None
             if claimed_tile is not None:
                 try:
@@ -2490,9 +2491,21 @@ class MahjongEnvKivyWrapper:
                     sideways_index = None
             cur_x, cur_y = x, y
             total_tiles = len(tiles)
+            if sideways_index is not None:
+                if offset == 1:
+                    tiles.insert(0, tiles.pop(sideways_index))
+                    sideways_index = 0
+                elif offset == 2:
+                    tiles.insert(1, tiles.pop(sideways_index))
+                    sideways_index = 1
+                else:
+                    tiles.append(tiles.pop(sideways_index))
+                    sideways_index = total_tiles - 1
             for idx, tile in enumerate(tiles):
                 tile_orientation = 0
                 if sideways_index is not None and idx == sideways_index:
+                    tile_orientation = 90
+                if meld_type == "chakan" and idx == 3 and offset == 2:
                     tile_orientation = 90
                 tile_face_up = opened
                 if not opened and meld_type == "kan" and total_tiles >= 4:
@@ -2503,6 +2516,14 @@ class MahjongEnvKivyWrapper:
                 highlight: Optional[_TileHighlight] = None
                 if self._show_hints and tile_face_up and self._is_dora_tile(tile):
                     highlight = _TileHighlight(dora=True)
+                if sideways_index is not None and idx == sideways_index:
+                    dx = 0
+                    dy = (meld_tile[0] - meld_tile[1]) / 2
+                elif meld_type == "chakan" and idx == 3 and offset == 2:
+                    dx = -(meld_tile[0] + 4) - (meld_tile[0]+meld_tile[1])/2 - 4
+                    dy = meld_tile[0] + 4 + (meld_tile[0] - meld_tile[1]) / 2
+                else:
+                    dx, dy = 0, 0
                 self._draw_tile(
                     canvas,
                     board,
@@ -2511,7 +2532,7 @@ class MahjongEnvKivyWrapper:
                     meld_tile,
                     tile_face_up,
                     tile_orientation,
-                    (cur_x, cur_y),
+                    (cur_x - dx, cur_y - dy),
                     highlight,
                 )
                 if sideways_index is not None and idx in {sideways_index - 1, sideways_index}:
