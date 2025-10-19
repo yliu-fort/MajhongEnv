@@ -2500,12 +2500,12 @@ class MahjongEnvKivyWrapper:
                     sideways_index = 1
                 else:
                     tiles.append(tiles.pop(sideways_index))
-                    sideways_index = total_tiles - 1
+                    sideways_index = total_tiles - 2 if meld_type == "chakan" else total_tiles - 1
             for idx, tile in enumerate(tiles):
                 tile_orientation = 0
                 if sideways_index is not None and idx == sideways_index:
                     tile_orientation = 90
-                if meld_type == "chakan" and idx == 3 and offset == 2:
+                if meld_type == "chakan" and idx == 3:
                     tile_orientation = 90
                 tile_face_up = opened
                 if not opened and meld_type == "kan" and total_tiles >= 4:
@@ -2519,9 +2519,17 @@ class MahjongEnvKivyWrapper:
                 if sideways_index is not None and idx == sideways_index:
                     dx = 0
                     dy = (meld_tile[0] - meld_tile[1]) / 2
-                elif meld_type == "chakan" and idx == 3 and offset == 2:
-                    dx = -(meld_tile[0] + 4) - (meld_tile[0]+meld_tile[1])/2 - 4
-                    dy = meld_tile[0] + 4 + (meld_tile[0] - meld_tile[1]) / 2
+                elif meld_type == "chakan" and idx == 3:
+                    dx, dy = 0, 0
+                    if offset == 1:
+                        dx = -(meld_tile[0] + 4) * 2 - (meld_tile[0]+meld_tile[1])/2 - 4
+                        dy = meld_tile[0] + 4 + (meld_tile[0] - meld_tile[1]) / 2
+                    elif offset == 2:
+                        dx = -(meld_tile[0] + 4) - (meld_tile[0]+meld_tile[1])/2 - 4
+                        dy = meld_tile[0] + 4 + (meld_tile[0] - meld_tile[1]) / 2
+                    elif offset == 3:
+                        dx = - (meld_tile[0]+meld_tile[1])/2 - 4
+                        dy = meld_tile[0] + 4 + (meld_tile[0] - meld_tile[1]) / 2
                 else:
                     dx, dy = 0, 0
                 self._draw_tile(
