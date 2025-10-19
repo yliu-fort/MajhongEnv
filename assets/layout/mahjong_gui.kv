@@ -233,3 +233,12 @@
             rounded_rectangle: (*self.pos, *self.size, 16)
             width: 3
 
+<PreviewTileImage@Image>:
+    bg_color: 0.95, 0.95, 0.95, 1
+    canvas.before:
+        Color:
+            rgba: self.bg_color
+        RoundedRectangle:
+            size: self.size
+            pos: self.pos
+            radius: [4, 4, 4, 4]

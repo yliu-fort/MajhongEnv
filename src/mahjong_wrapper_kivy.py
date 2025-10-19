@@ -27,6 +27,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
+from kivy.factory import Factory
 
 import threading
 import time
@@ -1531,9 +1532,9 @@ class MahjongEnvKivyWrapper:
                             rendered_tiles = 0
                             for tile_index in tile_indices:
                                 texture = self._raw_tile_textures.get(tile_index)
-                                image = Image(
+                                image = Factory.PreviewTileImage(
                                     texture=texture,
-                                    size_hint=(None, None),
+                                    size_hint=(None, None),  
                                 )
                                 image.width = preview_width
                                 image.height = preview_height
