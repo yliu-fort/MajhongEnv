@@ -54,15 +54,14 @@ class RuleBasedAgent:
     def load_model(self, path=""):
         pass
 
-    
     def predict(self, observation):
         # 如果当前状态是和牌状态，直接返回和牌动作
         if self.env and (self.env.phase == "tsumo" or self.env.phase == "ron"):
-            return (0, True)
+            return self._alt_model.predict(observation)
         
         # No options yet
         if self.env and (self.env.phase == "riichi"):
-            return self._alt_model.predict(observation)[0], True if self.env.num_riichi < 3 else False
+            return self._alt_model.predict(observation) if self.env.num_riichi < 3 else 252
 
         
         if self.env and (self.env.phase == "discard"):
@@ -72,13 +71,13 @@ class RuleBasedAgent:
             shantens = state.shantens
             ukeires = state.ukeires
             out = self.extractor(observation[0])
-            x = out["x"][:,:,0].numpy()
-            m = out["legal_mask"].numpy()
+            x = out["x"][:,:,0]
+            m = out["legal_mask"]
             hands_34 = (np.array(self.env.hands[who]) // 4).tolist()
 
             discard_priority_attack = sorted(list(range(NUM_TILES)), key=lambda i: (-m[i], shantens[i], -ukeires[i], i))
             if m[discard_priority_attack[0]] == 1:
-                return (hands_34.index(discard_priority_attack[0]), False)
+                return discard_priority_attack[0]
 
         # if preds not in action_masks, return a random choice from action_masks.
         if self.env and (self.env.phase in ["pon", "kan"]):
@@ -97,11 +96,14 @@ class RuleBasedAgent:
 
             new_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
             turn_number = state.turn_number
-            should_call = ( new_sh < base_sh ) & (turn_number >= 6) & (base_sh > 2)
+            should_call = ( new_sh < base_sh ) & (turn_number >= 4)
 
-            return self._alt_model.predict(observation)[0], should_call
+            return self._alt_model.predict(observation) if should_call else 252
+        
+        if self.env and (self.env.phase in ["chi"]):
+            return 252
 
-        return self._alt_model.predict(observation)[0], False
+        return self._alt_model.predict(observation)
 
 
 if __name__ == "__main__":
