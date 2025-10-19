@@ -1872,7 +1872,7 @@ class MahjongEnvKivyWrapper:
             dealer_idx = -1
         for player_idx in range(num_players):
             wind = self._seat_wind_label(player_idx)
-            position = wind_positions[player_idx]
+            position = wind_positions[(player_idx - self._get_focus_index(num_players)) % num_players]
             color = (
                 self._wind_label_oya_color
                 if player_idx == dealer_idx
