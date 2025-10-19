@@ -779,7 +779,7 @@ class MahjongEnvBase():
         # 是否结束游戏？
         # 0 - 游戏结束, 1 - 本局结束, 2 - 庄家连庄
         # 如果末亲听牌或者和牌而成为一位，或者达到八连庄，则游戏结束 (TODO: 加入sudden death 和延长战：南入和西入)
-        oya_tenpai_or_agari = (self.tenpai[self.oya] and not self.agari) or (self.agari and self.agari["who"]== self.oya)
+        oya_tenpai_or_agari = (self.tenpai[self.oya] and self.agari is None) or (self.agari and self.agari["who"]== self.oya)
         renchan = self.round[1] >= MahjongEnvBase.MAX_HONBA
         sudden_death = min(self.scores) < 0
         if sudden_death:
