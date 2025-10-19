@@ -2577,6 +2577,8 @@ class MahjongEnvKivyWrapper:
                 tile_orientation = orientation_map[idx]
             if row != row_prev:
                 x = x0
+                if orientation_map and idx in orientation_map:
+                    x += (tile_size[1]-tile_size[0])/2
             elif orientation_map and idx - 1 in orientation_map:
                 x += (tile_size[0]+tile_size[1])/2 + spacing
             elif orientation_map and idx in orientation_map:
