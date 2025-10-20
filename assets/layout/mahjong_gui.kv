@@ -32,6 +32,61 @@
             height: '48dp'
             on_release: app.start_ai_vs_ai()
 
+<AgentSelectionScreen>:
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+            source: ''
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint: 0.6, 0.7
+        pos_hint: {"center_x": 0.5, "center_y": 0.5}
+        spacing: '18dp'
+        padding: '24dp'
+        canvas.before:
+            Color:
+                rgba: 0, 0, 0, 0.6
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [18, 18, 18, 18]
+        Label:
+            text: "Select an AI opponent"
+            size_hint_y: None
+            height: '32dp'
+            color: 1, 1, 1, 1
+            bold: True
+        ScrollView:
+            do_scroll_x: False
+            bar_width: '8dp'
+            GridLayout:
+                id: cards_container
+                cols: 1
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: '12dp'
+                padding: '4dp'
+        Label:
+            id: selection_label
+            text: "Select an AI opponent"
+            size_hint_y: None
+            height: '28dp'
+            color: 200/255.0, 220/255.0, 240/255.0, 1
+        BoxLayout:
+            size_hint_y: None
+            height: '48dp'
+            spacing: '12dp'
+            Button:
+                text: "Back"
+                on_release: app.cancel_agent_selection()
+            Button:
+                id: confirm_button
+                text: "Confirm"
+                on_release: app.begin_human_match_with_card()
+
 <ActionPanel>:
     container: container
     title_label: title_label

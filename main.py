@@ -21,6 +21,7 @@ from kivy.factory import Factory
 from kivy.lang import Builder
 from kivy.properties import StringProperty
 from kivy.uix.screenmanager import Screen, ScreenManager
+from kivy.uix.togglebutton import ToggleButton
 
 from agent.agent_card import AgentCard
 from agent.human_player_agent import HumanPlayerAgent
@@ -141,10 +142,12 @@ class MahjongKivyApp(App):
         self.wrapper: Optional[MahjongEnvKivyWrapper] = None
         self._screen_manager: Optional[ScreenManager] = None
         self._game_screen: Optional[Screen] = None
+        self._agent_selection_screen: Optional[Screen] = None
         self._drive_event = None
         self._agent_cards: dict[str, AgentCard] = {}
         self._default_agent_card_id: Optional[str] = None
         self._selected_agent_card_id: Optional[str] = None
+        self._pending_human_seats: Sequence[int] = ()
         self._agent_cards = self._load_agent_cards()
 
     def build(self):
@@ -155,9 +158,16 @@ class MahjongKivyApp(App):
 
         self._screen_manager = ScreenManager()
         start_menu = Factory.StartMenuScreen(name="start_menu")
+        self._agent_selection_screen = Factory.AgentSelectionScreen(
+            name="agent_selection"
+        )
         self._game_screen = Screen(name="game")
         self._screen_manager.add_widget(start_menu)
+        if self._agent_selection_screen is not None:
+            self._screen_manager.add_widget(self._agent_selection_screen)
         self._screen_manager.add_widget(self._game_screen)
+
+        self._populate_agent_selection()
 
         return self._screen_manager
 
@@ -193,24 +203,121 @@ class MahjongKivyApp(App):
 
         return cards
 
-    def _get_selected_agent_card(self) -> Optional[AgentCard]:
+    def _resolve_selected_agent_card_id(self) -> Optional[str]:
         if not self._agent_cards:
             return None
         if (
             self._selected_agent_card_id
             and self._selected_agent_card_id in self._agent_cards
         ):
-            return self._agent_cards[self._selected_agent_card_id]
+            return self._selected_agent_card_id
         if (
             self._default_agent_card_id
             and self._default_agent_card_id in self._agent_cards
         ):
-            return self._agent_cards[self._default_agent_card_id]
-        return next(iter(self._agent_cards.values()))
+            return self._default_agent_card_id
+        return next(iter(self._agent_cards))
+
+    def _get_selected_agent_card(self) -> Optional[AgentCard]:
+        identifier = self._resolve_selected_agent_card_id()
+        if identifier is None:
+            return None
+        return self._agent_cards.get(identifier)
 
     def select_agent_card(self, identifier: str) -> None:
         if identifier in self._agent_cards:
             self._selected_agent_card_id = identifier
+
+    def _populate_agent_selection(self) -> None:
+        if self._agent_selection_screen is None:
+            return
+        ids = self._agent_selection_screen.ids
+        container = ids.get("cards_container")
+        if container is None:
+            return
+        container.clear_widgets()
+
+        selected_id = self._resolve_selected_agent_card_id()
+
+        for identifier, card in self._agent_cards.items():
+            button = ToggleButton(
+                text=card.title,
+                size_hint_y=None,
+                height=120,
+                group="agent_cards",
+                halign="center",
+                valign="middle",
+            )
+            button.padding = (20, 20)
+
+            def _update_text_size(btn: ToggleButton, *_args: Any) -> None:
+                btn.text_size = (btn.width - 40, None)
+
+            _update_text_size(button)
+            button.bind(size=_update_text_size)
+            setattr(button, "card_id", identifier)
+            if identifier == selected_id:
+                button.state = "down"
+            button.bind(
+                on_release=lambda instance, card_id=identifier: self.choose_agent_card(
+                    card_id
+                )
+            )
+            container.add_widget(button)
+
+        self._update_agent_selection_controls()
+
+    def _update_agent_selection_controls(self) -> None:
+        if self._agent_selection_screen is None:
+            return
+        ids = self._agent_selection_screen.ids
+        selection_label = ids.get("selection_label")
+        confirm_button = ids.get("confirm_button")
+        card = self._get_selected_agent_card()
+        if selection_label is not None:
+            if not self._agent_cards:
+                selection_label.text = "No AI opponents available"
+            elif card is not None:
+                selection_label.text = f"Selected opponent: {card.title}"
+            else:
+                selection_label.text = "Select an AI opponent"
+        if confirm_button is not None:
+            confirm_button.disabled = card is None
+
+    def _update_agent_selection_button_states(self) -> None:
+        if self._agent_selection_screen is None:
+            return
+        ids = self._agent_selection_screen.ids
+        container = ids.get("cards_container")
+        selected_id = self._resolve_selected_agent_card_id()
+        if container is not None:
+            for child in container.children:
+                if isinstance(child, ToggleButton):
+                    card_id = getattr(child, "card_id", None)
+                    child.state = "down" if card_id == selected_id else "normal"
+        self._update_agent_selection_controls()
+
+    def choose_agent_card(self, identifier: str) -> None:
+        if identifier not in self._agent_cards:
+            return
+        self._selected_agent_card_id = identifier
+        self._update_agent_selection_button_states()
+
+    def begin_human_match_with_card(self) -> None:
+        card = self._get_selected_agent_card()
+        if card is None:
+            return
+        self._selected_agent_card_id = card.identifier
+        if not self._pending_human_seats:
+            self._pending_human_seats = (random.choice([0, 1, 2, 3]),)
+        human_seats = self._pending_human_seats
+        self._pending_human_seats = ()
+        self._start_game(human_seats=human_seats)
+
+    def cancel_agent_selection(self) -> None:
+        self._pending_human_seats = ()
+        if self._screen_manager is not None:
+            self._screen_manager.current = "start_menu"
 
     def _drive_environment(self, _dt: float) -> None:
         if self.env is None or self.wrapper is None or not self._controllers:
@@ -336,7 +443,11 @@ class MahjongKivyApp(App):
         self._cleanup_game()
 
     def start_ai_vs_human(self) -> None:
-        self._start_game(human_seats=(random.choice([0, 1, 2, 3]),))
+        if self._screen_manager is None:
+            return
+        self._pending_human_seats = (random.choice([0, 1, 2, 3]),)
+        self._populate_agent_selection()
+        self._screen_manager.current = "agent_selection"
 
     def start_ai_vs_ai(self) -> None:
         self._start_game(human_seats=())
@@ -388,6 +499,7 @@ class MahjongKivyApp(App):
         self._observation = None
         self._pending_requests = {}
         self._request_ids = count()
+        self._pending_human_seats = ()
         if self._game_screen is not None:
             self._game_screen.clear_widgets()
         if self._screen_manager is not None:
