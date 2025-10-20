@@ -7,6 +7,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
+from typing import Optional
 
 try:
     import timm  # for ViT and other backbones
@@ -60,14 +61,27 @@ class VisualClassifier(nn.Module):
         return self.model(x)
 
 class VisualAgent:
-    def __init__(self, env, backbone: str = "resnet18", device = None):
+    def __init__(self, env=None, backbone: str = "resnet18", device = None):
         self.env = env
         self._device = _select_device(device)
         self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_ACTIONS, pretrained = False)
         self.model.to(self._device)
         self.extractor = RiichiResNetFeatures()
-        self._alt_model = RandomDiscardAgent(env)
+        self._alt_model: Optional[RandomDiscardAgent] = RandomDiscardAgent(env) if env is not None else None
         self._ema = True
+
+    def set_environment(self, env) -> None:
+        self.env = env
+        if env is not None:
+            self._alt_model = RandomDiscardAgent(env)
+        else:
+            self._alt_model = None
+
+    def _ensure_environment(self) -> None:
+        if self.env is None:
+            raise RuntimeError("VisualAgent requires an environment to make predictions.")
+        if self._alt_model is None:
+            self._alt_model = RandomDiscardAgent(self.env)
 
     def train(self, total_timesteps=100000):
         pass
@@ -100,6 +114,7 @@ class VisualAgent:
         return distribution, top_actions
 
     def predict_with_distribution(self, observation, top_k: int = 5, enable_all_actions=False):
+        self._ensure_environment()
         legal_mask_full = np.asarray(self.env.action_masks())
         legal_sum = int(legal_mask_full.sum())
         distribution = np.zeros(NUM_ACTIONS, dtype=np.float32)

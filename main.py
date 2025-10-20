@@ -22,6 +22,7 @@ from kivy.lang import Builder
 from kivy.properties import StringProperty
 from kivy.uix.screenmanager import Screen, ScreenManager
 
+from agent.agent_card import AgentCard
 from agent.human_player_agent import HumanPlayerAgent
 from agent.visual_agent import VisualAgent as _AIAgent
 #from agent.rule_based_agent import RuleBasedAgent as _AIAgent
@@ -141,6 +142,10 @@ class MahjongKivyApp(App):
         self._screen_manager: Optional[ScreenManager] = None
         self._game_screen: Optional[Screen] = None
         self._drive_event = None
+        self._agent_cards: dict[str, AgentCard] = {}
+        self._default_agent_card_id: Optional[str] = None
+        self._selected_agent_card_id: Optional[str] = None
+        self._agent_cards = self._load_agent_cards()
 
     def build(self):
         base_path = Path(__file__).resolve().parent
@@ -155,6 +160,57 @@ class MahjongKivyApp(App):
         self._screen_manager.add_widget(self._game_screen)
 
         return self._screen_manager
+
+    def _load_agent_cards(self) -> dict[str, AgentCard]:
+        base_path = Path(__file__).resolve().parent
+        cards: dict[str, AgentCard] = {}
+
+        model_path_rel = Path("model_weights") / "latest.pt"
+        default_model_path = base_path / model_path_rel
+        preview_image = Path("assets") / "texture" / "main_menu.png"
+        agent = _AIAgent(backbone="resnet50")
+
+        if default_model_path.exists():
+            try:
+                agent.load_model(str(default_model_path))
+            except Exception as exc:  # pragma: no cover - defensive logging
+                print(
+                    f"Failed to load agent model '{default_model_path}': {exc}",
+                    file=sys.stderr,
+                )
+
+        identifier = "resnet50_latest"
+        cards[identifier] = AgentCard(
+            identifier=identifier,
+            title="ResNet50 Latest",
+            model_path=str(model_path_rel),
+            preview_image=str(preview_image),
+            agent=agent,
+        )
+
+        if self._default_agent_card_id is None:
+            self._default_agent_card_id = identifier
+
+        return cards
+
+    def _get_selected_agent_card(self) -> Optional[AgentCard]:
+        if not self._agent_cards:
+            return None
+        if (
+            self._selected_agent_card_id
+            and self._selected_agent_card_id in self._agent_cards
+        ):
+            return self._agent_cards[self._selected_agent_card_id]
+        if (
+            self._default_agent_card_id
+            and self._default_agent_card_id in self._agent_cards
+        ):
+            return self._agent_cards[self._default_agent_card_id]
+        return next(iter(self._agent_cards.values()))
+
+    def select_agent_card(self, identifier: str) -> None:
+        if identifier in self._agent_cards:
+            self._selected_agent_card_id = identifier
 
     def _drive_environment(self, _dt: float) -> None:
         if self.env is None or self.wrapper is None or not self._controllers:
@@ -215,17 +271,26 @@ class MahjongKivyApp(App):
         self._agents = [None] * num_players
         self._fallback_agent = RandomDiscardAgent(env=self.env)
 
-        agent0 = _AIAgent(self.env, backbone="resnet50")
-        agent0.load_model("model_weights/latest.pt")
+        selected_card = self._get_selected_agent_card()
+        shared_ai_agent: Optional[Any] = None
+        if selected_card is not None:
+            shared_ai_agent = selected_card.agent
+            if self.env is not None and shared_ai_agent is not None:
+                set_env = getattr(shared_ai_agent, "set_environment", None)
+                if callable(set_env):
+                    set_env(self.env)
+                elif hasattr(shared_ai_agent, "env"):
+                    setattr(shared_ai_agent, "env", self.env)
 
         human_seat_set = set(human_seats)
         for seat in range(num_players):
             if seat in human_seat_set:
                 agent = HumanPlayerAgent()
                 self.wrapper.bind_human_ui(seat, agent)
-                self.wrapper.set_assist_agent(seat, agent0)
+                if shared_ai_agent is not None:
+                    self.wrapper.set_assist_agent(seat, shared_ai_agent)
             else:
-                agent = agent0
+                agent = shared_ai_agent if shared_ai_agent is not None else self._fallback_agent
                 self.wrapper.register_seat_agent(seat, agent)
             self._agents[seat] = agent
 
@@ -312,6 +377,13 @@ class MahjongKivyApp(App):
         if self.wrapper is not None:
             self.wrapper.close()
             self.wrapper = None
+        selected_card = self._get_selected_agent_card()
+        if selected_card is not None:
+            set_env = getattr(selected_card.agent, "set_environment", None)
+            if callable(set_env):
+                set_env(None)
+            elif hasattr(selected_card.agent, "env"):
+                setattr(selected_card.agent, "env", None)
         self.env = None
         self._observation = None
         self._pending_requests = {}
