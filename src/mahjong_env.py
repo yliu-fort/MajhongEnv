@@ -36,8 +36,9 @@ class MahjongEnvBase():
     TSUMI = 1 # 积
     RYUUKYOKU_PENALTY = 30 # 流局罚符，标准为3000点
     MAX_ROUND = 16 # 最大局数
-    MAX_ROUND_EXTRA = 4 # 最大延长战局数 (TODO: 无实现)
+    MAX_ROUND_EXTRA = 4 # 最大延长战局数
     MAX_HONBA = 8 # 最大本场数
+    RANK_BONUS = (50, 14, -26, -38) # 额外顺位奖
 
     def __init__(self, num_players=4, num_rounds=4):
         super(MahjongEnvBase, self).__init__()
@@ -506,11 +507,11 @@ class MahjongEnvBase():
                         if self.final_penalty:
                             # 计算流局罚符
                             num_tenpai = sum(self.tenpai)
-                            if 0 < num_tenpai < 4:
+                            if 0 < num_tenpai < self.num_players:
                                 if self.tenpai[player]:
                                     self.score_deltas[player] = MahjongEnvBase.RYUUKYOKU_PENALTY // num_tenpai
                                 else:
-                                    self.score_deltas[player] =-MahjongEnvBase.RYUUKYOKU_PENALTY // (4 - num_tenpai)
+                                    self.score_deltas[player] =-MahjongEnvBase.RYUUKYOKU_PENALTY // (self.num_players - num_tenpai)
 
                     # 计算奖励
                     if self.agari:
@@ -586,9 +587,8 @@ class MahjongEnvBase():
                             self.num_kyoutaku = 0
 
                             # 顺位马
-                            rank_bonus = [50, 14, -26, -38]
                             for p in range(self.num_players):
-                                self.score_deltas[p] = rank_bonus[rank[p]]
+                                self.score_deltas[p] = self.RANK_BONUS[rank[p]]
 
                             # 记录天凤格式log
                             self.logger.add_owari(rt, self.scores, self.score_deltas)
@@ -780,21 +780,24 @@ class MahjongEnvBase():
         # 0 - 游戏结束, 1 - 本局结束, 2 - 庄家连庄
         # 如果末亲听牌或者和牌而成为一位，或者达到八连庄，则游戏结束 (TODO: 加入sudden death 和延长战：南入和西入)
         oya_tenpai_or_agari = (self.tenpai[self.oya] and self.agari is None) or (self.agari and self.agari["who"]== self.oya)
-        renchan = self.round[1] >= MahjongEnvBase.MAX_HONBA
-        sudden_death = min(self.scores) < 0
+        reach_max_renchan = self.round[1] >= MahjongEnvBase.MAX_HONBA
+        is_extended = self.round[0] >= self.num_rounds
+        nobody_exceeds_base_win_score = max(self.scores) < 300
+        sudden_death = min(self.scores) < 0 or (is_extended and not nobody_exceeds_base_win_score)
+        
         if sudden_death:
             return 'game_over'
-        elif self.round[0] == self.num_rounds - 1:
+        elif self.round[0] == (self.num_rounds + self.MAX_ROUND_EXTRA if nobody_exceeds_base_win_score else 0) - 1:
             oya_rank_top = self.scores[self.oya] == max(self.scores)
-            if (oya_rank_top and oya_tenpai_or_agari) or renchan:
+            if (oya_rank_top and oya_tenpai_or_agari) or reach_max_renchan:
                 return 'game_over'
             else:
-                if not renchan and oya_tenpai_or_agari:
+                if not reach_max_renchan and oya_tenpai_or_agari:
                     return 'renchan'
                 else:
                     return 'game_over'
         else:
-            if not renchan and oya_tenpai_or_agari:
+            if not reach_max_renchan and oya_tenpai_or_agari:
                return 'renchan'
             else:
                 return 'next_round'
