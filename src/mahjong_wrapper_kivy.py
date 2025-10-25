@@ -603,7 +603,7 @@ class MahjongEnvKivyWrapper:
         
         self._current_texture_render_size: Optional[Tuple[int, int]] = None
 
-        self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
+        #self._last_payload = _RenderPayload(action=None, reward=0.0, done=False, info={})
         self._auto_advance = True
         self._pause_on_score = True
         self._score_pause_active = False
@@ -694,7 +694,7 @@ class MahjongEnvKivyWrapper:
         self._update_language_spinner()
         self._assist_dirty = True
         self._render()
-        self._draw_status_labels()
+        #self._draw_status_labels()
         self._update_control_buttons()
         self._update_assist_panel()
 
@@ -809,7 +809,7 @@ class MahjongEnvKivyWrapper:
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
         observation = self._env.reset(*args, **kwargs)
-        self._last_payload = _RenderPayload(action=None, reward=0.0, done=self._env.done, info={})
+        #self._last_payload = _RenderPayload(action=None, reward=0.0, done=self._env.done, info={})
         self._step_once_requested = False
         self._score_pause_active = False
         self._score_pause_pending = False
@@ -826,7 +826,8 @@ class MahjongEnvKivyWrapper:
         self._clear_human_actions()
         return observation
 
-    def step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
+    # TODO: deprecated
+    def __step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
         self.queue_action(action)
         while self._step_result is None:
             EventLoop.idle()
@@ -834,6 +835,7 @@ class MahjongEnvKivyWrapper:
         self._step_result = None
         return result
 
+    # TODO: change the type of action
     def queue_action(self, action: int) -> None:
         if self._pending_action is not None:
             return
@@ -841,6 +843,7 @@ class MahjongEnvKivyWrapper:
         self._step_result = None
         self._step_event.clear()
 
+    # TODO: change the type of output
     def fetch_step_result(self) -> Optional[Tuple[Any, float, bool, dict[str, Any]]]:
         if self._step_result is None:
             return None
@@ -1292,6 +1295,7 @@ class MahjongEnvKivyWrapper:
                     self._riichi_pending[idx] = False
             self._discard_counts[idx] = current_count
 
+    # TODO: self._pending_action is no longer int
     def _on_frame(self, dt: float) -> None:
         if self._pending_action is not None and self._step_result is None:
             can_step = True
@@ -1305,15 +1309,17 @@ class MahjongEnvKivyWrapper:
                 if self._step_once_requested:
                     self._step_once_requested = False
                 action = self._pending_action
-                observation, reward, done, info = self._env.step(action)
+                observation, reward, done, info = self._env.step(action) # TODO: Update the return tuple
                 self._pending_action = None
                 self._step_result = (observation, reward, done, info)
+                '''
                 self._last_payload = _RenderPayload(
                     action=action,
                     reward=reward,
                     done=done,
                     info=info,
                 )
+                '''
                 self._latest_observation = observation
                 self._assist_dirty = True
                 self._step_event.set()
@@ -1361,7 +1367,7 @@ class MahjongEnvKivyWrapper:
         self._draw_player_areas(canvas, board, play_rect)
         if self._score_last():
             self._draw_score_panel(canvas, board, play_rect)
-        self._draw_status_labels()
+        #self._draw_status_labels()
         self._update_control_buttons()
         self._update_assist_panel()
 
@@ -2712,6 +2718,7 @@ class MahjongEnvKivyWrapper:
             return []
         return [t for t in self._env.discard_pile_seq[player_idx]]
 
+    # TODO: Deprecated
     def _draw_status_labels(self) -> None:
         if not self._root:
             return

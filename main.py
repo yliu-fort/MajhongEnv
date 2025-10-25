@@ -177,6 +177,8 @@ class MahjongKivyApp(App):
         if self.wrapper.pending_action is not None:
             return
 
+        ##################################################################################
+        ## The logic here may be updated by the modern Client, Engine, and Transport class
         current_seat = getattr(self.env, "current_player", 0)
         controller = self._controllers[current_seat]
         pending = self._pending_requests.get(current_seat)
@@ -200,11 +202,13 @@ class MahjongKivyApp(App):
             request_id, action = response
             if request_id != pending.request_id:
                 continue
-            self._queue_action_and_clear(current_seat, controller, action)
+            self._queue_action_and_clear(current_seat, controller, action) # send to self.wrapper.pending_action
             return
 
         if now >= pending.deadline:
-            self._queue_action_and_clear(current_seat, controller, None)
+            self._queue_action_and_clear(current_seat, controller, None) # send to self.wrapper.pending_action
+        
+        ##################################################################################
 
     def on_stop(self) -> None:
         self._cleanup_game()
