@@ -37,6 +37,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 from mahjong_features import get_action_from_index
+from my_types import Response
 
 # Dummy AI Agent class
 class _AIAgent:
@@ -610,8 +611,9 @@ class MahjongEnvKivyWrapper:
         self._score_pause_pending = False
         self._step_once_requested = False
         self._score_panel_was_visible = False
-        self._pending_action: Optional[int] = None
-        self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
+        self._pending_responses: dict[int, Response] = {}
+        self._pending_decision: Optional[Any] = None
+        self._step_result: Optional[Tuple[Any, Any, Any, Any, Any]] = None
         self._step_event = threading.Event()
         self._scheduled = False
         self._action_deadline: Optional[float] = None
@@ -631,8 +633,10 @@ class MahjongEnvKivyWrapper:
         return self._root
 
     @property
-    def pending_action(self) -> Optional[int]:
-        return self._pending_action
+    def pending_action(self) -> Optional[bool]:
+        if self._pending_responses or self._pending_decision is not None:
+            return True
+        return None
 
     @property
     def fps(self) -> int:
@@ -818,7 +822,8 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending = []
         self._discard_counts = []
         self._riichi_declarations = {}
-        self._pending_action = None
+        self._pending_responses.clear()
+        self._pending_decision = None
         self._step_result = None
         self._latest_observation = observation
         self._assist_dirty = True
@@ -826,22 +831,46 @@ class MahjongEnvKivyWrapper:
         self._clear_human_actions()
         return observation
 
-    def step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
-        self.queue_action(action)
+    def step(
+        self,
+        responses: Union[Response, Sequence[Response], dict[int, Response]],
+    ) -> Tuple[Any, Any, Any, Any, Any]:
+        self.queue_action(responses)
         while self._step_result is None:
             EventLoop.idle()
         result = self._step_result
         self._step_result = None
         return result
 
-    def queue_action(self, action: int) -> None:
-        if self._pending_action is not None:
+    def queue_action(
+        self,
+        responses: Union[Response, Sequence[Response], dict[int, Response]],
+    ) -> None:
+        if self._pending_responses or self._pending_decision is not None:
             return
-        self._pending_action = action
-        self._step_result = None
-        self._step_event.clear()
 
-    def fetch_step_result(self) -> Optional[Tuple[Any, float, bool, dict[str, Any]]]:
+        pending: dict[int, Response] = {}
+        if isinstance(responses, Response):
+            pending[int(responses.from_seat)] = responses
+        elif isinstance(responses, dict):
+            pending = {int(seat): resp for seat, resp in responses.items() if isinstance(resp, Response)}
+        elif isinstance(responses, Sequence):
+            for resp in responses:
+                if isinstance(resp, Response):
+                    pending[int(resp.from_seat)] = resp
+        else:
+            self._pending_decision = responses
+            self._step_result = None
+            self._step_event.clear()
+            return
+
+        if pending:
+            self._pending_responses = pending
+            self._pending_decision = None
+            self._step_result = None
+            self._step_event.clear()
+
+    def fetch_step_result(self) -> Optional[Tuple[Any, Any, Any, Any, Any]]:
         if self._step_result is None:
             return None
         result = self._step_result
@@ -854,8 +883,17 @@ class MahjongEnvKivyWrapper:
             self._scheduled = False
         self._env.close()
 
-    def action_masks(self) -> Any:
-        return self._env.action_masks()
+    def action_masks(self, seat: Optional[int] = None) -> Sequence[bool]:
+        if seat is None:
+            seat = getattr(self._env, "current_player", 0)
+        seat_index = int(seat) if seat is not None else 0
+        if hasattr(self._env, "_compute_legal_actions_per"):
+            mask = self._env._compute_legal_actions_per(seat_index)
+            return list(mask)
+        masks = getattr(self._env, "compute_legal_actions", lambda: [])()
+        if isinstance(masks, Sequence) and seat_index < len(masks):
+            return list(masks[seat_index])
+        return []
 
     def bind_human_ui(self, seat: int, agent: "HumanPlayerAgent") -> None:
         """Register callbacks that display human actions and handle input."""
@@ -1293,7 +1331,7 @@ class MahjongEnvKivyWrapper:
             self._discard_counts[idx] = current_count
 
     def _on_frame(self, dt: float) -> None:
-        if self._pending_action is not None and self._step_result is None:
+        if (self._pending_responses or self._pending_decision is not None) and self._step_result is None:
             can_step = True
             if not self._auto_advance and not self._step_once_requested:
                 can_step = False
@@ -1304,17 +1342,58 @@ class MahjongEnvKivyWrapper:
             if can_step:
                 if self._step_once_requested:
                     self._step_once_requested = False
-                action = self._pending_action
-                observation, reward, done, info = self._env.step(action)
-                self._pending_action = None
-                self._step_result = (observation, reward, done, info)
+                reward_value = 0.0
+                done_flag = False
+                info_payload: dict[str, Any] = {}
+                last_action_id: Optional[int] = None
+
+                if self._pending_decision is not None:
+                    decision = self._pending_decision
+                    self._pending_decision = None
+                    self._pending_responses = {}
+                    result = self._env.apply_decision(decision)
+                else:
+                    responses = dict(self._pending_responses)
+                    if responses:
+                        first_response = next(iter(responses.values()))
+                        if isinstance(first_response, Response) and first_response.chosen is not None:
+                            payload = first_response.chosen.payload
+                            if isinstance(payload, dict):
+                                last_action_id = payload.get("action_id")
+                    self._pending_responses = {}
+                    result = self._env.step(responses)
+
+                observations, rewards, terminations, truncations, info = result
+                self._step_result = result
+
+                if isinstance(rewards, dict):
+                    reward_value = float(next(iter(rewards.values()), 0.0))
+                elif rewards is not None:
+                    try:
+                        reward_value = float(rewards)
+                    except (TypeError, ValueError):
+                        reward_value = 0.0
+
+                if isinstance(terminations, dict):
+                    done_flag = any(bool(flag) for flag in terminations.values())
+                elif terminations is not None:
+                    done_flag = bool(terminations)
+                if not done_flag:
+                    if isinstance(truncations, dict):
+                        done_flag = any(bool(flag) for flag in truncations.values())
+                    elif truncations is not None:
+                        done_flag = bool(truncations)
+
+                if isinstance(info, dict):
+                    info_payload = info
+
                 self._last_payload = _RenderPayload(
-                    action=action,
-                    reward=reward,
-                    done=done,
-                    info=info,
+                    action=last_action_id,
+                    reward=reward_value,
+                    done=done_flag,
+                    info=info_payload,
                 )
-                self._latest_observation = observation
+                self._latest_observation = observations
                 self._assist_dirty = True
                 self._step_event.set()
         self._update_pause_state()

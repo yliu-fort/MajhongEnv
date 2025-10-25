@@ -8,9 +8,9 @@ from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
 from mahjong_features import RiichiState, PlayerPublic, get_action_index, get_action_from_index, \
     NUM_TILES, NUM_ACTIONS, get_action_type_from_index
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Sequence, Tuple
 import random
-from my_types import Response, PRIORITY, ActionType, Seat
+from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from shanten_dp import compute_ukeire_advanced, compute_all_discards_ukeire_fast
 
 
@@ -1668,28 +1668,56 @@ class MahjongEnv(MahjongEnvBase):
 
 
 if __name__ == "__main__":
-    # 创建环境
-    env = MahjongEnv(num_players=1)
+    def _first_legal_action(mask: Sequence[bool]) -> Optional[int]:
+        for idx, allowed in enumerate(mask):
+            if allowed:
+                return idx
+        return None
 
-    obs = env.reset()
-    while not env.done:
-        obs, reward, done, info = env.step(0)
-        print(tiles_printout(obs["hands"]), reward, done, info["msg"])
+    def _auto_responses(env: MahjongEnv, step_id: int) -> dict[int, Response]:
+        responses: dict[int, Response] = {}
+        masks = env.compute_legal_actions()
+        for seat, mask in enumerate(masks):
+            action_id = _first_legal_action(mask)
+            if action_id is None:
+                continue
+            responses[seat] = Response(
+                room_id="demo",
+                step_id=step_id,
+                request_id=f"demo-{step_id}-{seat}",
+                from_seat=Seat(seat),
+                chosen=ActionSketch(
+                    action_type=get_action_type_from_index(action_id),
+                    payload={"action_id": action_id},
+                ),
+            )
+        return responses
 
+    def _loop(env: MahjongEnv, label: str) -> None:
+        observations = env.reset()
+        done = False
+        step_id = 0
+        print(label)
+        while not done:
+            responses = _auto_responses(env, step_id)
+            if not responses:
+                break
+            observations, rewards, terminations, truncations, info = env.step(responses)
+            step_id += 1
+            done = False
+            if isinstance(terminations, dict):
+                done = any(bool(flag) for flag in terminations.values())
+            else:
+                done = bool(terminations)
+            if not done:
+                if isinstance(truncations, dict):
+                    done = any(bool(flag) for flag in truncations.values())
+                else:
+                    done = bool(truncations)
+            msg = info.get("msg", "") if isinstance(info, dict) else ""
+            if msg:
+                print(msg)
+
+    _loop(MahjongEnv(num_players=1), "Single-player demo")
     print("----------")
-    env = MahjongEnv(num_players=4)
-
-    obs = env.reset()
-    while not env.done:
-        obs, reward, done, info = env.step(0)
-        print(tiles_printout(obs["hands"]), reward, done, info["msg"])
-
-    print("----------")
-    env = MahjongEnv(num_players=1)
-    
-    obs = env.reset()
-    env.hands[env.current_player] = [0, 1, 2, 4, 8, 12, 16, 20, 24, 28, 32, 33, 34]
-    env.deck[-1] = 35
-    while not env.done:
-        obs, reward, done, info = env.step(140)
-        print(tiles_printout(obs["hands"]), reward, done, info["msg"])
+    _loop(MahjongEnv(num_players=4), "Four-player demo")

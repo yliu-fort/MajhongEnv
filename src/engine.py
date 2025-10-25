@@ -124,5 +124,19 @@ class RoomEngine(ARoomEngine):
 
         responses = self.collect_responses(step_id, requests)
         decision = self.env.arbitrate(responses)
-        self.obs,_,done,_,info = self.env.apply_decision(decision)
+        observations, rewards, terminations, truncations, info = self.env.apply_decision(decision)
+        self.obs = observations
+
+        done = False
+        if isinstance(terminations, dict):
+            done = any(bool(flag) for flag in terminations.values())
+        elif terminations is not None:
+            done = bool(terminations)
+        if not done:
+            if isinstance(truncations, dict):
+                done = any(bool(flag) for flag in truncations.values())
+            elif truncations is not None:
+                done = bool(truncations)
+
         return done, info
+

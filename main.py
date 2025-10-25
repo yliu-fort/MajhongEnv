@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 from itertools import count
 from pathlib import Path
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple, Union
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
@@ -27,13 +27,17 @@ from agent.visual_agent import VisualAgent as _AIAgent
 #from agent.rule_based_agent import RuleBasedAgent as _AIAgent
 from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_env import MahjongEnv
+from mahjong_features import get_action_type_from_index
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
+from my_types import ActionSketch, Response, Seat
 
 
 @dataclass
 class _PendingRequest:
     request_id: int
     deadline: float
+    observation: Any
+    mask: Any
 
 
 class AgentController:
@@ -94,7 +98,7 @@ class AgentController:
             if payload is None:
                 continue
             request_id, observation, masks, deadline = payload
-            action: Optional[int] = None
+            action: Optional[Union[int, ActionSketch, Response]] = None
             if isinstance(self.agent, HumanPlayerAgent):
                 timeout = max(0.0, deadline - time.monotonic())
                 try:
@@ -163,7 +167,23 @@ class MahjongKivyApp(App):
 
         result = self.wrapper.fetch_step_result()
         if result is not None:
-            self._observation, _, done, _ = result
+            observations, rewards, terminations, truncations, info = result
+            self._observation = observations
+            for seat, pending in self._pending_requests.items():
+                pending.observation = self._observation.get(seat)
+                pending.mask = self.wrapper.action_masks(seat)
+            done = False
+            if isinstance(terminations, dict):
+                done = any(bool(flag) for flag in terminations.values())
+            elif terminations is not None:
+                done = bool(terminations)
+            if not done:
+                if isinstance(truncations, dict):
+                    done = any(bool(flag) for flag in truncations.values())
+                elif truncations is not None:
+                    done = bool(truncations)
+            if not done and isinstance(info, dict):
+                done = bool(info.get("done", False))
             if done:
                 self.env.logger.write_to_file(f"output/{self._log_counts}.mjlog")
                 self._log_counts += 1
@@ -185,11 +205,16 @@ class MahjongKivyApp(App):
         if pending is None:
             deadline = now + self._action_timeout
             request_id = next(self._request_ids)
-            masks = self.wrapper.action_masks()
-            controller.submit(request_id, self._observation, masks, deadline)
+            seat_observation = None
+            if isinstance(self._observation, dict):
+                seat_observation = self._observation.get(current_seat)
+            masks = self.wrapper.action_masks(current_seat)
+            controller.submit(request_id, seat_observation, masks, deadline)
             self._pending_requests[current_seat] = _PendingRequest(
                 request_id=request_id,
                 deadline=deadline,
+                observation=seat_observation,
+                mask=masks,
             )
             return
 
@@ -200,11 +225,11 @@ class MahjongKivyApp(App):
             request_id, action = response
             if request_id != pending.request_id:
                 continue
-            self._queue_action_and_clear(current_seat, controller, action)
+            self._queue_action_and_clear(current_seat, controller, pending, action)
             return
 
         if now >= pending.deadline:
-            self._queue_action_and_clear(current_seat, controller, None)
+            self._queue_action_and_clear(current_seat, controller, pending, None)
 
     def on_stop(self) -> None:
         self._cleanup_game()
@@ -280,16 +305,89 @@ class MahjongKivyApp(App):
         self._start_game(human_seats=())
 
     def _queue_action_and_clear(
-        self, seat: int, controller: AgentController, action: Optional[int]
+        self,
+        seat: int,
+        controller: AgentController,
+        pending: Optional[_PendingRequest],
+        action: Optional[Union[int, ActionSketch, Response]],
     ) -> None:
         controller.flush()
         self._pending_requests.pop(seat, None)
-        if action is None and self._fallback_agent is not None:
-            action = self._fallback_agent.predict(self._observation)
-        if action is None:
-            return
+
+        if isinstance(action, Response):
+            response = action
+        else:
+            seat_observation = None
+            if pending is not None and pending.observation is not None:
+                seat_observation = pending.observation
+            elif isinstance(self._observation, dict):
+                seat_observation = self._observation.get(seat)
+
+            sketch: Optional[ActionSketch]
+            if action is None:
+                sketch = None
+                if self._fallback_agent is not None and seat_observation is not None:
+                    try:
+                        fallback_choice = self._fallback_agent.predict(seat_observation)
+                    except Exception:
+                        fallback_choice = None
+                    if isinstance(fallback_choice, ActionSketch):
+                        sketch = fallback_choice
+                if sketch is None and pending is not None and pending.mask is not None:
+                    mask = pending.mask
+                    try:
+                        iterable = mask.items() if isinstance(mask, dict) else enumerate(mask)
+                    except AttributeError:
+                        iterable = enumerate(mask if mask is not None else [])
+                    for idx, allowed in iterable:
+                        if isinstance(allowed, tuple):
+                            allowed_flag = bool(allowed[1])
+                            action_idx = allowed[0]
+                        else:
+                            allowed_flag = bool(allowed)
+                            action_idx = idx
+                        if allowed_flag:
+                            try:
+                                sketch = ActionSketch(
+                                    action_type=get_action_type_from_index(int(action_idx)),
+                                    payload={"action_id": int(action_idx)},
+                                )
+                            except Exception:
+                                sketch = None
+                            if sketch is not None:
+                                break
+                if sketch is None:
+                    return
+            elif isinstance(action, ActionSketch):
+                sketch = action
+            elif isinstance(action, int):
+                try:
+                    sketch = ActionSketch(
+                        action_type=get_action_type_from_index(int(action)),
+                        payload={"action_id": int(action)},
+                    )
+                except Exception:
+                    return
+            else:
+                return
+
+            request_id = pending.request_id if pending is not None else -1
+            response = Response(
+                room_id="local",
+                step_id=int(request_id),
+                request_id=str(request_id),
+                from_seat=Seat(seat),
+                chosen=sketch,
+            )
+
         if self.wrapper is not None:
-            self.wrapper.queue_action(action)
+            self.wrapper.queue_action(response)
+
+        if pending is not None:
+            pending.mask = None
+            pending.observation = None
+
+        return
 
     def _handle_environment_reset(self) -> None:
         self.return_to_menu()

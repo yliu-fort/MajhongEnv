@@ -22,14 +22,32 @@ def evaluate_model(episodes=100):
     for ep in range(episodes):
         obs = env.reset()
         done = False
+        step_counter = 0
         while not done:
             # 用智能体来选动作
-            actions = {_: Response(room_id="", \
-            step_id="", \
-            request_id="", \
-            from_seat=Seat(_), \
-            chosen=agent.predict(obs[_])) for _ in range(env.num_players)}
-            obs, rewards, done, _, info = env.step(actions)
+            actions = {
+                seat: Response(
+                    room_id="",
+                    step_id=step_counter,
+                    request_id=f"req-{step_counter}-{seat}",
+                    from_seat=Seat(seat),
+                    chosen=agent.predict(obs[seat]),
+                )
+                for seat in range(env.num_players)
+            }
+            obs, rewards, terminations, truncations, info = env.step(actions)
+            step_counter += 1
+
+            done = False
+            if isinstance(terminations, dict):
+                done = any(bool(flag) for flag in terminations.values())
+            else:
+                done = bool(terminations)
+            if not done:
+                if isinstance(truncations, dict):
+                    done = any(bool(flag) for flag in truncations.values())
+                else:
+                    done = bool(truncations)
 
         total_dscores += np.array(info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])
