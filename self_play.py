@@ -29,7 +29,16 @@ def evaluate_model(episodes=100):
             request_id="", \
             from_seat=Seat(_), \
             chosen=agent.predict(obs[_])) for _ in range(env.num_players)}
-            obs, rewards, done, _, info = env.step(actions)
+            obs, rewards, terminations, truncations, info = env.step(actions)
+            done = False
+            if isinstance(terminations, dict):
+                done = done or any(bool(v) for v in terminations.values())
+            else:
+                done = done or bool(terminations)
+            if isinstance(truncations, dict):
+                done = done or any(bool(v) for v in truncations.values())
+            else:
+                done = done or bool(truncations)
 
         total_dscores += np.array(info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])

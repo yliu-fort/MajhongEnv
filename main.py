@@ -28,12 +28,17 @@ from agent.visual_agent import VisualAgent as _AIAgent
 from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_env import MahjongEnv
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
+from my_types import ActionSketch, Response, Seat
+from mahjong_features import get_action_type_from_index
 
 
 @dataclass
 class _PendingRequest:
     request_id: int
     deadline: float
+    observation: Any
+    mask: Any
+    step_id: int
 
 
 class AgentController:
@@ -94,7 +99,7 @@ class AgentController:
             if payload is None:
                 continue
             request_id, observation, masks, deadline = payload
-            action: Optional[int] = None
+            action: Optional[Any] = None
             if isinstance(self.agent, HumanPlayerAgent):
                 timeout = max(0.0, deadline - time.monotonic())
                 try:
@@ -142,6 +147,7 @@ class MahjongKivyApp(App):
         self._game_screen: Optional[Screen] = None
         self._drive_event = None
         self._log_counts = 0
+        self._step_index = 0
 
     def build(self):
         base_path = Path(__file__).resolve().parent
@@ -163,7 +169,21 @@ class MahjongKivyApp(App):
 
         result = self.wrapper.fetch_step_result()
         if result is not None:
-            self._observation, _, done, _ = result
+            (
+                self._observation,
+                _rewards,
+                terminations,
+                truncations,
+                _info,
+            ) = result
+            self._pending_requests.clear()
+
+            def _any_true(value: Any) -> bool:
+                if isinstance(value, dict):
+                    return any(bool(v) for v in value.values())
+                return bool(value)
+
+            done = bool(getattr(self.env, "done", False)) or _any_true(terminations) or _any_true(truncations)
             if done:
                 self.env.logger.write_to_file(f"output/{self._log_counts}.mjlog")
                 self._log_counts += 1
@@ -178,18 +198,56 @@ class MahjongKivyApp(App):
             return
 
         current_seat = getattr(self.env, "current_player", 0)
+        if current_seat < 0 or current_seat >= len(self._controllers):
+            return
         controller = self._controllers[current_seat]
         pending = self._pending_requests.get(current_seat)
         now = time.monotonic()
 
+        if isinstance(self._observation, dict):
+            seat_observation = self._observation.get(current_seat)
+        else:
+            seat_observation = self._observation
+
+        if seat_observation is None:
+            return
+
+        masks_raw = self.wrapper.action_masks(current_seat)
+        mask_sequence = list(masks_raw) if masks_raw is not None else []
+
+        available_actions = [idx for idx, flag in enumerate(mask_sequence) if bool(flag)]
+        if not available_actions:
+            if pending is None:
+                self._queue_action_and_clear(
+                    current_seat,
+                    controller,
+                    None,
+                    None,
+                    seat_observation,
+                    mask_sequence,
+                )
+            return
+
         if pending is None:
+            if len(available_actions) == 1:
+                self._queue_action_and_clear(
+                    current_seat,
+                    controller,
+                    available_actions[0],
+                    None,
+                    seat_observation,
+                    mask_sequence,
+                )
+                return
             deadline = now + self._action_timeout
             request_id = next(self._request_ids)
-            masks = self.wrapper.action_masks()
-            controller.submit(request_id, self._observation, masks, deadline)
+            controller.submit(request_id, seat_observation, mask_sequence, deadline)
             self._pending_requests[current_seat] = _PendingRequest(
                 request_id=request_id,
                 deadline=deadline,
+                observation=seat_observation,
+                mask=mask_sequence,
+                step_id=self._step_index,
             )
             return
 
@@ -200,11 +258,25 @@ class MahjongKivyApp(App):
             request_id, action = response
             if request_id != pending.request_id:
                 continue
-            self._queue_action_and_clear(current_seat, controller, action)
+            self._queue_action_and_clear(
+                current_seat,
+                controller,
+                action,
+                pending,
+                pending.observation,
+                pending.mask,
+            )
             return
 
         if now >= pending.deadline:
-            self._queue_action_and_clear(current_seat, controller, None)
+            self._queue_action_and_clear(
+                current_seat,
+                controller,
+                None,
+                pending,
+                pending.observation,
+                pending.mask,
+            )
 
     def on_stop(self) -> None:
         self._cleanup_game()
@@ -251,6 +323,7 @@ class MahjongKivyApp(App):
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
         self._pending_requests = {}
         self._request_ids = count()
+        self._step_index = 0
 
         if self._game_screen is not None:
             self._game_screen.clear_widgets()
@@ -280,16 +353,98 @@ class MahjongKivyApp(App):
         self._start_game(human_seats=())
 
     def _queue_action_and_clear(
-        self, seat: int, controller: AgentController, action: Optional[int]
+        self,
+        seat: int,
+        controller: AgentController,
+        action: Optional[Any],
+        pending: Optional[_PendingRequest],
+        observation: Any,
+        masks: Sequence[Any],
     ) -> None:
         controller.flush()
         self._pending_requests.pop(seat, None)
-        if action is None and self._fallback_agent is not None:
-            action = self._fallback_agent.predict(self._observation)
-        if action is None:
+
+        if pending is not None:
+            request_id = pending.request_id
+            step_id = pending.step_id
+        else:
+            request_id = next(self._request_ids)
+            step_id = self._step_index
+
+        selected_action = action
+        if selected_action is None and self._fallback_agent is not None and observation is not None:
+            try:
+                selected_action = self._fallback_agent.predict(observation)
+            except Exception:
+                selected_action = None
+
+        response = self._build_response(
+            seat=seat,
+            action=selected_action,
+            step_id=step_id,
+            request_id=request_id,
+            masks=masks,
+        )
+        if response is None or self.wrapper is None:
             return
-        if self.wrapper is not None:
-            self.wrapper.queue_action(action)
+
+        self.wrapper.queue_action(response)
+        self._step_index = max(self._step_index, step_id + 1)
+
+    def _build_response(
+        self,
+        seat: int,
+        action: Optional[Any],
+        step_id: int,
+        request_id: int,
+        masks: Sequence[Any],
+    ) -> Optional[Response]:
+        if isinstance(action, Response):
+            return action
+
+        sketch: Optional[ActionSketch]
+        if isinstance(action, ActionSketch):
+            sketch = action
+        elif isinstance(action, int):
+            action_type = get_action_type_from_index(int(action))
+            if action_type is None:
+                return None
+            sketch = ActionSketch(action_type=action_type, payload={"action_id": int(action)})
+        else:
+            sketch = None
+
+        mask_sequence = list(masks) if masks is not None else []
+        if sketch is None:
+            fallback_action_id = next((idx for idx, flag in enumerate(mask_sequence) if bool(flag)), None)
+            if fallback_action_id is None:
+                if len(mask_sequence) > 252:
+                    fallback_action_id = 252
+                elif mask_sequence:
+                    fallback_action_id = 0
+                else:
+                    fallback_action_id = 252
+            action_type = get_action_type_from_index(fallback_action_id)
+            if action_type is None:
+                return None
+            sketch = ActionSketch(
+                action_type=action_type,
+                payload={"action_id": fallback_action_id},
+            )
+
+        seat_index = int(seat)
+        try:
+            seat_enum = Seat(seat_index)
+        except ValueError:
+            members = list(Seat)
+            seat_enum = members[seat_index % len(members)] if members else Seat.EAST
+
+        return Response(
+            room_id="",
+            step_id=int(step_id),
+            request_id=str(request_id),
+            from_seat=seat_enum,
+            chosen=sketch,
+        )
 
     def _handle_environment_reset(self) -> None:
         self.return_to_menu()
@@ -319,6 +474,7 @@ class MahjongKivyApp(App):
         self._observation = None
         self._pending_requests = {}
         self._request_ids = count()
+        self._step_index = 0
         if self._game_screen is not None:
             self._game_screen.clear_widgets()
         if self._screen_manager is not None:

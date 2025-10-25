@@ -227,7 +227,15 @@ class MahjongEnvBase(gym.Env):
 
         if self.done:
             # 如果已经结束，返回当前状态即可（或 raise）
-            return self.get_observation(self.current_player, None), 0.0, True, {}
+            num_players = getattr(self, "num_players", 0)
+            observations = {
+                i: self.get_observation(i, None)
+                for i in range(num_players)
+            }
+            rewards = {i: 0.0 for i in range(num_players)}
+            terminations = {i: True for i in range(num_players)}
+            truncations = {i: False for i in range(num_players)}
+            return observations, rewards, terminations, truncations, {}
         
         # 0. 读取指令
         if decisions is None:
@@ -812,9 +820,11 @@ class MahjongEnvBase(gym.Env):
                             shantens=None,
                             ukeires=None,
                             legal_actions_mask=valid_actions[i]) for i in range(self.num_players)}
-        rewards = None
-        terminations = self.done
-        truncations = None
+        rewards: Dict[int, float] = {i: 0.0 for i in range(self.num_players)}
+        if isinstance(player, int) and 0 <= player < self.num_players:
+            rewards[player] = reward
+        terminations = {i: bool(self.done) for i in range(self.num_players)}
+        truncations = {i: False for i in range(self.num_players)}
         #infos = {self.current_player: info}
         return observations, rewards, terminations, truncations, info
     

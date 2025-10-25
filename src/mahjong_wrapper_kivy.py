@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Optional, Sequence, Tuple, Union
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
@@ -36,7 +36,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
     from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
-from mahjong_features import get_action_from_index
+from mahjong_features import get_action_from_index, NUM_ACTIONS
+from my_types import ActionSketch, Response
 
 # Dummy AI Agent class
 class _AIAgent:
@@ -373,7 +374,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
 
 @dataclass(slots=True)
 class _RenderPayload:
-    action: Optional[int]
+    action: Optional[ActionSketch]
     reward: float
     done: bool
     info: dict[str, Any]
@@ -610,8 +611,8 @@ class MahjongEnvKivyWrapper:
         self._score_pause_pending = False
         self._step_once_requested = False
         self._score_panel_was_visible = False
-        self._pending_action: Optional[int] = None
-        self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
+        self._pending_responses: Dict[int, Response] = {}
+        self._step_result: Optional[Tuple[Any, Any, Any, Any, dict[str, Any]]] = None
         self._step_event = threading.Event()
         self._scheduled = False
         self._action_deadline: Optional[float] = None
@@ -631,8 +632,8 @@ class MahjongEnvKivyWrapper:
         return self._root
 
     @property
-    def pending_action(self) -> Optional[int]:
-        return self._pending_action
+    def pending_action(self) -> Optional[Dict[int, Response]]:
+        return self._pending_responses if self._pending_responses else None
 
     @property
     def fps(self) -> int:
@@ -818,7 +819,7 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending = []
         self._discard_counts = []
         self._riichi_declarations = {}
-        self._pending_action = None
+        self._pending_responses = {}
         self._step_result = None
         self._latest_observation = observation
         self._assist_dirty = True
@@ -826,7 +827,7 @@ class MahjongEnvKivyWrapper:
         self._clear_human_actions()
         return observation
 
-    def step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
+    def step(self, action: Union[Response, Dict[int, Response]]) -> Tuple[Any, Any, Any, Any, dict[str, Any]]:
         self.queue_action(action)
         while self._step_result is None:
             EventLoop.idle()
@@ -834,14 +835,16 @@ class MahjongEnvKivyWrapper:
         self._step_result = None
         return result
 
-    def queue_action(self, action: int) -> None:
-        if self._pending_action is not None:
-            return
-        self._pending_action = action
+    def queue_action(self, action: Union[Response, Dict[int, Response]]) -> None:
+        if isinstance(action, Response):
+            payload = {int(action.from_seat): action}
+        else:
+            payload = {int(seat): resp for seat, resp in action.items()}
+        self._pending_responses.update(payload)
         self._step_result = None
         self._step_event.clear()
 
-    def fetch_step_result(self) -> Optional[Tuple[Any, float, bool, dict[str, Any]]]:
+    def fetch_step_result(self) -> Optional[Tuple[Any, Any, Any, Any, dict[str, Any]]]:
         if self._step_result is None:
             return None
         result = self._step_result
@@ -854,8 +857,29 @@ class MahjongEnvKivyWrapper:
             self._scheduled = False
         self._env.close()
 
-    def action_masks(self) -> Any:
-        return self._env.action_masks()
+    def action_masks(self, seat: Optional[int] = None) -> Sequence[bool]:
+        if seat is None:
+            seat = getattr(self._env, "current_player", 0)
+        seat_index = int(seat)
+        num_players = getattr(self._env, "num_players", 0)
+        if seat_index < 0 or seat_index >= num_players:
+            return [False] * NUM_ACTIONS
+
+        mask = None
+        if hasattr(self._env, "_compute_legal_actions_per"):
+            try:
+                mask = self._env._compute_legal_actions_per(seat_index)
+            except Exception:
+                mask = None
+        if mask is None and hasattr(self._env, "action_masks"):
+            try:
+                mask = self._env.action_masks(seat_index)
+            except Exception:
+                mask = None
+
+        if mask is None:
+            return [False] * NUM_ACTIONS
+        return list(mask)
 
     def bind_human_ui(self, seat: int, agent: "HumanPlayerAgent") -> None:
         """Register callbacks that display human actions and handle input."""
@@ -1293,7 +1317,7 @@ class MahjongEnvKivyWrapper:
             self._discard_counts[idx] = current_count
 
     def _on_frame(self, dt: float) -> None:
-        if self._pending_action is not None and self._step_result is None:
+        if self._pending_responses and self._step_result is None:
             can_step = True
             if not self._auto_advance and not self._step_once_requested:
                 can_step = False
@@ -1304,13 +1328,27 @@ class MahjongEnvKivyWrapper:
             if can_step:
                 if self._step_once_requested:
                     self._step_once_requested = False
-                action = self._pending_action
-                observation, reward, done, info = self._env.step(action)
-                self._pending_action = None
-                self._step_result = (observation, reward, done, info)
+                responses = dict(self._pending_responses)
+                self._pending_responses.clear()
+                observation, rewards, terminations, truncations, info = self._env.step(responses)
+                self._step_result = (observation, rewards, terminations, truncations, info)
+
+                chosen = next((resp.chosen for resp in responses.values() if resp is not None), None)
+                if isinstance(rewards, dict):
+                    reward_value = float(sum(float(v) for v in rewards.values()))
+                else:
+                    reward_value = float(rewards)
+
+                def _any_true(value: Any) -> bool:
+                    if isinstance(value, dict):
+                        return any(bool(v) for v in value.values())
+                    return bool(value)
+
+                done = bool(getattr(self._env, "done", False)) or _any_true(terminations) or _any_true(truncations)
+
                 self._last_payload = _RenderPayload(
-                    action=action,
-                    reward=reward,
+                    action=chosen,
+                    reward=reward_value,
                     done=done,
                     info=info,
                 )
@@ -2730,9 +2768,15 @@ class MahjongEnvKivyWrapper:
         )
         self._root.status_label.text = phase_text
         reward_color = self._danger_color if self._last_payload.reward < 0 else self._text_color
-        action_value = (
-            "-" if self._last_payload.action is None else str(self._last_payload.action)
-        )
+        if self._last_payload.action is None:
+            action_value = "-"
+        else:
+            payload = getattr(self._last_payload.action, "payload", {}) or {}
+            action_id = payload.get("action_id")
+            if action_id is not None:
+                action_value = str(action_id)
+            else:
+                action_value = str(self._last_payload.action.action_type)
         reward_text = self._translate(
             "action_reward_format",
             action_label=self._translate("action_label"),
