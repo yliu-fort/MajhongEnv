@@ -1,13 +1,20 @@
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
 from collections import Counter
 from gen_yama import YamaGenerator
 from mahjong_tiles_print_style import tile_printout, tiles_printout
 from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
-from mahjong_features_numpy import get_action_index, get_action_from_index, NUM_ACTIONS
-from typing import List
+from mahjong_features import RiichiState, PlayerPublic, get_action_index, get_action_from_index, \
+    NUM_TILES, NUM_ACTIONS, get_action_type_from_index
+from typing import List, Dict, Optional, Tuple
+import random
+from my_types import Response, PRIORITY, ActionType, Seat
+from shanten_dp import compute_ukeire_advanced, compute_all_discards_ukeire_fast
 
-class MahjongEnvBase():
+
+class MahjongEnvBase(gym.Env):
     """
     一个简化的麻将环境示例。
     """
@@ -36,9 +43,9 @@ class MahjongEnvBase():
     TSUMI = 1 # 积
     RYUUKYOKU_PENALTY = 30 # 流局罚符，标准为3000点
     MAX_ROUND = 16 # 最大局数
-    MAX_ROUND_EXTRA = 4 # 最大延长战局数
+    MAX_ROUND_EXTRA = 4 # 最大延长战局数 (TODO: 无实现)
     MAX_HONBA = 8 # 最大本场数
-    RANK_BONUS = (50, 14, -26, -38) # 额外顺位奖
+    MULTI_RON = False
 
     def __init__(self, num_players=4, num_rounds=4):
         super(MahjongEnvBase, self).__init__()
@@ -79,8 +86,9 @@ class MahjongEnvBase():
         # 初始化下一局游戏
         self.reset_for_next_round()
 
-        # 返回当前玩家的观测
-        return self.get_observation(self.current_player)
+        # 返回所有玩家的观测
+        observations = {i: self.get_observation(i, self._compute_legal_actions_per(i)) for i in range(self.num_players)}
+        return observations
 
     def reset_for_next_round(self, oya_continue=False):
         # 初始化牌局，重新洗牌、发牌等
@@ -117,6 +125,7 @@ class MahjongEnvBase():
         self.furiten_0 = [False for _ in range(self.num_players)] # 舍张振听状态
         self.furiten_1 = [False for _ in range(self.num_players)] # 同巡振听状态
         self.menzen = [True for _ in range(self.num_players)] # 门清状态
+        self.nagashimangan = [True for _ in range(self.num_players)] # 流局满贯状态
 
         # 初始分数
         self.score_deltas = [0 for _ in range(self.num_players)]
@@ -130,7 +139,7 @@ class MahjongEnvBase():
         self.kan_tile = [self.dead_wall.pop(i) for i in [1,0,1,0]]
 
         # 发初始手牌
-        self.discard_pile = np.zeros((4, 136), dtype=bool)
+        self.discard_pile = np.zeros((4, 34), dtype=bool)
         self.discard_pile_seq = [[] for _ in range(self.num_players)]
         self.melds = [[] for _ in range(self.num_players)]
         self.hands = [[] for _ in range(self.num_players)]
@@ -160,6 +169,7 @@ class MahjongEnvBase():
         self.claims = []
         self.is_selecting_tiles_for_claim = False
         self.selected_tiles = []
+        self._is_chankan = None
 
         # 设置当前阶段
         self.phase = "draw"  # 从庄家开始摸牌
@@ -172,17 +182,77 @@ class MahjongEnvBase():
         # 输出天凤格式的log
         self.logger.add_init(self.round, self.num_kyoutaku, self.dice, self.dora_indicator, self.scores, self.oya, self.hands)
     
-    def step(self, action_grp):
+    def step(self, responses: Dict[int, Response]):
+        #responses = self.collect_responses(step_id, requests)
+        # Filter out pass actions
+        responses = [r for r in responses.values() if r.chosen is not None and r.chosen.action_type != ActionType.PASS]
+        decisions = self.arbitrate(responses) # [(who, type, action_id)]
+        
+        result = self.apply_decision(decisions)
+        return result
+
+
+    def arbitrate(self, responses: List[Response]) -> Optional[List[Response]]:
+        if not responses:
+            return None
+        discarder = self.current_player
+        # 过滤非法/过期由上层保证，此处直接评分
+        scored: List[Tuple[int, int, Response]] = []
+        for r in responses:
+            pri = PRIORITY.get(r.chosen.action_type, -1)
+            # 对同级（如碰/大明杠），采用与打牌者的相对顺位（逆时针最近者优先）
+            tie_break = self.get_distance(discarder, r.from_seat)
+            scored.append((pri, -tie_break, r))  # priority 高者优先；tie_break 小者优先（取负以便排序）
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        top = scored[0][0]
+        winners = [s[2] for s in scored if s[0] == top]
+
+        # 多家荣处理：本最小实现允许多家荣；若最高为 RON 且多位为 RON，则全部返回
+        if self.MULTI_RON and winners and winners[0].chosen.action_type is ActionType.RON:
+            same_top_rons = [
+                r for r in winners if r.chosen.action_type is ActionType.RON
+            ]
+            if len(same_top_rons) >= 1:
+                return same_top_rons
+
+        # 否则仅取第一名
+        return [winners[0]]
+
+    def apply_decision(self, decisions):
         """
         处理当前玩家的动作，然后判断是否有其他玩家吃碰杠和的机会，
         最后确定下一个 current_player并返回新的状态。
         """
         info = {}
-        action, confirm = self.action_map(action_grp)
 
         if self.done:
             # 如果已经结束，返回当前状态即可（或 raise）
-            return self.get_observation(self.current_player), 0.0, True, {}
+            return self.get_observation(self.current_player, None), 0.0, True, {}
+        
+        # 0. 读取指令
+        if decisions is None:
+            action, _ = None, True
+        elif len(decisions) == 1:
+            decision = decisions[0]
+            self.current_player = int(decision.from_seat)
+            self.phase = str(decision.chosen.action_type).lower()
+            action, _ = self.action_map(self.current_player, decision.chosen.payload["action_id"])
+        elif len(decisions) == 2:
+            # MULTI-RON
+            self.current_player = int(decisions[0].from_seat)
+            self.phase = str(decisions[0].chosen.action_type).split('.')[1].lower()
+            action, _ = None, True
+        elif len(decisions) == 3:
+            self.current_player = -1
+            self.phase = "ryuukyoku"
+        else:
+            action, _ = None, True
+
+        # 检查
+        if self.phase != "ron":
+            # 见逃玩家进入同巡振听状态
+            for _ in list(set([c["who"] for c in self.claims if c["type"]=="ron"])):
+                self.furiten_1[_] = True
 
         # 1. 取出当前玩家
         player = self.current_player
@@ -191,6 +261,13 @@ class MahjongEnvBase():
         reward = 0.0
         match self.phase:
             case "draw":
+                self.complete_riichi(self.last_discarder)
+                if self.to_open_dora:
+                    self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
+                    self.to_open_dora -= 1
+                    # 记录天凤格式log e.g., <DORA hai="79" />
+                    self.logger.add_dora(self.dora_indicator[-1])
+
                 self.hands[player] = sorted(self.hands[player])
                 self.draw_tile(player)
 
@@ -200,15 +277,9 @@ class MahjongEnvBase():
 
                 # 检查是否可以暗杠，加杠，立直，自摸或者流局
                 claimed = self.check_self_claim(player)
-                if not claimed:
-                    # 自己没有宣告，进入弃牌阶段
-                    self.phase = "discard"
-
-                    # 消除自己的一发状态
-                    self.ippatsu[player] = False
-                else:
-                    self.phase = self.claims[0]["type"] # 进入询问阶段
-                    self.current_player = self.claims[0]["who"]
+                # TODO：下一循环需要手动设置phase和current_player
+                # next phase can be {discard, riichi, ankan, chakan, tsumo, ryuukyoku (九种九牌)} 
+                self.claims.append({"type": "discard", "fromwho": player, "who": player})
 
             case "kan_draw":
                 # 如果是明杠/加杠，则在弃牌成功或者摸下一张岭上牌之后翻开一张dora
@@ -231,219 +302,148 @@ class MahjongEnvBase():
 
                 # 检查是否可以暗杠，加杠，立直，自摸或者流局
                 claimed = self.check_self_claim(player, is_rinshan=True)
-                if not claimed:
-                    # 自己没有宣告，进入弃牌阶段
-                    self.phase = "discard"
-                else:
-                    self.phase = self.claims[0]["type"] # 进入询问阶段
-                    self.current_player = self.claims[0]["who"]
+                # TODO：下一循环需要手动设置phase和current_player
+                # next phase can be {discard, riichi, ankan, chakan, tsumo}
+                self.claims.append({"type": "discard", "fromwho": player, "who": player})
             
             case "riichi":
                 # 立直逻辑
                 # 持有 1000 点或以上而且有下一巡摸牌时可宣告立直
                 # 打立直宣言牌放铳的情况下不需付供托(立直不成立)
-                claim = self.claims.pop(0)
-                if confirm:
-                    self.riichi[player] = True
-                    # 进入立直宣告阶段
-                    self.to_riichi = True
-                    # 检查两立直
-                    if self.first_turn[player]:
-                        self.daburu_riichi[player] = True
-                    # 进入弃牌阶段，立直后第一张牌切出后必须听牌，之后直至和牌为止不能更改手牌
-                    # 实现方法为，将要弃的牌与最后一张牌调换位置，然后进入弃牌阶段
-                    self.hands[player][-1], self.hands[player][action] = self.hands[player][action], self.hands[player][-1]
-                    self.phase = "discard"
-                    # 输出天凤格式的log. <REACH who="3" step="1"/>
-                    self.logger.add_reach_declare(player)
-                else:
-                    # 玩家选择什么都不做且有其他询问时，继续询问
-                    if self.claims:
-                        self.phase = self.claims[0]["type"]
-                        self.current_player = self.claims[0]["who"]
-                    else:
-                        # 进入弃牌阶段，打出宣言牌，打出宣言牌成功后摆放一根立直棒
-                        self.phase = "discard"
+
+                self.riichi[player] = True
+                # 进入立直宣告阶段
+                self.to_riichi = True
+                # 检查两立直
+                if self.first_turn[player]:
+                    self.daburu_riichi[player] = True
+                # 进入弃牌阶段，立直后第一张牌切出后必须听牌，之后直至和牌为止不能更改手牌
+                # 实现方法为，将要弃的牌与最后一张牌调换位置，然后进入弃牌阶段
+                self.hands[player][-1], self.hands[player][action] = self.hands[player][action], self.hands[player][-1]
+                #self.phase = "discard"
+                self.claims = []
+                self.claims.append({"type": "discard", "fromwho": player, "who": player})
+                # 输出天凤格式的log. <REACH who="3" step="1"/>
+                self.logger.add_reach_declare(player)
 
             case "discard":
                 # 打牌逻辑
-                if action < len(self.hands[player]):
-                    # 丢弃牌
-                    assert len(self.hands[player]) in [2, 5, 8, 11, 14], "出牌：手牌数不对"
-                    tile_to_discard = self.hands[player][action]
-                    self.hands[player].remove(tile_to_discard)
-                    self.last_discarded_tile = tile_to_discard
-                    self.last_discarder = player
-                    #if (
-                    #    0 <= player < len(self.last_draw_tiles)
-                        #and self.last_draw_tiles[player] == tile_to_discard
-                    #):
-                    #    self.last_draw_tiles[player] = -1
-                    self.discard_pile[player, tile_to_discard] = True # 加入弃牌堆
-                    self.discard_pile_seq[player].append(tile_to_discard)
+                # 丢弃牌
+                assert len(self.hands[player]) in [2, 5, 8, 11, 14], "出牌：手牌数不对"
+                tile_to_discard = self.hands[player][action]
+                self.hands[player].remove(tile_to_discard)
+                self.last_discarded_tile = tile_to_discard
+                self.last_discarder = player
+                self.discard_pile[player, tile_to_discard//4] += 1 # 加入弃牌堆
+                self.discard_pile_seq[player].append(tile_to_discard)
 
-                    self.last_draw_tiles[player] = -1
-                    self.hands[player] = sorted(self.hands[player])
+                self.last_draw_tiles[player] = -1
+                self.hands[player] = sorted(self.hands[player])
 
-                    # 输出天凤格式的log. e.g. <D122/>
-                    self.logger.add_discard(player, tile_to_discard)
+                # 输出天凤格式的log. e.g. <D122/>
+                self.logger.add_discard(player, tile_to_discard)
 
-                    # 更新待牌状态
-                    self.update_machii(player)
+                # 更新待牌状态
+                self.update_machii(player)
 
-                    # 检查向听数，如果下降了就给予奖励
-                    new_shanten = self.hand_checker.check_shanten(self.hands[player])
-                    #if not self.riichi[player]:
-                    #    if new_shanten <= 1:
-                    #        if new_shanten < self.shanten[player]:
-                    #            reward = 0.1
-                    #        elif new_shanten > self.shanten[player]:
-                    #            reward = -0.1
-                    
-                    # 如果无役听牌或者振听给与惩罚
-                    #if self.furiten_0[player] or self.furiten_1[player]:
-                    #    reward += -0.1
+                # 检查向听数，如果下降了就给予奖励
+                #new_shanten = self.hand_checker.check_shanten(self.hands[player])
+                #self.shanten[player] = new_shanten
 
-                    self.shanten[player] = new_shanten
-
-                    # 检查第一打是否是风牌
-                    if self.can_kaze4 and self.first_turn[player]:
-                        if self.kaze4_tile == [0, 0] and tile_to_discard // 4 in [27,28,29,30]:
-                            self.kaze4_tile = [tile_to_discard // 4, 1]
-                        elif self.kaze4_tile[0] == tile_to_discard // 4:
-                            self.kaze4_tile[1] += 1
-                        else:
-                            self.can_kaze4 = False
+                # 检查第一打是否是风牌
+                if self.can_kaze4 and self.first_turn[player]:
+                    if self.kaze4_tile == [0, 0] and tile_to_discard // 4 in [27,28,29,30]:
+                        self.kaze4_tile = [tile_to_discard // 4, 1]
+                    elif self.kaze4_tile[0] == tile_to_discard // 4:
+                        self.kaze4_tile[1] += 1
                     else:
                         self.can_kaze4 = False
-
-                    # 打出手牌后第一巡役种不再成立（地和，双立直）
-                    self.first_turn[player] = False
-
-                    # 检查是否有人可以和、碰、杠、吃
-                    # 这通常涉及一串优先级判断和玩家询问过程
-                    claimed = self.check_others_claim(tile_to_discard, player)
-                    if not claimed:
-                        # 如果是立直宣言牌，则立直成功，放置立直棒并扣1000点
-                        self.complete_riichi(player)
-                        # 如果是摸岭上后的弃牌，则弃牌成立并翻开新dora
-                        if self.to_open_dora:
-                            self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
-                            self.to_open_dora -= 1
-                            # 记录天凤格式log e.g., <DORA hai="79" />
-                            self.logger.add_dora(self.dora_indicator[-1])
-                        # 无人吃碰杠和而且牌山还有剩余，则下一玩家摸牌
-                        self.current_player = (player + 1) % self.num_players
-                        self.phase = "draw"
-                    else:
-                        if self.claims[0]["type"] != 'ron':
-                            # 立直宣言牌的情况下，检查claims中如果没有荣和，则立直成功并放置立直棒， 如果有，则先处理荣和
-                            self.complete_riichi(player)
-                            # 如果是摸岭上后的弃牌，检查claims中如果没有荣和，则弃牌成立并翻开新dora， 如果有，则先处理荣和
-                            if self.to_open_dora:
-                                self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
-                                self.to_open_dora -= 1
-                                # 记录天凤格式log e.g., <DORA hai="79" />
-                                self.logger.add_dora(self.dora_indicator[-1])
-                        self.phase = self.claims[0]["type"] # 进入吃碰杠和询问阶段
-                        self.current_player = self.claims[0]["who"]
                 else:
-                    # 无效动作
-                    reward = -0.1
-                    self.done = True
+                    self.can_kaze4 = False
+
+                # 打出手牌后第一巡役种不再成立（地和，双立直）
+                self.first_turn[player] = False
+
+                # 消除自己的一发状态
+                self.ippatsu[player] = False
+
+                # 检查是否满足流满条件
+                if tile_to_discard // 4 not in [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33]:
+                    self.nagashimangan[player] = False
+
+                # 检查是否有人可以和、碰、杠、吃
+                # 这通常涉及一串优先级判断和玩家询问过程
+                claimed = self.check_others_claim(tile_to_discard, player)
+                # TODO：下一循环需要手动设置phase和current_player, {chi, pon, kan, ron} 或者强制流局 (ryuukyoku)
+                # 设置下一回合的默认状态，如果有人鸣牌/和牌/流局则跳转
+                self.current_player = (player + 1) % self.num_players
+                self.phase = "draw"
         
             # 3. 检查是否和牌
             # 如果有人和了，则计算奖励
             case "tsumo":
-                claim = self.claims.pop(0)
+                #claim = self.claims.pop(0)
+                config = [None,]
+                self.can_tsumo(player, is_rinshan=self.to_open_dora > 0, config=config)
 
-                if confirm:
-                    # 如果摸到岭上牌以后自摸，则在此时翻开一张dora
-                    if self.to_open_dora:
-                        self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
-                        self.to_open_dora -= 1
-                        # 记录天凤格式log e.g., <DORA hai="79" />
-                        self.logger.add_dora(self.dora_indicator[-1])
+                self.claims = []
 
-                    # 翻开里宝牌
-                    if self.riichi[player] and not self.ura_indicator:
-                        for i, _ in enumerate(self.dora_indicator):
-                            self.ura_indicator.append(self.dead_wall[i*2])
+                # 如果摸到岭上牌以后自摸，则在此时翻开一张dora
+                if self.to_open_dora:
+                    self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
+                    self.to_open_dora -= 1
+                    # 记录天凤格式log e.g., <DORA hai="79" />
+                    self.logger.add_dora(self.dora_indicator[-1])
 
-                    # 立直棒数清零
-                    self.num_kyoutaku += self.num_riichi
-                    self.num_riichi = 0
-                    self.agari = self.agari_calculation(player, player, None, claim["config"])
-                    self.num_kyoutaku = 0
+                # 翻开里宝牌
+                if self.riichi[player] and not self.ura_indicator:
+                    for i, _ in enumerate(self.dora_indicator):
+                        self.ura_indicator.append(self.dead_wall[i*2])
 
-                    self.phase = "score"
-                    self.current_player = 0
-                else:
-                    # 玩家选择什么都不做且有其他询问时，继续询问
-                    if self.claims:
-                        self.phase = self.claims[0]["type"]
-                        self.current_player = self.claims[0]["who"]
-                    else:
-                        # 进入弃牌阶段
-                        self.phase = "discard"
+                # 立直棒数清零
+                self.num_kyoutaku += self.num_riichi
+                self.num_riichi = 0
+                self.agari = self.agari_calculation(player, player, None, config[0])
+                self.num_kyoutaku = 0
+
+                self.phase = "score"
+                self.current_player = 0
 
             case "ron":
-                claim = self.claims.pop(0)
-                fromwho = claim["fromwho"]
-                # 玩家选择和牌时，本局结束并计算奖励
-                if confirm:
-                    # 清空声明序列 (只允许一次和牌)
-                    self.claims = []
-
-                    # 荣和的是立直宣言牌的情况下，立直不成立
-                    self.to_riichi = False
-
-                    # 如果荣和是明杠/加杠摸岭上牌后打出的牌，则不翻开新dora
-                    self.to_open_dora = 0
-
-                    # 更新游戏状态并计算奖励
-                    #self.hands[player] += [claim['tile']]
-
-                    # 立直棒数清零
-                    self.num_kyoutaku += self.num_riichi
-                    self.num_riichi = 0
-                    self.agari = self.agari_calculation(player, fromwho, claim['tile'], claim["config"])
-                    self.num_kyoutaku = 0
-                    #self.hands[player].pop()
-
-                    self.phase = "score"
-                    self.current_player = 0
+                config = [None,]
+                if self._is_chankan is None:
+                    claimed_tile = self.last_discarded_tile
+                    fromwho = self.last_discarder
+                    self.can_ron(player, claimed_tile, config=config)
                 else:
-                    # 进入同巡振听状态
-                    self.furiten_1[player] = True
+                    claimed_tile = self._is_chankan["tiles"][0]
+                    fromwho = self._is_chankan["fromwho"]
+                    is_ankan = len(self._is_chankan["tiles"]) == 4
+                    is_chankan = len(self._is_chankan["tiles"]) == 1
+                    self.can_ron(player, claimed_tile, is_ankan = is_ankan, is_chankan = is_chankan, config=config)
+                # 玩家选择和牌时，本局结束并计算奖励
 
-                    # 玩家选择不和且有其他询问时，继续询问
-                    if self.claims:
-                        if self.claims[0]["type"] != 'ron':
-                            # 立直宣言牌的情况下，检查claims中如果没有荣和，则立直成功并放置立直棒， 如果有，则先处理荣和
-                            self.complete_riichi(fromwho)
-                            # 如果是摸岭上后的弃牌，检查claims中如果没有荣和，则弃牌成立并翻开新dora， 如果有，则先处理荣和
-                            if self.to_open_dora:
-                                self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
-                                self.to_open_dora -= 1
-                                # 记录天凤格式log e.g., <DORA hai="79" />
-                                self.logger.add_dora(self.dora_indicator[-1])
-                        self.phase = self.claims[0]["type"]
-                        self.current_player = self.claims[0]["who"]
-                    else:
-                        # 玩家选择不和且没有其他询问
-                        # 立直宣言牌的情况下，则立直成功并放置立直棒
-                        self.complete_riichi(fromwho)
-                        # 如果是摸岭上后的弃牌，则弃牌成立并翻开新dora
-                        if self.to_open_dora:
-                            self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
-                            self.to_open_dora -= 1
-                            # 记录天凤格式log e.g., <DORA hai="79" />
-                            self.logger.add_dora(self.dora_indicator[-1])
+                # 清空声明序列 (只允许一次和牌)
+                self.claims = []
 
-                        # 下一个玩家继续摸牌
-                        self.current_player = (fromwho + 1) % self.num_players
-                        self.phase = "draw"
+                # 荣和的是立直宣言牌的情况下，立直不成立
+                self.to_riichi = False
+
+                # 如果荣和是明杠/加杠摸岭上牌后打出的牌，则不翻开新dora
+                self.to_open_dora = 0
+
+                # 更新游戏状态并计算奖励
+                #self.hands[player] += [claim['tile']]
+
+                # 立直棒数清零
+                self.num_kyoutaku += self.num_riichi
+                self.num_riichi = 0
+                self.agari = self.agari_calculation(player, fromwho, claimed_tile, config[0])
+                self.num_kyoutaku = 0
+                #self.hands[player].pop()
+
+                self.phase = "score"
+                self.current_player = 0
 
             case "ryuukyoku":
                 '''
@@ -455,24 +455,23 @@ class MahjongEnvBase():
                 "nm"     -> 流局满贯 # TODO: 无实现
                 ""       -> 荒牌流局
                 '''
+                self.complete_riichi(self.last_discarder)
+                if self.to_open_dora:
+                    self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
+                    self.to_open_dora -= 1
+                    # 记录天凤格式log e.g., <DORA hai="79" />
+                    self.logger.add_dora(self.dora_indicator[-1])
+
                 self.ryuukyoku_type = ""
                 is_yao9 = self.is_yao9(self.current_player)
                 if is_yao9:
-                    if confirm:
-                        self.ryuukyoku_type = "九種九牌"
-                        self.phase = "score"
-                        self.final_penalty = False # 不进行罚符
-                        self.current_player = 0
-                    else:
-                        self.claims.pop(0)
-                        # 玩家选择不流局且有其他询问时，继续询问
-                        if self.claims:
-                            self.phase = self.claims[0]["type"]
-                            self.current_player = self.claims[0]["who"]
-                        else:
-                            # 九种九牌是在摸牌后，丢牌前检查，所以不会有其他玩家的询问
-                            self.phase = "discard"
+                    self.claims = []
+                    self.ryuukyoku_type = "九種九牌"
+                    self.phase = "score"
+                    self.final_penalty = False # 不进行罚符
+                    self.current_player = 0
                 else:
+                    self.claims = []
                     if self.can_kaze4 and self.kaze4_tile[1] == 4:
                         self.ryuukyoku_type = "四風連打"
                         self.final_penalty = False # 不进行罚符
@@ -482,8 +481,15 @@ class MahjongEnvBase():
                     elif len(self.kan_tile) == 0:
                         self.ryuukyoku_type = "四槓散了"
                         self.final_penalty = False # 不进行罚符
+                    elif decisions is not None and \
+                        sum([1 for decision in decisions if decision.chosen.action_type == ActionType.RON])==3:
+                        self.ryuukyoku_type = "三家和了"
+                        self.final_penalty = False # 不进行罚符
                     elif len(self.deck) == 0:
                         self.ryuukyoku_type = "荒牌流局"
+                        # TODO: 检查流局满贯并更新 self.agari
+                        if any(self.nagashimangan):
+                            self.ryuukyoku_type = "流局満貫"
                         self.final_penalty = True # 进行罚符
                     else:
                         self.ryuukyoku_type = "无效状态"
@@ -507,18 +513,20 @@ class MahjongEnvBase():
                         if self.final_penalty:
                             # 计算流局罚符
                             num_tenpai = sum(self.tenpai)
-                            if 0 < num_tenpai < self.num_players:
+                            if 0 < num_tenpai < 4:
                                 if self.tenpai[player]:
                                     self.score_deltas[player] = MahjongEnvBase.RYUUKYOKU_PENALTY // num_tenpai
                                 else:
-                                    self.score_deltas[player] =-MahjongEnvBase.RYUUKYOKU_PENALTY // (self.num_players - num_tenpai)
+                                    self.score_deltas[player] =-MahjongEnvBase.RYUUKYOKU_PENALTY // (4 - num_tenpai)
 
                     # 计算奖励
+                    '''
                     if self.agari:
                         reward = 1 if self.score_deltas[player] > 0 else \
                                 -1 if self.score_deltas[player] < 0 else 0
                     else:
                         reward = 0.01 if self.tenpai[player] else -0.01
+                    '''
 
                 # 结束更新分数流程，决定是否开始下一局或者宣告游戏结束
                 if player == - 1:
@@ -587,20 +595,24 @@ class MahjongEnvBase():
                             self.num_kyoutaku = 0
 
                             # 顺位马
+                            rank_bonus = [50, 14, -26, -38]
                             for p in range(self.num_players):
-                                self.score_deltas[p] = self.RANK_BONUS[rank[p]]
+                                self.score_deltas[p] = rank_bonus[rank[p]]
 
                             # 记录天凤格式log
                             self.logger.add_owari(rt, self.scores, self.score_deltas)
 
                         case 'next_round':
+                            assert sum(self.scores) + (self.num_riichi + self.num_kyoutaku) * 10 == 1000, "总分数不等于100000"
                             self.reset_for_next_round()
-                            
+
                         case 'renchan':
+                            assert sum(self.scores) + (self.num_riichi + self.num_kyoutaku) * 10 == 1000, "总分数不等于100000"
                             self.reset_for_next_round(oya_continue=True)
 
                 else:
                     self.current_player = (player + 1) % self.num_players if (player + 1) < self.num_players else -1
+                    self.apply_decision(None)
             
             case "game_over":
                 # 更新顺位
@@ -615,7 +627,7 @@ class MahjongEnvBase():
 
             case "ankan"|"chakan":
                 # 暗杠/加杠逻辑
-                claim = self.claims[0]
+                #claim = self.claims[0]
                 if self.is_selecting_tiles_for_claim:
                     # 如果是暗杠，则在此时翻开一张dora
                     if self.phase == "ankan":
@@ -638,8 +650,8 @@ class MahjongEnvBase():
                                 self.logger.add_meld(player, m)
                                 break
                     else:
-                        new_meld = {"type":"kan", 
-                                    "fromwho":claim["fromwho"],  "offset":self.get_distance(player, claim["fromwho"]),
+                        new_meld = {"type": "kan", 
+                                    "fromwho": player,  "offset": 0,
                                     "m": [t for t in self.selected_tiles], 
                                     "claimed_tile": None,
                                     "opened": False}
@@ -663,12 +675,16 @@ class MahjongEnvBase():
 
                     # 更新待牌状态
                     self.update_machii(player)
+
+                    # 不再可以抢杠
+                    self._is_chankan = None
                     
                     # 如果没有其他玩家的声明，或者其他玩家选择不和，则进入摸岭上牌阶段
                     self.claims = []
                     self.is_selecting_tiles_for_claim = False
                     self.phase = "kan_draw"
-                elif confirm:
+                    #self.claims.append(self.claims.append({"type": "kan_draw", "fromwho": player, "who": player}))
+                else:
                     self.is_selecting_tiles_for_claim = True
                     # 选择手牌中要丢弃的牌
                     num_tiles_to_select = 4 if self.phase == "ankan" else 1
@@ -681,20 +697,10 @@ class MahjongEnvBase():
                     self.selected_tiles=tile_to_claim
 
                     # 开杠时检查其他玩家是否可以抢杠和
+                    self._is_chankan = {"fromwho": player, "tiles": tile_to_claim}
+                    self.claims = []
                     claimed = self.check_others_claim_chankan(tile_to_claim, player)
-                    if claimed:
-                        self.phase = self.claims[0]["type"]
-                        self.current_player = self.claims[0]["who"]
-                else:
-                    # 什么都不做
-                    self.claims.pop(0)
-                    # 玩家选择什么都不做且有其他询问时，继续询问
-                    if self.claims:
-                        self.phase = self.claims[0]["type"]
-                        self.current_player = self.claims[0]["who"]
-                    else:
-                        # 进入弃牌阶段
-                        self.phase = "discard"
+
 
             case "pon"|"kan"|"chi":
                 # 碰/杠/吃逻辑
@@ -702,83 +708,122 @@ class MahjongEnvBase():
                 # ...
                 # 碰、杠后，当前玩家可以继续打牌(有些规则里杠完再摸一张) 
                 # 这里可视需要决定是否继续由同一个玩家行动，或下一玩家
-                claim = self.claims[0]
-                fromwho = claim["fromwho"]
-                if confirm:
-                    self.is_selecting_tiles_for_claim = True
-                    # Pre-fill with selected tiles
-                    for idx in action:
-                        self.selected_tiles.append(self.hands[player][idx])
-                    self.hands[player] = [h for h in self.hands[player] if h not in self.selected_tiles]
-                    # 需要选择牌(需要进行动作合法性检查)
-                    # 碰/吃需要选择两张牌
-                    # （杠）需要选择第三张牌
-                    num_tiles_to_select = 3 if self.phase == "kan" else 2
+                #claim = self.claims[0]
+                #fromwho = claim["fromwho"]
+                fromwho = self.last_discarder
+                claimed_tile = self.last_discarded_tile
 
-                    # 选择完毕
-                    self.is_selecting_tiles_for_claim = False
+                # 立直宣言牌的情况下，检查claims中如果没有荣和，则立直成功并放置立直棒， 如果有，则先处理荣和
+                self.complete_riichi(fromwho)
+                # 如果是摸岭上后的弃牌，检查claims中如果没有荣和，则弃牌成立并翻开新dora， 如果有，则先处理荣和
+                if self.to_open_dora:
+                    self.dora_indicator.append(self.dead_wall[len(self.dora_indicator)*2+1])
+                    self.to_open_dora -= 1
+                    # 记录天凤格式log e.g., <DORA hai="79" />
+                    self.logger.add_dora(self.dora_indicator[-1])
 
-                    # 将丢弃的牌加入自己的副露(Melds)中,清空选中的牌
-                    self.last_discarded_tile = -1
-                    self.discard_pile[fromwho, claim["tile"]] = False # 移出弃牌堆
-                    self.discard_pile_seq[fromwho].remove(claim["tile"])
-                    new_meld = {"type":claim["type"], 
-                                "fromwho":fromwho, "offset":self.get_distance(player, fromwho),
-                                "m": sorted([t for t in self.selected_tiles] + [claim["tile"]]), 
-                                "claimed_tile": claim["tile"],
-                                "opened": True}
+                self.is_selecting_tiles_for_claim = True
+                # Pre-fill with selected tiles
+                for idx in action:
+                    self.selected_tiles.append(self.hands[player][idx])
+                self.hands[player] = [h for h in self.hands[player] if h not in self.selected_tiles]
+                # 需要选择牌(需要进行动作合法性检查)
+                # 碰/吃需要选择两张牌
+                # （杠）需要选择第三张牌
+                num_tiles_to_select = 3 if self.phase == "kan" else 2
 
-                    self.melds[player].append(new_meld)
-                    self.selected_tiles = []
+                # 选择完毕
+                self.is_selecting_tiles_for_claim = False
 
-                    # 更新待牌状态
+                # 将丢弃的牌加入自己的副露(Melds)中,清空选中的牌
+                self.last_discarded_tile = -1
+                #self.discard_pile[fromwho, claimed_tile] = False # 移出弃牌堆
+                self.discard_pile_seq[fromwho].remove(claimed_tile)
+                new_meld = {"type":self.phase, # claim['type'] 
+                            "fromwho":fromwho, "offset":self.get_distance(player, fromwho),
+                            "m": sorted([t for t in self.selected_tiles] + [claimed_tile]), 
+                            "claimed_tile": claimed_tile,
+                            "opened": True}
+
+                self.melds[player].append(new_meld)
+                self.selected_tiles = []
+
+                # 更新待牌状态
+                if self.phase == "kan":
                     self.update_machii(player)
 
-                    # （吃碰）接下来进入弃牌阶段，切一张牌
-                    # （杠）接下来进入摸牌阶段，摸一张牌
-                    self.phase="kan_draw" if self.phase == "kan" else "discard"
+                # （吃碰）接下来进入弃牌阶段，切一张牌
+                # （杠）接下来进入摸牌阶段，摸一张牌
+                self.phase="kan_draw" if self.phase == "kan" else "?"
 
-                    # 清空声明序列
-                    self.claims = []
+                # 清空声明序列
+                self.claims = [] if self.phase == "kan_draw" else \
+                                [{"type": "discard", "fromwho": player, "who": player}]
 
-                    # 消除所有的一发状态
-                    self.ippatsu = [False for _ in range(self.num_players)]
+                # 消除所有的一发状态
+                self.ippatsu = [False for _ in range(self.num_players)]
 
-                    # 吃碰杠时等于开始了新的一巡，可以解除自己的同巡振听状态
-                    self.furiten_1[player] = False
+                # 吃碰杠时等于开始了新的一巡，可以解除自己的同巡振听状态
+                self.furiten_1[player] = False
 
-                    # 鸣牌后第一巡役种不再成立（地和，双立直）
-                    self.first_turn = [False for _ in range(self.num_players)]
+                # 鸣牌后第一巡役种不再成立（地和，双立直）
+                self.first_turn = [False for _ in range(self.num_players)]
 
-                    # 鸣牌后四风连打不再成立
-                    self.can_kaze4 = False
+                # 鸣牌后四风连打不再成立
+                self.can_kaze4 = False
 
-                    # 鸣牌后门清不再成立
-                    self.menzen[player] = False
+                # 鸣牌后门清不再成立
+                self.menzen[player] = False
 
-                    # 记录天凤格式log e.g., <N who="2" m="25611" />
-                    self.logger.add_meld(player, new_meld)
-                else:
-                    # 什么都不做
-                    self.claims.pop(0)
-                    # 玩家选择什么都不做且有其他询问时，继续询问
-                    if self.claims:
-                        self.phase = self.claims[0]["type"]
-                        self.current_player = self.claims[0]["who"]
-                    else:
-                        # 玩家选择什么都不做且没有其他询问
-                        # 下一个玩家继续摸牌
-                        self.current_player = (fromwho + 1) % self.num_players
-                        self.phase = "draw"
+                # 鸣牌后被鸣者流满不成立
+                self.nagashimangan[fromwho] = False
+                    
+                # 记录天凤格式log e.g., <N who="2" m="25611" />
+                self.logger.add_meld(player, new_meld)
+
+        #print(f"PHASE END: {self.current_player} {self.phase}")
 
         # 5. 组装返回
-        obs = self.get_observation(self.current_player)
-        return obs, reward, self.done, info
+        valid_actions = self.compute_legal_actions()
+        requires_decision =[sum(x) > 1 for x in valid_actions]
+        observations = {i: self.get_observation(i, valid_actions[i]) if requires_decision[i] \
+                        else RiichiState(
+                            hand_counts=None,
+                            meld_counts_self=None,
+                            riichi=None,
+                            river_self=None,
+                            left=None, across=None, right=None,
+                            round_wind=None,
+                            seat_wind_self=None,
+                            dealer_self=None,
+                            turn_number=None,
+                            honba=None,
+                            riichi_sticks=None,
+                            score=None,
+                            rank=None,
+                            dora_indicators=None,
+                            aka5m=None, aka5p=None, aka5s=None,
+                            legal_discards_mask=None,
+                            last_draw_136=None,
+                            last_discarded_tile_136=None,
+                            last_discarder=None,
+                            visible_counts=None,
+                            remaining_counts=None,
+                            shantens=None,
+                            ukeires=None,
+                            legal_actions_mask=valid_actions[i]) for i in range(self.num_players)}
+        rewards = None
+        terminations = self.done
+        truncations = None
+        #infos = {self.current_player: info}
+        return observations, rewards, terminations, truncations, info
     
     def can_continue(self):
         # 是否结束游戏？
-        # 0 - 游戏结束, 1 - 本局结束, 2 - 庄家连庄
+        # 0 - 游戏结束, 1 - 本局结束, 2 - 庄家连庄, 3 - 重开本局
         # 如果末亲听牌或者和牌而成为一位，或者达到八连庄，则游戏结束 (TODO: 加入sudden death 和延长战：南入和西入)
+        if self.ryuukyoku_type in ["九種九牌", "四風連打", "四家立直", "四槓散了", "三家和了"]:
+            return 'renchan'
         oya_tenpai_or_agari = (self.tenpai[self.oya] and self.agari is None) or (self.agari and self.agari["who"]== self.oya)
         reach_max_renchan = self.round[1] >= MahjongEnvBase.MAX_HONBA
         is_extended = self.round[0] >= self.num_rounds
@@ -787,7 +832,7 @@ class MahjongEnvBase():
         
         if sudden_death:
             return 'game_over'
-        elif self.round[0] == (self.num_rounds + self.MAX_ROUND_EXTRA if nobody_exceeds_base_win_score else 0) - 1:
+        elif self.round[0] == (self.num_rounds + (self.MAX_ROUND_EXTRA if nobody_exceeds_base_win_score else 0)) - 1:
             oya_rank_top = self.scores[self.oya] == max(self.scores)
             if (oya_rank_top and oya_tenpai_or_agari) or reach_max_renchan:
                 return 'game_over'
@@ -852,7 +897,7 @@ class MahjongEnvBase():
         # 输出天凤格式的log. e.g. <T86/>
         self.logger.add_draw(player, tile)
         # 更新待牌状态
-        self.update_machii(player)
+        #self.update_machii(player)
 
     def draw_tile_from_dead_wall(self, player):
         """摸牌逻辑：开杠后从岭上牌拿一张给玩家，然后从海底补一张进王牌堆。"""
@@ -866,7 +911,7 @@ class MahjongEnvBase():
         # 输出天凤格式的log. e.g. <T86/>
         self.logger.add_draw(player, tile)
         # 更新待牌状态
-        self.update_machii(player)
+        #self.update_machii(player)
 
     def complete_riichi(self, player):
         if self.to_riichi:
@@ -877,11 +922,11 @@ class MahjongEnvBase():
             # 输出天凤格式的log. e.g. <REACH who="3" ten="250,250,250,240" step="2"/>
             self.logger.add_reach_accepted(player, self.scores)
     
-    def get_observation(self, player):
+    def get_observation(self, who, legal_actions):
         """根据当前玩家，返回相应的状态表示。"""
         return {}
     
-    def action_masks(self) -> list[bool]:
+    def action_masks(self, player) -> list[bool]:
         """返回当前玩家的动作掩码。"""
         return []
     
@@ -954,7 +999,8 @@ class MahjongEnvBase():
             return True
         return False
 
-    def has_yaku(self, player):
+    # Deprecated
+    def _has_yaku(self, player):
         """简单检测该玩家是否有役。调用一个和牌判断函数。"""
         # 检查是否有役
         who = player
@@ -1145,21 +1191,32 @@ class MahjongEnvBase():
     
     def update_machii(self, player):
         """更新玩家的待牌状态。"""
-        self.machii[player] = self.hand_checker.check_machii(self.hands[player], self.melds[player])
+        remaining = np.zeros((NUM_TILES,)) + 4
+        hand_counts = np.zeros((NUM_TILES,))
+        for pai in self.hands[player]:
+            hand_counts[pai//4] += 1
+        # 允许形听
+        result = compute_ukeire_advanced(hand_counts, None, remaining)
+        if result["shanten"] == 0:
+            self.machii[player] = [pai for pai, _ in result["tiles"]]
+        else:
+            self.machii[player] = []
 
         # 检查是否舍张振听
         self.furiten_0[player] = False
         for t in self.machii[player]:
-            if sum(self.discard_pile[player, (t//4)*4:(t//4+1)*4]) > 0:
+            if self.discard_pile[player, t] > 0:
                 self.furiten_0[player] = True
                 return
-        
+            
+        '''
         # 即使牌河的牌没构成振听，被鸣走的牌也可以构成振听
         for melds in [melds for i, melds in enumerate(self.melds) if i != player]:
             for meld in melds:
                 if meld["fromwho"] == player and meld["claimed_tile"]//4 in self.machii[player]:
                     self.furiten_0[player] = True
                     return
+        '''
                 
     def can_ron(self, player, tile, is_ankan=False, is_chankan=False, config = [None,]):
         """简单检测该玩家是否和牌。调用一个和牌判断函数。"""        
@@ -1173,6 +1230,10 @@ class MahjongEnvBase():
             if self.furiten_0[player]:
                 return False
         
+        # 检查牌型是否满足
+        if not tile//4 in self.machii[player]:
+            return False
+
         if is_ankan:
             # 处于暗杠期间，检查自己手牌是否为国士无双听牌
             return self.hand_checker.check_win_condition_kokushi(self.hands[player]+[tile])
@@ -1392,11 +1453,154 @@ class MahjongEnvBase():
         """将136张牌表示转换为4x34表示。"""
         return self.tiles_bool_to_4x34(self.tiles_136_to_bool(tiles_136))
     
-    def action_map(self, action_grp):
+    def action_map(self, player, action_grp):
         return action_grp
+    
+    def compute_legal_actions(self) -> list[list[bool]]:
+        return [self._compute_legal_actions_per(who) for who in range(self.num_players)]
 
-    def close(self):
-        pass
+    def _compute_legal_actions_per(self, who) -> list[bool]:
+        if self.phase in ["score", "game_over", "tsumo", "ron", "ryuukyoku"]:
+            return [False]*NUM_ACTIONS
+        
+        phases = [c["type"] for c in self.claims if c["who"] == who]
+
+        if len(self.hands[who]) in [2, 5, 8, 11, 14] and \
+            not self.is_selecting_tiles_for_claim:
+            phases.append("discard")
+
+        total_mask = [False] * NUM_ACTIONS
+        for phase in phases:
+            match phase:
+                case "discard":
+                    mask = [False] * NUM_ACTIONS
+                    if self.riichi[who]:
+                        # 立直后只能打最后摸到的牌
+                        mask[self.hands[who][-1]//4]=True
+                    else:
+                        for t136 in self.hands[who]:
+                            mask[t136//4]=True
+                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+
+                case "chi":
+                    if self.riichi[who]:
+                        continue
+                    mask = [False] * NUM_ACTIONS
+                    assert self.last_discarded_tile >= 0
+                    claimed_t34 = self.last_discarded_tile//4
+                    rank = claimed_t34 % 9
+                    hand_34 = [False] * 34
+                    for t136 in self.hands[who]:
+                        hand_34[t136//4]+=1
+                    if 0 <= rank <= 6:
+                        has_required_tiles = hand_34[claimed_t34+1] > 0 and hand_34[claimed_t34+2] > 0
+                        mask[get_action_index((self.last_discarded_tile//4,0), phase)]=has_required_tiles
+                    if 1 <= rank <= 7:
+                        has_required_tiles = hand_34[claimed_t34-1] > 0 and hand_34[claimed_t34+1] > 0
+                        mask[get_action_index((self.last_discarded_tile//4-1,1), phase)]=has_required_tiles
+                    if 2 <= rank <= 8:
+                        has_required_tiles = hand_34[claimed_t34-2] > 0 and hand_34[claimed_t34-1] > 0
+                        mask[get_action_index((self.last_discarded_tile//4-2,2), phase)]=has_required_tiles
+                    mask[get_action_index(None, ("pass",phase))]=True
+                    mask[get_action_index(None, "pass")]=True
+                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+
+                case "pon"|"kan":
+                    if self.riichi[who]:
+                        continue
+                    assert self.last_discarded_tile >= 0
+                    mask = [False] * NUM_ACTIONS
+                    mask[get_action_index((self.last_discarded_tile//4,0), phase)]=True
+                    mask[get_action_index(None, ("pass",phase))]=True
+                    mask[get_action_index(None, "pass")]=True
+                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+                    
+                case "ron":
+                    mask = [False] * NUM_ACTIONS
+                    # furiten justification
+                    if not (self.furiten_0[who] or self.furiten_1[who]):
+                        mask[get_action_index(None, phase)]=True
+                    mask[get_action_index(None, ("pass",phase))]=True
+                    mask[get_action_index(None, "pass")]=True
+                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+
+                case "tsumo":
+                    mask = [False] * NUM_ACTIONS
+                    mask[get_action_index(None, phase)]=True
+                    mask[get_action_index(None, ("pass",phase))]=True
+                    mask[get_action_index(None, "pass")]=True
+                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+
+                case "ryuukyoku":
+                    mask = [False] * NUM_ACTIONS
+                    mask[get_action_index(None, phase)]=True
+                    if self.is_yao9(who):
+                        mask[get_action_index(None, ("pass",phase))]=True
+                        mask[get_action_index(None, "pass")]=True
+                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+                
+                case "ankan":
+                    if self.riichi[who]:
+                        continue
+                    # TODO: ankan after riichi should not change the machii
+                    mask = [False] * NUM_ACTIONS
+                    if self.is_selecting_tiles_for_claim:
+                        continue
+                    else:
+                        hands_34 = [tile // 4 for tile in self.hands[who]]
+        
+                        for tile, count in Counter(hands_34).items():
+                            if count >= 4:
+                                for i, t in enumerate(hands_34):
+                                    if t == tile:
+                                        mask[get_action_index((t,None), "kan")]=True
+                        mask[get_action_index(None, ("pass",phase))]=True
+                        mask[get_action_index(None, "pass")]=True
+                        total_mask = [a | b for a, b in zip(total_mask, mask)]
+
+                case "chakan":
+                    if self.riichi[who]:
+                        continue
+                    mask = [False] * NUM_ACTIONS
+                    if self.is_selecting_tiles_for_claim:
+                        continue
+                    else:
+                        hands_34 = [tile // 4 for tile in self.hands[who]]
+        
+                        for m in self.melds[who]:
+                            if m["type"] == "pon":
+                                tile = m["claimed_tile"] // 4
+                                for i, t in enumerate(hands_34):
+                                    if t == tile:
+                                        mask[get_action_index((t,0), "chakan")]=True
+                        mask[get_action_index(None, ("pass",phase))]=True
+                        mask[get_action_index(None, "pass")]=True
+                        total_mask = [a | b for a, b in zip(total_mask, mask)]
+                
+                case "riichi":
+                    if self.riichi[who]:
+                        continue
+                    mask = [False] * NUM_ACTIONS
+                    # 立直时只能打能使手牌听牌的牌
+                    #shantens = self.hand_checker.check_shantens(self.hands[who])
+                    #discard_for_riichi = [t//4 for i, t in enumerate(self.hands[who]) if shantens[i] <= 0]
+                    counts = [0]*NUM_TILES
+                    for tid in self.hands[who]:
+                        counts[tid // 4] += 1
+                    shantens, _ = compute_all_discards_ukeire_fast(counts, [4]*NUM_TILES)
+                    discard_for_riichi = [t34 for t34, sh in enumerate(shantens) if sh <= 0]
+                    for t34 in discard_for_riichi:
+                        mask[get_action_index(t34, "riichi")]=True
+                    mask[get_action_index(None, ("pass",phase))]=True
+                    mask[get_action_index(None, "pass")]=True
+                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+        
+        # 自己回合时没有pass动作
+        if len(self.hands[who]) in [2, 5, 8, 11, 14] and \
+            not self.is_selecting_tiles_for_claim:
+            total_mask = [a if i < get_action_index(None, "pass") else False for i, a in enumerate(total_mask)]
+
+        return total_mask
 
 
 class MahjongEnv(MahjongEnvBase):
@@ -1414,122 +1618,22 @@ class MahjongEnv(MahjongEnvBase):
 
         self.reset()
 
-    def get_observation(self, player):
+    def get_observation(self, player, legal_actions):
         """根据当前玩家，返回相应的状态表示。"""
-        return self.logger.snapshot_before_action(player), {'who':player}
+        return self.logger.snapshot_before_action(player, legal_actions=legal_actions)
     
-    def action_masks(self) -> list[bool]:
-        match self.phase:
-            case "discard":
-                mask = [False] * NUM_ACTIONS
-                if self.riichi[self.current_player]:
-                    # 立直后只能打最后摸到的牌
-                    mask[self.hands[self.current_player][-1]//4]=True
-                else:
-                    for t136 in self.hands[self.current_player]:
-                        mask[t136//4]=True
-                return mask
-
-            case "chi":
-                mask = [False] * NUM_ACTIONS
-                claimed_t34 = self.claims[0]["tile"]//4
-                rank = claimed_t34 % 9
-                hand_34 = [False] * 34
-                for t136 in self.hands[self.current_player]:
-                    hand_34[t136//4]+=1
-                if 0 <= rank <= 6:
-                    has_required_tiles = hand_34[claimed_t34+1] > 0 and hand_34[claimed_t34+2] > 0
-                    mask[get_action_index((self.claims[0]["tile"]//4,0), self.phase)]=has_required_tiles
-                if 1 <= rank <= 7:
-                    has_required_tiles = hand_34[claimed_t34-1] > 0 and hand_34[claimed_t34+1] > 0
-                    mask[get_action_index((self.claims[0]["tile"]//4-1,1), self.phase)]=has_required_tiles
-                if 2 <= rank <= 8:
-                    has_required_tiles = hand_34[claimed_t34-2] > 0 and hand_34[claimed_t34-1] > 0
-                    mask[get_action_index((self.claims[0]["tile"]//4-2,2), self.phase)]=has_required_tiles
-                mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-
-            case "pon"|"kan":
-                mask = [False] * NUM_ACTIONS
-                mask[get_action_index((self.claims[0]["tile"]//4,0), self.phase)]=True
-                mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-                
-            case "ron":
-                mask = [False] * NUM_ACTIONS
-                # furiten justification
-                if not (self.furiten_0[self.current_player] or self.furiten_1[self.current_player]):
-                    mask[get_action_index(None, self.phase)]=True
-                mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-
-            case "tsumo":
-                mask = [False] * NUM_ACTIONS
-                mask[get_action_index(None, self.phase)]=True
-                mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-
-            case "ryuukyoku":
-                mask = [False] * NUM_ACTIONS
-                mask[get_action_index(None, self.phase)]=True
-                if self.is_yao9(self.current_player):
-                    mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-            
-            case "ankan":
-                # TODO: ankan after riichi should not change the machii
-                mask = [False] * NUM_ACTIONS
-                if self.is_selecting_tiles_for_claim:
-                    return mask
-                hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
- 
-                for tile, count in Counter(hands_34).items():
-                    if count >= 4:
-                        for i, t in enumerate(hands_34):
-                            if t == tile:
-                                mask[get_action_index((t,None), "kan")]=True
-                mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-
-            case "chakan":
-                mask = [False] * NUM_ACTIONS
-                if self.is_selecting_tiles_for_claim:
-                    return mask
-                hands_34 = [tile // 4 for tile in self.hands[self.current_player]]
- 
-                for m in self.melds[self.current_player]:
-                    if m["type"] == "pon":
-                        tile = m["claimed_tile"] // 4
-                        for i, t in enumerate(hands_34):
-                            if t == tile:
-                                mask[get_action_index((t,0), "chakan")]=True
-                mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-            
-            case "riichi":
-                mask = [False] * NUM_ACTIONS
-                # 立直时只能打能使手牌听牌的牌
-                shantens = self.hand_checker.check_shantens(self.hands[self.current_player])
-                discard_for_riichi = [t//4 for i, t in enumerate(self.hands[self.current_player]) if shantens[i] <= 0]
-                for t34 in discard_for_riichi:
-                    mask[get_action_index(t34, "riichi")]=True
-                mask[get_action_index(None, ("pass",self.phase))]=True
-                return mask
-
-        return [False] * NUM_ACTIONS
-    
-    def action_map(self, action_grp: int):
+    def action_map(self, player: int, action_grp: int):
         payload, confirm = get_action_from_index(action_grp)
 
         def _hand_index(tile_34: int) -> int:
-            hand = list(reversed(self.hands[self.current_player]))
+            hand = list(reversed(self.hands[player]))
             for idx, tile in enumerate(hand):
                 if tile // 4 == tile_34:
                     return len(hand)-idx-1
             raise ValueError(f"tile {tile_34} not found in hand {hand}")
 
         def _hand_indices(tiles_34: List[int]) -> List[int]:
-            hand = list(reversed(self.hands[self.current_player]))
+            hand = list(reversed(self.hands[player]))
             out = []
             for tile_34 in tiles_34:
                 for idx, tile in enumerate(hand):

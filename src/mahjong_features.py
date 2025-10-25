@@ -18,8 +18,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Sequence, Tuple
 import math
+from functools import lru_cache
 import torch
 from shanten_dp import compute_ukeire_advanced
+from my_types import ActionType
 
 
 # ----------------------------
@@ -600,94 +602,97 @@ class RiichiResNetFeatures(torch.nn.Module):
         }
 
 
+@lru_cache(maxsize=None)
 def get_action_index(t_34, type):
     """Map an action description to the flat action index used in ``print_all_actions``."""
     """t_34 can be the tile index or the (t_34, called_index) for chi. """
     action_type = type.lower() if isinstance(type, str) else type
 
-    if action_type == "discard":
-        return int(t_34)
+    match action_type:
+        case "discard":
+            return int(t_34)
 
-    if action_type == "riichi":
-        return 34 + int(t_34)
+        case "riichi":
+            return 34 + int(t_34)
 
-    if action_type == "chi":
-        base, called = t_34
-        base, called = int(base), int(called)
-        suit = base // 9
-        rank = base % 9
-        offset = 68 + suit * 15
-        if called == 0:
-            local_a = rank + 1
-            return offset + local_a
-        elif called == 1:
-            local_a = rank
-            return offset + 8 + local_a
-        elif called == 2:
-            local_a = rank
-            return offset + local_a
-        raise ValueError(f"Unsupported chi shape: {t_34}")
+        case "chi":
+            base, called = t_34
+            base, called = int(base), int(called)
+            suit = base // 9
+            rank = base % 9
+            offset = 68 + suit * 15
+            if called == 0:
+                local_a = rank + 1
+                return offset + local_a
+            elif called == 1:
+                local_a = rank
+                return offset + 8 + local_a
+            elif called == 2:
+                local_a = rank
+                return offset + local_a
+            raise ValueError(f"Unsupported chi shape: {t_34}")
 
-    if action_type == "pon":
-        base, called = t_34
-        base = int(base)
-        return 113 + base
+        case "pon":
+            base, called = t_34
+            base = int(base)
+            return 113 + base
 
-    if action_type == "kan":
-        base, called = t_34
-        base = int(base)
-        if called != None:
-            return 147 + base
-        else:
-            return 215 + base
+        case "kan":
+            base, called = t_34
+            base = int(base)
+            if called != None:
+                return 147 + base
+            else:
+                return 215 + base
 
-    if action_type == "chakan":
-        base, called = t_34
-        base = int(base)
-        return 181 + base
+        case "chakan":
+            base, called = t_34
+            base = int(base)
+            return 181 + base
 
-    if action_type == "ryuukyoku":
-        return 249
+        case "ryuukyoku":
+            return 249
 
-    if action_type == "ron":
-        return 250
+        case "ron":
+            return 250
 
-    if action_type == "tsumo":
-        return 251
+        case "tsumo":
+            return 251
 
-    if action_type in ("cancel", "pass"):
-        return 252
+        case "cancel"|"pass":
+            return 252
 
-    if action_type == ("pass", "riichi"):
-        return 253
+        case ("pass", "riichi"):
+            return 253
 
-    if action_type == ("pass", "chi"):
-        return 254
+        case ("pass", "chi"):
+            return 254
 
-    if action_type == ("pass", "pon"):
-        return 255
-    
-    if action_type == ("pass", "kan"):
-        return 256
-    
-    if action_type == ("pass", "ankan"):
-        return 257
-    
-    if action_type == ("pass", "chakan"):
-        return 258
+        case ("pass", "pon"):
+            return 255
+        
+        case ("pass", "kan"):
+            return 256
+        
+        case ("pass", "ankan"):
+            return 257
+        
+        case ("pass", "chakan"):
+            return 258
 
-    if action_type == ("pass", "ryuukyoku"):
-        return 259
-    
-    if action_type == ("pass", "ron"):
-        return 260
+        case ("pass", "ryuukyoku"):
+            return 259
+        
+        case ("pass", "ron"):
+            return 260
 
-    if action_type == ("pass", "tsumo"):
-        return 261
+        case ("pass", "tsumo"):
+            return 261
     
     raise ValueError(f"Unsupported action type: {type}")
 
 
+@lru_cache(maxsize=None)
 def get_action_from_index(i):
     # discard
     if i < 34:
@@ -810,6 +815,60 @@ def get_actions():
         pouts.append((255, False))
 
     return pouts
+
+
+@lru_cache(maxsize=None)
+def get_action_type_from_index(i):
+    # discard
+    if i < 34:
+        return ActionType.DISCARD
+
+    # riichi
+    elif i < 68:
+        return ActionType.RIICHI
+
+    # chi
+    elif i < 113:
+        return ActionType.CHI
+
+    # pon
+    elif i < 147:
+        return ActionType.PON
+
+    # kan
+    elif i < 181:
+        return ActionType.KAN
+
+    # chakan
+    elif i < 215:
+        return ActionType.CHAKAN
+
+    # ankan
+    elif i < 249:
+        return ActionType.ANKAN
+
+    # ryuukyoku
+    elif i == 249:
+        return ActionType.RYUUKYOKU
+
+    # ron
+    elif i == 250:
+        return ActionType.RON
+
+    # tsumo
+    elif i == 251:
+        return ActionType.TSUMO
+
+    # cancel
+    elif i == 252:
+        return ActionType.PASS
+
+    # cancel (action group specific)
+    elif 252 < i < 262:
+        return ActionType.PASS
+    
+    else:
+        return None
 
 
 # ----------------------------

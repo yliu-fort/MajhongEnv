@@ -130,7 +130,8 @@ class MahjongLoggerBase:
             agari_tag.set("m", ",".join([str(encode_meld(m)) for m in melds]))
         agari_tag.set("machi", str(machi))
         agari_tag.set("ten", ",".join([str(x) for x in ten]))
-        agari_tag.set("yaku", ",".join([str(x) for x in yaku]))
+        if yaku:
+            agari_tag.set("yaku", ",".join([str(x) for x in yaku]))
         if yakuman:
             agari_tag.set("yakuman", ",".join([str(x) for x in yakuman]))
         agari_tag.set("doraHai", ",".join([str(x) for x in dora_indicator]))

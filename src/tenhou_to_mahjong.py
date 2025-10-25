@@ -94,8 +94,9 @@ except Exception:
         aka5s: bool = False
         legal_discards_mask: Optional[Sequence[int]] = None
 '''
-from mahjong_features_numpy import RiichiState, PlayerPublic, NUM_TILES, NUM_ACTIONS, get_action_index
-from shanten_dp import compute_ukeire_advanced
+from mahjong_features import RiichiState, PlayerPublic, NUM_TILES, NUM_ACTIONS
+from shanten_dp import compute_ukeire_advanced, compute_all_discards_ukeire_fast
+from mahjong_features import get_action_index
 
 # ----------------------------
 # Tenhou basics
@@ -399,7 +400,7 @@ class TenhouRoundTracker:
         self.dora_inds_t34.append(tid136_to_t34(tid))
 
     # snapshot BEFORE a specific player's discard
-    def snapshot_before_action(self, who: int) -> RiichiState:
+    def snapshot_before_action(self, who: int, legal_actions: Optional[List[int]]=None) -> RiichiState:
         counts = [0]*NUM_TILES
         for tid in self.hands_136[who]:
             counts[tid136_to_t34(tid)] += 1
@@ -470,98 +471,105 @@ class TenhouRoundTracker:
         visible_counts = vc.astype(np.uint8).tolist()
         remaining_counts = remaining.astype(np.uint8).tolist()
 
-        shantens = [8] * NUM_TILES
-        ukeires = [0] * NUM_TILES
+        shantens, ukeires = compute_all_discards_ukeire_fast(counts, remaining_counts)
+        
+        '''
+        shantens0 = [8] * NUM_TILES
+        ukeires0 = [0] * NUM_TILES
         for tile, cnt in enumerate(counts):
             if cnt <= 0:
                 continue
             out = compute_ukeire_advanced(counts, tile, remaining_counts)
-            shantens[tile] = int(out.get("shanten", shantens[tile]))
-            ukeires[tile] = int(out.get("ukeire", ukeires[tile]))
+            shantens0[tile] = int(out.get("shanten", shantens0[tile]))
+            ukeires0[tile] = int(out.get("ukeire", ukeires0[tile]))
+        assert all(i == j for i, j in zip(shantens, shantens0)), f"Shanten={shantens}, Ref={shantens0}, counts={counts}, remaining={remaining_counts}"
+        assert all(i == j for i, j in zip(ukeires, ukeires0)), f"Ukeire={ukeires}, Ref={ukeires0}, counts={counts}, remaining={remaining_counts}"
+        '''
         
         # legal actions
-        total_tiles = sum(counts)
-        legal_actions = [False] * NUM_ACTIONS
-        meld_counts_self_arr = self.meld_counts[who]
-        in_riichi = self.riichi_flag[who]
-        can_declare_riichi = ((not in_riichi) or (self.discard_for_riichi[who])) and (self.menzen[who])
+        if legal_actions is None:
+            total_tiles = sum(counts)
+            legal_actions = [False] * NUM_ACTIONS
+            meld_counts_self_arr = self.meld_counts[who]
+            in_riichi = self.riichi_flag[who]
+            can_declare_riichi = ((not in_riichi) or (self.discard_for_riichi[who])) and (self.menzen[who])
 
-        if total_tiles % 3 == 2:  # player's own draw phase
-            for tile, cnt in enumerate(counts):
-                
-                if cnt <= 0:
-                    continue
+            if total_tiles % 3 == 2:  # player's own draw phase
+                for tile, cnt in enumerate(counts):
+                    
+                    if cnt <= 0:
+                        continue
 
-                discard_idx = get_action_index(tile, "discard")
-                legal_actions[discard_idx] = True
+                    discard_idx = get_action_index(tile, "discard")
+                    legal_actions[discard_idx] = True
 
-                ready_for_riichi = can_declare_riichi and shantens[tile] == 0
-                if ready_for_riichi:
-                    riichi_idx = get_action_index(tile, "riichi")
-                    legal_actions[riichi_idx] = True
-                    legal_actions[get_action_index(None, ("pass", "riichi"))] = True
+                    ready_for_riichi = can_declare_riichi and shantens[tile] == 0
+                    if ready_for_riichi:
+                        riichi_idx = get_action_index(tile, "riichi")
+                        legal_actions[riichi_idx] = True
+                        legal_actions[get_action_index(None, ("pass", "riichi"))] = True
 
-                if cnt >= 4:
-                    #open_kan_idx = get_action_index((tile, 0), "kan") # No implementation for 大明杠
-                    #legal_actions[open_kan_idx] = True
-                    closed_kan_idx = get_action_index((tile, None), "kan")
-                    legal_actions[closed_kan_idx] = True
-                    legal_actions[get_action_index(None, ("pass", "ankan"))] = True
+                    if cnt >= 4:
+                        #open_kan_idx = get_action_index((tile, 0), "kan") # No implementation for 大明杠
+                        #legal_actions[open_kan_idx] = True
+                        closed_kan_idx = get_action_index((tile, None), "kan")
+                        legal_actions[closed_kan_idx] = True
+                        legal_actions[get_action_index(None, ("pass", "ankan"))] = True
 
-                if in_riichi:
-                    continue
+                    if in_riichi:
+                        continue
 
-                if meld_counts_self_arr[tile] >= 3:
-                    chakan_idx = get_action_index((tile, 0), "chakan")
-                    legal_actions[chakan_idx] = True
-                    legal_actions[get_action_index(None, ("pass", "chakan"))] = True
+                    if meld_counts_self_arr[tile] >= 3:
+                        chakan_idx = get_action_index((tile, 0), "chakan")
+                        legal_actions[chakan_idx] = True
+                        legal_actions[get_action_index(None, ("pass", "chakan"))] = True
 
-        elif total_tiles % 3 == 1:  # opponent just discarded
-            last_tile_136 = self.last_discarded_tile_136
-            discarder = getattr(self, "last_discarder", -1)
-            if last_tile_136 >= 0 and discarder != -1 and discarder != who:
-                last_tile = tid136_to_t34(last_tile_136)
-                if not (0 <= last_tile < NUM_TILES):
-                    last_tile = -1
-                if last_tile == -1:
-                    count_last = 0
-                else:
-                    count_last = counts[last_tile]
+            elif total_tiles % 3 == 1:  # opponent just discarded
+                last_tile_136 = self.last_discarded_tile_136
+                discarder = getattr(self, "last_discarder", -1)
+                if last_tile_136 >= 0 and discarder != -1 and discarder != who:
+                    last_tile = tid136_to_t34(last_tile_136)
+                    if not (0 <= last_tile < NUM_TILES):
+                        last_tile = -1
+                    if last_tile == -1:
+                        count_last = 0
+                    else:
+                        count_last = counts[last_tile]
 
-                if count_last >= 2 and last_tile != -1:
-                    pon_idx = get_action_index((last_tile, 0), "pon")
-                    legal_actions[pon_idx] = True
-                    legal_actions[get_action_index(None, ("pass", "pon"))] = True
+                    if count_last >= 2 and last_tile != -1:
+                        pon_idx = get_action_index((last_tile, 0), "pon")
+                        legal_actions[pon_idx] = True
+                        legal_actions[get_action_index(None, ("pass", "pon"))] = True
 
-                if count_last >= 3 and last_tile != -1:
-                    kan_idx = get_action_index((last_tile, 0), "kan")
-                    legal_actions[kan_idx] = True
-                    legal_actions[get_action_index(None, ("pass", "kan"))] = True
+                    if count_last >= 3 and last_tile != -1:
+                        kan_idx = get_action_index((last_tile, 0), "kan")
+                        legal_actions[kan_idx] = True
+                        legal_actions[get_action_index(None, ("pass", "kan"))] = True
 
-                if last_tile != -1 and ((discarder + 1) % 4) == who and last_tile < 27:
-                    suit = last_tile // 9
-                    suit_min = suit * 9
-                    suit_max = suit_min + 8
-                    base_start = max(last_tile - 2, suit_min)
-                    base_end = min(last_tile, suit_max - 2)
-                    for base in range(base_start, base_end + 1):
-                        called = last_tile - base
-                        if called < 0 or called > 2:
-                            continue
-                        can_chi = True
-                        for seq_tile in (base, base + 1, base + 2):
-                            if seq_tile == last_tile:
+                    if last_tile != -1 and ((discarder + 1) % 4) == who and last_tile < 27:
+                        suit = last_tile // 9
+                        suit_min = suit * 9
+                        suit_max = suit_min + 8
+                        base_start = max(last_tile - 2, suit_min)
+                        base_end = min(last_tile, suit_max - 2)
+                        for base in range(base_start, base_end + 1):
+                            called = last_tile - base
+                            if called < 0 or called > 2:
                                 continue
-                            if counts[seq_tile] == 0:
-                                can_chi = False
-                                break
-                        if not can_chi:
-                            continue
-                        chi_idx = get_action_index((base, called), "chi")
-                        legal_actions[chi_idx] = True
-                        legal_actions[get_action_index(None, ("pass", "chi"))] = True
-                #pass_idx = get_action_index(None, "pass")
-                #legal_actions[pass_idx] = True
+                            can_chi = True
+                            for seq_tile in (base, base + 1, base + 2):
+                                if seq_tile == last_tile:
+                                    continue
+                                if counts[seq_tile] == 0:
+                                    can_chi = False
+                                    break
+                            if not can_chi:
+                                continue
+                            chi_idx = get_action_index((base, called), "chi")
+                            legal_actions[chi_idx] = True
+                            legal_actions[get_action_index(None, ("pass", "chi"))] = True
+                    #pass_idx = get_action_index(None, "pass")
+                    #legal_actions[pass_idx] = True
 
         # end of implementation for calculation for legal actions
 

@@ -22,8 +22,8 @@ from functools import lru_cache
 # 工具 & 常量
 # =========================
 # 经验：每项 ~1.4KB；10万项 ≈ 140MB；5万项 ≈ 70MB
-SUIT_CACHE_MAX = 50_000     # ~70MB 量级
-HONOR_CACHE_MAX = 10_000    # ~7-10MB 量级
+SUIT_CACHE_MAX = 500_000     # ~700MB 量级
+HONOR_CACHE_MAX = 100_000    # ~70-100MB 量级
 
 def _suit_range(tile):
     """返回该tile所在花色的起止索引 [lo, hi] (含)，以及是否字牌"""
@@ -458,6 +458,92 @@ def compute_ukeire_advanced(hand, last_draw34, remaining):
                     "shanten_chiitoi": chiitoi_sh, 
                     "shanten_kokushi": kokushi_sh}
     }
+
+
+def compute_all_discards_ukeire_fast(counts, remaining):
+    """
+    对每个可弃的 tile，计算“弃掉该张后”的整手最小向听与受入。
+    返回 (shantens, ukeires)，均为长度34的数组。
+    """
+    NUM_TILES = 34
+    shantens = [8] * NUM_TILES
+    ukeires = [0] * NUM_TILES
+
+    # 预先枚举“当前14张”的四类DP，后续只对被减去的那一门做 -1 增量重算
+    ms0 = _enumerate_suit_states(tuple(counts[0:9]))      # m门 DP 
+    ps0 = _enumerate_suit_states(tuple(counts[9:18]))     # p门 DP 
+    ss0 = _enumerate_suit_states(tuple(counts[18:27]))    # s门 DP 
+    zs0 = _enumerate_honor_states(tuple(counts[27:34]))   # 字牌 DP 
+
+    # 本回合内的“该门 -1 后的DP”小缓存，避免同门重复生成
+    minus1_cache = {}  # key: ('m'|'p'|'s'|'z', idx_in_suit, tuple_arr) -> states
+
+    def enum_after_minus_one(tile):
+        lo, hi, is_honor = _suit_range(tile)  # 0..8m, 9..17p, 18..26s, 27..33z
+        if is_honor:
+            # ✅ 正确：返回顺序必须是 (ms, ps, ss, zs)
+            arr = list(counts[27:34]); arr[tile-27] -= 1
+            key = ('z', tile-27, tuple(arr))
+            if key not in minus1_cache:
+                minus1_cache[key] = _enumerate_honor_states(tuple(arr))  # zs_minus1
+            zs_minus1 = minus1_cache[key]
+            return ms0, ps0, ss0, zs_minus1
+
+        # m/p/s 分支保持不变（把对应门的 -1 放到正确的位置）
+        base = lo
+        arr = list(counts[lo:hi+1]); arr[tile-lo] -= 1
+        key = ({0:'m',9:'p',18:'s'}[base], tile-lo, tuple(arr))
+        if key not in minus1_cache:
+            minus1_cache[key] = _enumerate_suit_states(tuple(arr))
+        if base == 0:   # 改m
+            return minus1_cache[key], ps0, ss0, zs0
+        if base == 9:   # 改p
+            return ms0, minus1_cache[key], ss0, zs0
+        else:           # 改s
+            return ms0, ps0, minus1_cache[key], zs0
+
+
+    for tile, cnt in enumerate(counts):
+        if cnt <= 0:
+            continue
+
+        # h13 = “假设打出 tile 后”的底座
+        h13 = counts[:]
+        h13[tile] -= 1
+
+        # 只对被减去的那门重算 DP；其它门复用
+        ms, ps, ss, zs = enum_after_minus_one(tile)
+        normal_sh, cache = _combine_four_groups(ms, ps, ss, zs)          
+        cache["ms"], cache["ps"], cache["ss"], cache["zs"] = ms, ps, ss, zs
+
+        # _recompute_normal_with_one_tile_added 计算字牌改良时会用到 other_than_z，一次性补上供复用
+        if "other_than_z" not in cache:
+            cache["other_than_z"] = list(_combine_four_groups(ms, ps, ss, [(0,0,0)])[1]["mpsz"])  
+
+        # 七对 / 国士（取最小，与原 compute_ukeire_advanced 一致）
+        chiitoi_sh, chiitoi_imp = _chiitoi_shanten_and_improves(h13, remaining)
+        kokushi_sh, kokushi_imp = _kokushi_shanten_and_improves(h13, remaining)
+        base_sh = min(normal_sh, chiitoi_sh, kokushi_sh)
+
+        # 汇总改良
+        improves = set()
+        if chiitoi_sh == base_sh: improves |= chiitoi_imp
+        if kokushi_sh == base_sh: improves |= kokushi_imp
+        if normal_sh == base_sh:
+            # 普通手只测“邻域候选”，再用“单花色 +1 快速重算”判定是否降向听 
+            for t2 in _normal_candidate_tiles(h13, remaining):
+                if h13[t2] >= 4 or remaining[t2] <= 0:
+                    continue
+                if _recompute_normal_with_one_tile_added(h13, cache, t2) < normal_sh:
+                    improves.add(t2)
+
+        ukeire = sum(remaining[t2] for t2 in improves if remaining[t2] > 0)
+        correction = ((14 - sum(h13)) // 3) * 2
+        shantens[tile] = int(base_sh - correction)       # 13张时的向听减掉额外修正项
+        ukeires[tile] = int(ukeire)
+
+    return shantens, ukeires
+
 
 # =========================
 # 示例：

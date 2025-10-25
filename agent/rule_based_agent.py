@@ -2,13 +2,15 @@ from __future__ import annotations
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import gymnasium as gym
 import numpy as np
 
 from shanten_dp import compute_ukeire_advanced
 from random_discard_agent import RandomDiscardAgent
-from mahjong_features_numpy import RiichiResNetFeatures, NUM_TILES
+from mahjong_features import RiichiResNetFeatures, NUM_TILES, get_action_type_from_index, NUM_ACTIONS
 from mahjong.tile import TilesConverter
 from mahjong_tiles_print_style import tile_printout
+from my_types import Response, ActionSketch, Seat, ActionType
 
 def tid136_to_t34(tid: int) -> int:
     return tid // 4
@@ -40,7 +42,7 @@ def good_moves(hand_34, remaining):
 
 
 class RuleBasedAgent:
-    def __init__(self, env, backbone: str = ""):
+    def __init__(self, env: gym.Env, backbone: str = ""):
         self.env = env
         self._alt_model = RandomDiscardAgent(env)
         self.extractor = RiichiResNetFeatures()
@@ -54,56 +56,70 @@ class RuleBasedAgent:
     def load_model(self, path=""):
         pass
 
-    def predict(self, observation):
-        # 如果当前状态是和牌状态，直接返回和牌动作
-        if self.env and (self.env.phase == "tsumo" or self.env.phase == "ron"):
-            return self._alt_model.predict(observation)
-        
-        # No options yet
-        if self.env and (self.env.phase == "riichi"):
-            return self._alt_model.predict(observation) if self.env.num_riichi < 3 else 252
+    
+    def predict(self, observation) -> ActionSketch:
+        #who = observation[1]["who"]
+        action_masks = observation.legal_actions_mask
+        valid_action_list = [i for i in list(range(NUM_ACTIONS)) if action_masks[i]]
+        allowed_action_type = set([get_action_type_from_index(i) for i, a in enumerate(action_masks) if a])
+        #print(allowed_action_type)
+        if sum(action_masks) == 0:
+            return None
+        elif sum(action_masks) == 1:
+            action_id = valid_action_list[0]
+            return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
 
-        
-        if self.env and (self.env.phase == "discard"):
+        if self.env and (any([_ in allowed_action_type for _ in [ActionType.TSUMO,]])):
+            return ActionSketch(action_type=ActionType.TSUMO, payload={"action_id": 251})
+
+        if self.env and (any([_ in allowed_action_type for _ in [ActionType.RON,]])):
+            return ActionSketch(action_type=ActionType.RON, payload={"action_id": 250})
+
+        if self.env and (any([_ in allowed_action_type for _ in [ActionType.RYUUKYOKU,]])):
+            return ActionSketch(action_type=ActionType.RYUUKYOKU, payload={"action_id": 249})
+               
+        # 如果当前状态是和牌状态，直接返回和牌动作        
+        if self.env and (ActionType.DISCARD in allowed_action_type):
             # 推理时获取动作
-            state = observation[0]
-            who = observation[1]['who']
+            state = observation
             shantens = state.shantens
             ukeires = state.ukeires
-            out = self.extractor(observation[0])
-            x = out["x"][:,:,0]
-            m = out["legal_mask"]
-            hands_34 = (np.array(self.env.hands[who]) // 4).tolist()
+            out = self.extractor(state)
+            x = out["x"][:,:,0].numpy()
+            m = out["legal_mask"].numpy()
+            #hands_34 = (np.array(self.env.hands[who]) // 4).tolist()
 
-            discard_priority_attack = sorted(list(range(NUM_TILES)), key=lambda i: (-m[i], shantens[i], -ukeires[i], i))
+            discard_priority_attack = sorted(list(range(NUM_TILES)), key=lambda i: (-int(m[i]), shantens[i], -ukeires[i], i))
             if m[discard_priority_attack[0]] == 1:
-                return discard_priority_attack[0]
+                action_id = discard_priority_attack[0]
+                action_id = action_id+34 if action_masks[action_id+34] else action_id
+                return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
 
+        if self.env and (any([_ in allowed_action_type for _ in [ActionType.CHI,]])):
+            return ActionSketch(action_type=ActionType.PASS, payload={"action_id": 252})
+        
         # if preds not in action_masks, return a random choice from action_masks.
-        if self.env and (self.env.phase in ["pon", "kan"]):
-            state = observation[0]
+        if self.env and (any([_ in allowed_action_type for _ in [ActionType.PON, ActionType.KAN]])):
+            state = observation
             
             remaining = RiichiResNetFeatures._default_visible_counts(state)
             claim = self.env.claims[0] # e.g., {"type": "pon", "fromwho": player, "who": other_player, "tile": tile})
             hand_counts = state.hand_counts[:] # should be 4, 7, 10, 13
-            
             base_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
+
             # get valid moves
-            if self.env.phase == "pon":
-                hand_counts[claim["tile"]//4]-=2
-            elif self.env.phase == "kan":
+            if ActionType.KAN in allowed_action_type:
                 hand_counts[claim["tile"]//4]-=3
+            elif ActionType.PON in allowed_action_type:
+                hand_counts[claim["tile"]//4]-=2
 
             new_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
             turn_number = state.turn_number
-            should_call = ( new_sh < base_sh ) & (turn_number >= 4)
-            should_call = True
+            should_call = ( new_sh < base_sh ) & (turn_number >= 6) & (base_sh > 2)
 
-            return self._alt_model.predict(observation) if should_call else 252
+            return self._alt_model.predict(observation) if should_call \
+                else ActionSketch(action_type=ActionType.PASS, payload={"action_id": 252})
         
-        if self.env and (self.env.phase in ["chi"]):
-            return 252
-
         return self._alt_model.predict(observation)
 
 
