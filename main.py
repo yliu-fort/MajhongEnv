@@ -141,6 +141,7 @@ class MahjongKivyApp(App):
         self._screen_manager: Optional[ScreenManager] = None
         self._game_screen: Optional[Screen] = None
         self._drive_event = None
+        self._log_counts = 0
 
     def build(self):
         base_path = Path(__file__).resolve().parent
@@ -164,6 +165,8 @@ class MahjongKivyApp(App):
         if result is not None:
             self._observation, _, done, _ = result
             if done:
+                self.env.logger.write_to_file(f"output/{self._log_counts}.mjlog")
+                self._log_counts += 1
                 self.return_to_menu()
                 return
 
@@ -244,7 +247,7 @@ class MahjongKivyApp(App):
     def _start_game(self, human_seats: Sequence[int]) -> None:
         self._cleanup_game()
 
-        self.env = MahjongEnv(num_players=4)
+        self.env = MahjongEnv(num_players=4, num_rounds=8)
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
         self._pending_requests = {}
         self._request_ids = count()
