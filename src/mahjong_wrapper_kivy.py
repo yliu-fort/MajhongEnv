@@ -36,7 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
     from agent.human_player_agent import HumanPlayerAgent
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
-from mahjong_features_numpy import get_action_from_index
+from mahjong_features import get_action_from_index
 
 # Dummy AI Agent class
 class _AIAgent:
