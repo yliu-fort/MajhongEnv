@@ -37,6 +37,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 from mahjong_features import get_action_from_index
+from my_types import Response
 
 # Dummy AI Agent class
 class _AIAgent:
@@ -373,7 +374,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
 
 @dataclass(slots=True)
 class _RenderPayload:
-    action: Optional[int]
+    action: Optional[Response]
     reward: float
     done: bool
     info: dict[str, Any]
@@ -610,8 +611,9 @@ class MahjongEnvKivyWrapper:
         self._score_pause_pending = False
         self._step_once_requested = False
         self._score_panel_was_visible = False
-        self._pending_action: Optional[int] = None
-        self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
+        self._pending_responses: dict[int, Response] = {}
+        self._pending_decision: Optional[Tuple[Response, ...]] = None
+        self._step_result: Optional[Tuple[Any, Any, Any, Any, Any]] = None
         self._step_event = threading.Event()
         self._scheduled = False
         self._action_deadline: Optional[float] = None
@@ -631,8 +633,12 @@ class MahjongEnvKivyWrapper:
         return self._root
 
     @property
-    def pending_action(self) -> Optional[int]:
-        return self._pending_action
+    def pending_action(self) -> Optional[Any]:
+        if self._pending_decision is not None:
+            return self._pending_decision
+        if self._pending_responses:
+            return self._pending_responses
+        return None
 
     @property
     def fps(self) -> int:
@@ -818,7 +824,8 @@ class MahjongEnvKivyWrapper:
         self._riichi_pending = []
         self._discard_counts = []
         self._riichi_declarations = {}
-        self._pending_action = None
+        self._pending_responses.clear()
+        self._pending_decision = None
         self._step_result = None
         self._latest_observation = observation
         self._assist_dirty = True
@@ -826,22 +833,45 @@ class MahjongEnvKivyWrapper:
         self._clear_human_actions()
         return observation
 
-    def step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
-        self.queue_action(action)
+    def step(
+        self, responses: Union[Response, Sequence[Response], dict[int, Response]]
+    ) -> Tuple[Any, Any, Any, Any, Any]:
+        self.queue_action(responses)
         while self._step_result is None:
             EventLoop.idle()
         result = self._step_result
         self._step_result = None
         return result
 
-    def queue_action(self, action: int) -> None:
-        if self._pending_action is not None:
+    def queue_action(
+        self, action: Union[Response, Sequence[Response], dict[int, Response]]
+    ) -> None:
+        if action is None:
             return
-        self._pending_action = action
+        if isinstance(action, dict):
+            self._pending_decision = None
+            for seat, response in action.items():
+                if isinstance(response, Response):
+                    self._pending_responses[int(seat)] = response
+        elif isinstance(action, Response):
+            self._pending_decision = None
+            self._pending_responses[int(action.from_seat)] = action
+        else:
+            responses = list(action)
+            if not responses:
+                return
+            if not all(isinstance(item, Response) for item in responses):
+                raise TypeError("queue_action expects Response payloads")
+            if len(responses) > 1:
+                self._pending_decision = tuple(responses)
+            else:
+                self._pending_decision = None
+                response = responses[0]
+                self._pending_responses[int(response.from_seat)] = response
         self._step_result = None
         self._step_event.clear()
 
-    def fetch_step_result(self) -> Optional[Tuple[Any, float, bool, dict[str, Any]]]:
+    def fetch_step_result(self) -> Optional[Tuple[Any, Any, Any, Any, Any]]:
         if self._step_result is None:
             return None
         result = self._step_result
@@ -854,8 +884,20 @@ class MahjongEnvKivyWrapper:
             self._scheduled = False
         self._env.close()
 
-    def action_masks(self) -> Any:
-        return self._env.action_masks()
+    def action_masks(self, seat: Optional[int] = None) -> Sequence[bool]:
+        legal = self._env.compute_legal_actions()
+        if seat is None:
+            seat = getattr(self._env, "current_player", 0)
+        try:
+            seat_index = int(seat)
+        except Exception:
+            seat_index = 0
+        if isinstance(legal, dict):
+            return legal.get(seat_index, [])
+        if isinstance(legal, Sequence) and legal:
+            if 0 <= seat_index < len(legal):
+                return legal[seat_index]
+        return []
 
     def bind_human_ui(self, seat: int, agent: "HumanPlayerAgent") -> None:
         """Register callbacks that display human actions and handle input."""
@@ -1293,7 +1335,7 @@ class MahjongEnvKivyWrapper:
             self._discard_counts[idx] = current_count
 
     def _on_frame(self, dt: float) -> None:
-        if self._pending_action is not None and self._step_result is None:
+        if self.pending_action is not None and self._step_result is None:
             can_step = True
             if not self._auto_advance and not self._step_once_requested:
                 can_step = False
@@ -1304,23 +1346,98 @@ class MahjongEnvKivyWrapper:
             if can_step:
                 if self._step_once_requested:
                     self._step_once_requested = False
-                action = self._pending_action
-                observation, reward, done, info = self._env.step(action)
-                self._pending_action = None
-                self._step_result = (observation, reward, done, info)
+                payload_action: Optional[Response] = None
+                if self._pending_decision is not None:
+                    decisions = list(self._pending_decision)
+                    result = self._env.apply_decision(decisions)
+                    payload_action = decisions[0] if decisions else None
+                    self._pending_decision = None
+                    self._pending_responses.clear()
+                else:
+                    responses = dict(self._pending_responses)
+                    result = self._env.step(responses)
+                    payload_action = next(iter(responses.values()), None)
+                    self._pending_responses.clear()
+                (
+                    observations,
+                    rewards,
+                    terminations,
+                    truncations,
+                    info,
+                ) = result
+                reward_value = self._extract_reward_value(rewards)
+                done_flag = self._compute_done_flag(terminations, truncations)
+                self._step_result = result
                 self._last_payload = _RenderPayload(
-                    action=action,
-                    reward=reward,
-                    done=done,
-                    info=info,
+                    action=payload_action,
+                    reward=reward_value,
+                    done=done_flag,
+                    info=info or {},
                 )
-                self._latest_observation = observation
+                self._latest_observation = observations
                 self._assist_dirty = True
                 self._step_event.set()
         self._update_pause_state()
         self._render()
         if self._step_result is not None:
             self._step_event.set()
+
+    def _extract_reward_value(self, rewards: Any) -> float:
+        if rewards is None:
+            return 0.0
+        if isinstance(rewards, dict) and rewards:
+            current = getattr(self._env, "current_player", 0)
+            if current in rewards:
+                try:
+                    return float(rewards[current])
+                except Exception:
+                    pass
+            first_value = next(iter(rewards.values()), 0.0)
+            try:
+                return float(first_value)
+            except Exception:
+                return 0.0
+        if isinstance(rewards, Sequence) and rewards:
+            current = getattr(self._env, "current_player", 0)
+            if isinstance(current, int) and 0 <= current < len(rewards):
+                try:
+                    return float(rewards[current])
+                except Exception:
+                    pass
+            try:
+                return float(rewards[0])
+            except Exception:
+                return 0.0
+        try:
+            return float(rewards)
+        except Exception:
+            return 0.0
+
+    def _compute_done_flag(self, terminations: Any, truncations: Any) -> bool:
+        done = False
+        if isinstance(terminations, dict):
+            done = any(bool(value) for value in terminations.values())
+        else:
+            done = bool(terminations)
+        if isinstance(truncations, dict):
+            done = done or any(bool(value) for value in truncations.values())
+        else:
+            done = done or bool(truncations)
+        return done
+
+    def _format_payload_action(self, response: Optional[Response]) -> str:
+        if response is None:
+            return "-"
+        chosen = getattr(response, "chosen", None)
+        payload = getattr(chosen, "payload", {}) if chosen is not None else {}
+        if isinstance(payload, dict):
+            action_id = payload.get("action_id")
+            if action_id is not None:
+                return str(action_id)
+        action_type = getattr(chosen, "action_type", None)
+        if action_type is not None:
+            return str(action_type)
+        return "-"
 
     def _render(self) -> None:
         board = self._root.board
@@ -2730,9 +2847,7 @@ class MahjongEnvKivyWrapper:
         )
         self._root.status_label.text = phase_text
         reward_color = self._danger_color if self._last_payload.reward < 0 else self._text_color
-        action_value = (
-            "-" if self._last_payload.action is None else str(self._last_payload.action)
-        )
+        action_value = self._format_payload_action(self._last_payload.action)
         reward_text = self._translate(
             "action_reward_format",
             action_label=self._translate("action_label"),
