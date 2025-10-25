@@ -42,8 +42,8 @@ class AgentController:
     def __init__(self, seat: int, agent: Optional[Any]) -> None:
         self.seat = seat
         self.agent = agent
-        self._request_queue: "queue.Queue[Optional[Tuple[int, Any, Any, float]]]" = queue.Queue()
-        self._response_queue: "queue.Queue[Tuple[int, Optional[int]]]" = queue.Queue()
+        self._request_queue: "queue.Queue[Optional[Tuple[int, Any, Any, float]]]" = queue.Queue() # TODO: 改成 Request
+        self._response_queue: "queue.Queue[Tuple[int, Optional[int]]]" = queue.Queue() # TODO: 改成 Response
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._worker,
@@ -178,13 +178,13 @@ class MahjongKivyApp(App):
             return
 
         ##################################################################################
-        ## The logic here may be updated by the modern Client, Engine, and Transport class
-        current_seat = getattr(self.env, "current_player", 0)
-        controller = self._controllers[current_seat]
-        pending = self._pending_requests.get(current_seat)
+        ## TODO: The logic here may be updated by the modern Client, Engine, and Transport class
+        current_seat = getattr(self.env, "current_player", 0) # should remove
+        controller = self._controllers[current_seat] # TODO: 现在我们需要循环所有的controller
+        pending = self._pending_requests.get(current_seat) # should remove
         now = time.monotonic()
 
-        if pending is None:
+        if pending is None: # no need to check for 'pending' now. we should send Requests to everyone.
             deadline = now + self._action_timeout
             request_id = next(self._request_ids)
             masks = self.wrapper.action_masks()
@@ -195,7 +195,7 @@ class MahjongKivyApp(App):
             )
             return
 
-        while True:
+        while True: # we should collect Response from everyone.
             response = controller.poll()
             if response is None:
                 break
