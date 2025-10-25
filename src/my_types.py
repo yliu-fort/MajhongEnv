@@ -67,4 +67,4 @@ class Response:
     step_id: int
     request_id: str
     from_seat: Seat
-    chosen: ActionSketch
+    chosen: Optional[ActionSketch] = None
