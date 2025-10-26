@@ -312,8 +312,7 @@ class MahjongKivyApp(App):
         self._cleanup_game()
 
     def start_ai_vs_human(self) -> None:
-        #self._start_game(human_seats=(random.choice([0, 1, 2, 3]),))
-        self._start_game(human_seats=(0,))
+        self._start_game(human_seats=(random.choice([0, 1, 2, 3]),))
 
     def start_ai_vs_ai(self) -> None:
         self._start_game(human_seats=())
