@@ -173,6 +173,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "step_next": "Next",
         "exit_to_menu": "Exit to Menu",
         "riichi_flag": "Riichi",
+        "furiten_flag": "Furiten",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "No Tenpai",
         "action_discard": "Discard",
@@ -234,6 +235,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "step_next": "下一步",
         "exit_to_menu": "返回菜单",
         "riichi_flag": "立直",
+        "furiten_flag": "振听",
         "tenpai_label": "听牌",
         "no_tenpai_label": "无听牌",
         "action_discard": "出牌",
@@ -295,6 +297,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "step_next": "次へ",
         "exit_to_menu": "メニューに戻る",
         "riichi_flag": "立直",
+        "furiten_flag": "フリテン",
         "tenpai_label": "聴牌",
         "no_tenpai_label": "ノーテン",
         "action_discard": "切る",
@@ -356,6 +359,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
         "step_next": "Suivant",
         "exit_to_menu": "Retour au menu",
         "riichi_flag": "Riichi",
+        "furiten_flag": "Furiten",
         "tenpai_label": "Tenpai",
         "no_tenpai_label": "Pas de Tenpai",
         "action_discard": "Défausser",
@@ -1319,7 +1323,7 @@ class MahjongEnvKivyWrapper:
                 if self._step_once_requested:
                     self._step_once_requested = False
                 action = self._pending_action
-                observation, reward, done, _, info = self._env.step(action) # TODO: Update the return tuple
+                observation, reward, done, _, info = self._env.step(action)
                 self._pending_action = None
                 self._step_result = (observation, reward, done, info)
                 '''
@@ -2067,6 +2071,7 @@ class MahjongEnvKivyWrapper:
             )
             x += spacing
 
+        xshift = 0
         riichi_flags = list(getattr(self._env, "riichi", []))
         in_riichi = player_idx < len(riichi_flags) and riichi_flags[player_idx]
         if in_riichi:
@@ -2102,6 +2107,46 @@ class MahjongEnvKivyWrapper:
                     pos=(px + padding, py + padding),
                 )
             )
+            xshift += flag_width / 2 + padding * 2
+
+        if face_up_hand:
+            furiten_0 = list(getattr(self._env, "furiten_0", []))
+            furiten_1 = list(getattr(self._env, "furiten_1", []))
+            in_furiten = player_idx < len(furiten_0) and (furiten_0[player_idx] or furiten_1[player_idx])
+            if in_furiten:
+                label = CoreLabel(
+                    text=self._translate("furiten_flag"),
+                    font_size=self._font_size - 2,
+                    font_name=self._font_name,
+                )
+                label.refresh()
+                padding = 4
+                flag_width = label.texture.size[0] + padding * 2
+                flag_height = label.texture.size[1] + padding * 2
+                flag_left = play_rect.centerx - flag_width / 2 if xshift == 0 else play_rect.centerx + xshift
+                flag_bottom = y - 6
+                flag_top = flag_bottom - flag_height
+                px, py = self._to_canvas_pos(
+                    board, play_rect, flag_left, flag_top, flag_width, flag_height
+                )
+                canvas.add(Color(*self._panel_color))
+                canvas.add(
+                    RoundedRectangle(
+                        pos=(px, py),
+                        size=(flag_width, flag_height),
+                        radius=[6, 6, 6, 6],
+                    )
+                )
+                canvas.add(Color(*self._danger_color))
+                canvas.add(Line(rounded_rectangle=(px, py, flag_width, flag_height, 6), width=2))
+                canvas.add(
+                    Rectangle(
+                        texture=label.texture,
+                        size=label.texture.size,
+                        pos=(px + padding, py + padding),
+                    )
+                )
+                xshift += flag_width + padding * 2
 
         self._draw_discards(canvas, board, play_rect, player_idx, tile_size)
         self._draw_melds(canvas, board, play_rect, player_idx, tile_size, meld_tile)
