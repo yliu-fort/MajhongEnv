@@ -108,6 +108,48 @@ class MahjongEnvBase(gym.Env):
         # 生成牌山 (136张牌，从最后一张开始摸牌，前14张为岭上牌)
         self.deck, self.dice = self.yama_generator.generate()
 
+        '''
+        # 大四喜
+        da_si_xi = [27*4 + _ for _ in range(3)]+[28*4 + _ for _ in range(3)]+[29*4 + _ for _ in range(3)]+[30*4 + _ for _ in range(3)]+[33*4 + _ for _ in range(2)]
+        rem = [i for i in self.deck if i not in da_si_xi]
+        h14ind = []
+        i = 0
+        for t in range(3):
+            for p in range(self.num_players):
+                for _ in range(4):
+                    if p == 0:
+                        h14ind.append(i)
+                    i += 1
+        h14ind.append(i)
+        h14ind.append(i+4)
+           
+        # 大四喜+四杠子
+        da_si_xi = [33*4, 33*4+1]+[27*4 + _ for _ in range(4)]+[28*4 + _ for _ in range(4)]+[29*4 + _ for _ in range(4)]+[30*4 + _ for _ in range(4)]
+        da_si_xi[1], da_si_xi[2] = da_si_xi[2], da_si_xi[1]
+        rem = [i for i in self.deck if i not in da_si_xi]
+        h14ind = []
+        i = 0
+        for t in range(3):
+            for p in range(self.num_players):
+                for _ in range(4):
+                    if p == 0:
+                        h14ind.append(i)
+                    i += 1
+        h14ind.append(i)
+        h14ind.append(i+4)
+        h14ind.append(132)
+        h14ind.append(133)
+        h14ind.append(134)
+        h14ind.append(135)
+
+        for i in range(136):
+            if i not in h14ind:
+                self.deck[i] = rem.pop()
+            else:
+                self.deck[i] = da_si_xi.pop()
+        self.deck = list(reversed(self.deck))
+        '''
+
         # 初始化局数、本场数、立直棒数、立直状态、同巡振听状态
         if oya_continue:
             self.round[1] += 1
@@ -191,7 +233,6 @@ class MahjongEnvBase(gym.Env):
         
         result = self.apply_decision(decisions)
         return result
-
 
     def arbitrate(self, responses: List[Response]) -> Optional[List[Response]]:
         if not responses:
@@ -533,7 +574,7 @@ class MahjongEnvBase(gym.Env):
                 if player == - 1:
                     wind =     "東南西北"
                     bon = "一二三四五六七八九十"
-                    self.msg += f"{wind[(self.round[0]//4) % 4]}{bon[self.round[0]%4]}局{bon[self.round[1]]}本场 "
+                    self.msg += f"{wind[(self.round[0]//4) % 4]}{bon[self.round[0]%4]}局{bon[self.round[1]%10]}本场 "
                     # 记录本局信息
                     if self.agari:
                         if self.agari["who"] == self.agari["fromwho"]:
