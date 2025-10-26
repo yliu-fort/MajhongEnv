@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 from itertools import count
 from pathlib import Path
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple, List
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
@@ -28,6 +28,12 @@ from agent.visual_agent import VisualAgent as _AIAgent
 from agent.random_discard_agent import RandomDiscardAgent
 from mahjong_env import MahjongEnv
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
+from mahjong_features import get_action_type_from_index
+
+from my_types import Seat, Request, Response, ActionSketch
+from transport import InProcessTransport
+from client import Client, CNNStrategy
+from engine import RoomEngine
 
 
 @dataclass
@@ -42,8 +48,8 @@ class AgentController:
     def __init__(self, seat: int, agent: Optional[Any]) -> None:
         self.seat = seat
         self.agent = agent
-        self._request_queue: "queue.Queue[Optional[Tuple[int, Any, Any, float]]]" = queue.Queue() # TODO: 改成 Request
-        self._response_queue: "queue.Queue[Tuple[int, Optional[int]]]" = queue.Queue() # TODO: 改成 Response
+        self._request_queue: "queue.Queue[Optional[Request]]" = queue.Queue() # TODO: 改成 Request
+        self._response_queue: "queue.Queue[Response]" = queue.Queue() # TODO: 改成 Response
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._worker,
@@ -63,17 +69,13 @@ class AgentController:
 
     def submit(
         self,
-        request_id: int,
-        observation: Any,
-        masks: Any,
-        deadline: float,
+        request: Request
     ) -> None:
         if self._stop_event.is_set():
             return
-        payload = (request_id, observation, masks, deadline)
-        self._request_queue.put(payload)
+        self._request_queue.put(request)
 
-    def poll(self) -> Optional[Tuple[int, Optional[int]]]:
+    def poll(self) -> Optional[Response]:
         try:
             return self._response_queue.get_nowait()
         except queue.Empty:
@@ -88,28 +90,41 @@ class AgentController:
     def _worker(self) -> None:
         while not self._stop_event.is_set():
             try:
-                payload = self._request_queue.get(timeout=0.1)
+                req = self._request_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            if payload is None:
+            if req is None:
                 continue
-            request_id, observation, masks, deadline = payload
-            action: Optional[int] = None
-            if isinstance(self.agent, HumanPlayerAgent):
-                timeout = max(0.0, deadline - time.monotonic())
-                try:
-                    self.agent.begin_turn(observation, masks, timeout)
-                    action = self.agent.wait_for_action()
-                except TimeoutError:
-                    action = None
-                except Exception:
-                    action = None
-            elif self.agent is not None:
-                try:
-                    action = self.agent.predict(observation)
-                except Exception:
-                    action = None
-            self._response_queue.put((request_id, action))
+
+            action: Optional[ActionSketch] = None
+            if len(req.actions) == 1:
+                action_id = req.actions[0]
+                action = ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
+            elif len(req.actions) > 1:
+                if isinstance(self.agent, HumanPlayerAgent):
+                    timeout = max(0.0, req.deadline_ms / 1000 - time.monotonic())
+                    try:
+                        self.agent.begin_turn(req.observation, timeout) # Remove masks as it is inside obs
+                        action = self.agent.wait_for_action()
+                    except TimeoutError:
+                        action = None
+                    except Exception:
+                        action = None
+                elif self.agent is not None:
+                    try:
+                        action = self.agent.predict(req.observation)
+                    except Exception:
+                        action = None
+            else:
+                action = None
+
+            self._response_queue.put(action if action is None else Response(
+                room_id=req.room_id,
+                step_id=req.step_id,
+                request_id=req.request_id,
+                from_seat=Seat(self.seat),
+                chosen=action
+                ))
 
     @staticmethod
     def _drain_queue(q: "queue.Queue[Any]") -> None:
@@ -133,7 +148,8 @@ class MahjongKivyApp(App):
         self._agents: list[Any] = []
         self._fallback_agent: Optional[RandomDiscardAgent] = None
         self._pending_requests: dict[int, _PendingRequest] = {}
-        self._request_ids = count()
+        self._pending_responses: dict[int, Response] = {}
+        self._step_ids = count()
         self._action_timeout = 300.0
         self._observation: Any = None
         self.env: Optional[MahjongEnv] = None
@@ -179,34 +195,60 @@ class MahjongKivyApp(App):
 
         ##################################################################################
         ## TODO: The logic here may be updated by the modern Client, Engine, and Transport class
-        current_seat = getattr(self.env, "current_player", 0) # should remove
-        controller = self._controllers[current_seat] # TODO: 现在我们需要循环所有的controller
-        pending = self._pending_requests.get(current_seat) # should remove
+        #current_seat = getattr(self.env, "current_player", 0) # should remove
+        #controller = self._controllers[current_seat] # TODO: 现在我们需要循环所有的controller
+        pending = self._pending_requests or self._pending_responses # should remove
         now = time.monotonic()
 
-        if pending is None: # no need to check for 'pending' now. we should send Requests to everyone.
+        if not pending: # no need to check for 'pending' now. we should send Requests to everyone.
             deadline = now + self._action_timeout
-            request_id = next(self._request_ids)
-            masks = self.wrapper.action_masks()
-            controller.submit(request_id, self._observation, masks, deadline)
-            self._pending_requests[current_seat] = _PendingRequest(
-                request_id=request_id,
-                deadline=deadline,
-            )
+            step_id = next(self._step_ids)
+            #print(step_id)
+            for _, controller in enumerate(self._controllers):
+                obs = self._observation[_]
+                actions = [i for i, flag in enumerate(obs.legal_actions_mask) if flag]
+                #print(f"actions[{_}] {actions} pending {self.wrapper.pending_action}")
+                if len(actions) > 1:
+                    req = Request(
+                    room_id="",
+                    step_id=step_id,
+                    request_id=f"req-{step_id}-{Seat(_)}",
+                    to_seat=Seat(_),
+                    actions=actions,
+                    observation=obs,
+                    deadline_ms=deadline * 1000
+                    )
+                    controller.submit(req)
+                    #print(f"Send {req}")
+                    self._pending_requests[_] = _PendingRequest(
+                    request_id=req.request_id,
+                    deadline=deadline,
+                    )
+                else:
+                    self._pending_responses[_] = None
+                    self._pending_requests[_] = _PendingRequest(
+                    request_id=f"req-{step_id}-{Seat(_)}",
+                    deadline=now,
+                    )
             return
 
-        while True: # we should collect Response from everyone.
-            response = controller.poll()
-            if response is None:
-                break
-            request_id, action = response
-            if request_id != pending.request_id:
-                continue
-            self._queue_action_and_clear(current_seat, controller, action) # send to self.wrapper.pending_action
-            return
+        #while True: # we should collect Response from everyone.
+        for _, req in self._pending_requests.items():
+            if _ not in self._pending_responses.keys():
+                # Get response nowait
+                resp = self._controllers[_].poll()
+                if resp != None and resp.request_id == req.request_id:
+                    self._pending_responses[_] = resp
+                    #print(f"Recv {resp}")
+            
+        for _, req in self._pending_requests.items():
+            if _ not in self._pending_responses.keys():
+                if now >= req.deadline:
+                    self._pending_response[_] = None
 
-        if now >= pending.deadline:
-            self._queue_action_and_clear(current_seat, controller, None) # send to self.wrapper.pending_action
+        if len(self._pending_responses.keys()) > 0 and \
+           len(self._pending_requests.keys()) == len(self._pending_responses.keys()):
+            self._queue_action_and_clear() # send to self.wrapper.pending_action
         
         ##################################################################################
 
@@ -254,7 +296,7 @@ class MahjongKivyApp(App):
         self.env = MahjongEnv(num_players=4, num_rounds=8)
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
         self._pending_requests = {}
-        self._request_ids = count()
+        self._step_ids = count()
 
         if self._game_screen is not None:
             self._game_screen.clear_widgets()
@@ -283,17 +325,23 @@ class MahjongKivyApp(App):
     def start_ai_vs_ai(self) -> None:
         self._start_game(human_seats=())
 
-    def _queue_action_and_clear(
-        self, seat: int, controller: AgentController, action: Optional[int]
-    ) -> None:
-        controller.flush()
-        self._pending_requests.pop(seat, None)
-        if action is None and self._fallback_agent is not None:
-            action = self._fallback_agent.predict(self._observation)
-        if action is None:
+    def _queue_action_and_clear(self) -> None:
+        for controller in self._controllers:
+            controller.flush()
+        self._pending_requests = {}
+        for _ in self._pending_responses.keys():
+            if self._pending_responses[_] is None and self._fallback_agent is not None:
+                self._pending_responses[_] = \
+                Response(room_id="", \
+                step_id="", \
+                request_id="", \
+                from_seat=Seat(_), \
+                chosen=self._fallback_agent.predict(self._observation[_]))
+        if self._pending_responses == {}:
             return
         if self.wrapper is not None:
-            self.wrapper.queue_action(action)
+            self.wrapper.queue_action({k: v for k ,v in self._pending_responses.items()})
+        self._pending_responses = {}
 
     def _handle_environment_reset(self) -> None:
         self.return_to_menu()
@@ -322,7 +370,7 @@ class MahjongKivyApp(App):
         self.env = None
         self._observation = None
         self._pending_requests = {}
-        self._request_ids = count()
+        self._step_ids = count()
         if self._game_screen is not None:
             self._game_screen.clear_widgets()
         if self._screen_manager is not None:

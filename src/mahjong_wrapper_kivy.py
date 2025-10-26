@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Sequence, Tuple, Union, Dict
 
 from kivy.base import EventLoop
 from kivy.clock import Clock
@@ -37,6 +37,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
 
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 from mahjong_features import get_action_from_index
+from my_types import Response
 
 # Dummy AI Agent class
 class _AIAgent:
@@ -610,7 +611,7 @@ class MahjongEnvKivyWrapper:
         self._score_pause_pending = False
         self._step_once_requested = False
         self._score_panel_was_visible = False
-        self._pending_action: Optional[int] = None
+        self._pending_action: Optional[Dict[int, Response]] = None
         self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
         self._step_event = threading.Event()
         self._scheduled = False
@@ -827,7 +828,7 @@ class MahjongEnvKivyWrapper:
         return observation
 
     # TODO: deprecated
-    def __step(self, action: int) -> Tuple[Any, float, bool, dict[str, Any]]:
+    def __step(self, action: Dict[int,Response]) -> Tuple[Any, float, bool, dict[str, Any]]:
         self.queue_action(action)
         while self._step_result is None:
             EventLoop.idle()
@@ -836,7 +837,7 @@ class MahjongEnvKivyWrapper:
         return result
 
     # TODO: change the type of action
-    def queue_action(self, action: int) -> None:
+    def queue_action(self, action: Dict[int, Response]) -> None:
         if self._pending_action is not None:
             return
         self._pending_action = action
@@ -1309,7 +1310,7 @@ class MahjongEnvKivyWrapper:
                 if self._step_once_requested:
                     self._step_once_requested = False
                 action = self._pending_action
-                observation, reward, done, info = self._env.step(action) # TODO: Update the return tuple
+                observation, reward, done, _, info = self._env.step(action) # TODO: Update the return tuple
                 self._pending_action = None
                 self._step_result = (observation, reward, done, info)
                 '''

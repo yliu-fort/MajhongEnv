@@ -1,7 +1,7 @@
 # riichi_minimal_engine.py
 from __future__ import annotations
 import sys, os
-sys.path.append(os.path.join(os.path.dirname(__file__), ".", "legacy/src"))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 from dataclasses import dataclass, field
 from concurrent.futures import Future
 from typing import Dict, List, Optional, Tuple

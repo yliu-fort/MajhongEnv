@@ -185,7 +185,8 @@ class MahjongEnvBase(gym.Env):
     def step(self, responses: Dict[int, Response]):
         #responses = self.collect_responses(step_id, requests)
         # Filter out pass actions
-        responses = [r for r in responses.values() if r.chosen is not None and r.chosen.action_type != ActionType.PASS]
+        if responses:
+            responses = [r for r in responses.values() if r.chosen is not None and r.chosen.action_type != ActionType.PASS]
         decisions = self.arbitrate(responses) # [(who, type, action_id)]
         
         result = self.apply_decision(decisions)
@@ -612,7 +613,7 @@ class MahjongEnvBase(gym.Env):
 
                 else:
                     self.current_player = (player + 1) % self.num_players if (player + 1) < self.num_players else -1
-                    self.apply_decision(None)
+                    #self.apply_decision(None)
             
             case "game_over":
                 # 更新顺位

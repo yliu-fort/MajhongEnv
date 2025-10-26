@@ -7,7 +7,8 @@ import time
 from typing import Any, Callable, Iterable, Optional, Sequence, Tuple
 
 from mahjong_tiles_print_style import get_action_printouts
-
+from my_types import Response, ActionSketch, Seat, ActionType
+from mahjong_features import get_action_type_from_index, NUM_ACTIONS
 
 class HumanPlayerAgent:
     """Coordinator for human-controlled seats.
@@ -23,7 +24,7 @@ class HumanPlayerAgent:
         self._lock = threading.Lock()
         self._event = threading.Event()
         self._legal_actions: set[int] = set()
-        self._selected_action: Optional[int] = None
+        self._selected_action: Optional[ActionSketch] = None
         self._deadline: float = 0.0
         self._active = False
         self._cancelled = False
@@ -49,10 +50,13 @@ class HumanPlayerAgent:
             self._presenter = (show_callback, clear_callback)
         self._invoke_clear()
 
-    def begin_turn(self, observation: Any, masks: Any, timeout: float) -> None:
+    def begin_turn(self, observation: Any, timeout: float) -> None:
         """Publish the available actions for the current decision."""
+        masks = observation.legal_actions_mask
+
         if sum(masks) <= 1:
             raise TypeError
+            
         
         _ = observation  # Reserved for future use
         actions = self._extract_actions(masks)
@@ -79,7 +83,7 @@ class HumanPlayerAgent:
                 return False
             if action_id not in self._legal_actions:
                 return False
-            self._selected_action = int(action_id)
+            self._selected_action = ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
             self._event.set()
             return True
 

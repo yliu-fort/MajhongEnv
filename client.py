@@ -2,7 +2,7 @@
 from __future__ import annotations
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "agent"))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
 from my_types import *
 from abstract import AClient, AStrategy
 import time
