@@ -5,6 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 import threading
 import time
 from typing import Any, Callable, Iterable, Optional, Sequence, Tuple
+import numpy as np
 
 from mahjong_tiles_print_style import get_action_printouts
 from my_types import Response, ActionSketch, Seat, ActionType
@@ -52,7 +53,9 @@ class HumanPlayerAgent:
 
     def begin_turn(self, observation: Any, timeout: float) -> None:
         """Publish the available actions for the current decision."""
-        masks = observation.legal_actions_mask
+        masks = np.asarray(observation.legal_actions_mask)
+        masks[253:] = False # TODO: temporary fix
+        masks = masks.tolist()
 
         if sum(masks) <= 1:
             raise TypeError

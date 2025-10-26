@@ -147,6 +147,7 @@ class VisualAgent:
 
     def predict_with_distribution(self, observation, top_k: int = 5, enable_all_actions=True):
         legal_mask_full = np.asarray(observation.legal_actions_mask)
+        legal_mask_full[252]=False # TODO: temporary fix
         legal_sum = int(legal_mask_full.sum())
         distribution = np.zeros(NUM_ACTIONS, dtype=np.float32)
 

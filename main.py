@@ -272,11 +272,12 @@ class MahjongKivyApp(App):
             if seat in human_seat_set:
                 agent = HumanPlayerAgent()
                 self.wrapper.bind_human_ui(seat, agent)
-                self.wrapper.set_assist_agent(seat, agent0)
             else:
                 agent = agent0
                 self.wrapper.register_seat_agent(seat, agent)
             self._agents[seat] = agent
+        
+        self.wrapper.set_assist_agent(self.wrapper._focus_player, agent0)
 
     def _initialise_controllers(self) -> None:
         if self.env is None:
