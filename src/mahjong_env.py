@@ -109,6 +109,49 @@ class MahjongEnvBase(gym.Env):
         self.deck, self.dice = self.yama_generator.generate()
 
         '''
+        # 纯正九莲宝灯
+        kyu_ren = [0,1,2,1*4,2*4,3*4,4*4,5*4,6*4,7*4,8*4,8*4+1,8*4+2,33*4]
+        rem = [i for i in self.deck if i not in kyu_ren]
+        h14ind = []
+        i = 0
+        for t in range(3):
+            for p in range(self.num_players):
+                for _ in range(4):
+                    if p == 0:
+                        h14ind.append(i)
+                    i += 1
+        h14ind.append(i)
+        h14ind.append(i+4)
+
+        for i in range(136):
+            if i not in h14ind:
+                self.deck[i] = rem.pop()
+            else:
+                self.deck[i] = kyu_ren.pop()
+        self.deck = list(reversed(self.deck))
+
+        # 国士无双十三面
+        kokushi13 = [0*4,8*4,9*4,17*4,18*4,26*4,27*4,28*4,29*4,30*4,31*4,32*4,33*4,16]
+        rem = [i for i in self.deck if i not in kokushi13]
+        h14ind = []
+        i = 0
+        for t in range(3):
+            for p in range(self.num_players):
+                for _ in range(4):
+                    if p == 0:
+                        h14ind.append(i)
+                    i += 1
+        h14ind.append(i)
+        h14ind.append(i+4)
+
+        for i in range(136):
+            if i not in h14ind:
+                self.deck[i] = rem.pop()
+            else:
+                self.deck[i] = kokushi13.pop()
+        self.deck = list(reversed(self.deck))
+
+
         # 大四喜
         da_si_xi = [27*4 + _ for _ in range(3)]+[28*4 + _ for _ in range(3)]+[29*4 + _ for _ in range(3)]+[30*4 + _ for _ in range(3)]+[33*4 + _ for _ in range(2)]
         rem = [i for i in self.deck if i not in da_si_xi]
