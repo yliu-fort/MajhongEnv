@@ -731,6 +731,7 @@ class MahjongEnvKivyWrapper:
         container.clear_widgets()
 
         seat = self._focus_player
+        '''
         current_player = getattr(self._env, "current_player", seat)
         if seat != current_player:
             self._add_assist_entry(
@@ -739,6 +740,7 @@ class MahjongEnvKivyWrapper:
                 color=self._muted_text_color,
             )
             return
+        '''
 
         agent = self._get_assist_agent(seat)
         if agent is None:
@@ -749,7 +751,7 @@ class MahjongEnvKivyWrapper:
             )
             return
         try:
-            observation = self._env.get_observation(seat)
+            observation = self._env.get_observation(seat, legal_actions=self._env._compute_legal_actions_per(seat))
         except Exception:
             observation = None
         if observation is None:
@@ -768,7 +770,7 @@ class MahjongEnvKivyWrapper:
                 color=self._muted_text_color,
             )
             return
-        if not top_actions:
+        if not top_actions or len(top_actions) < 2:
             self._add_assist_entry(
                 container,
                 self._translate("assist_unavailable"),

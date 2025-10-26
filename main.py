@@ -350,6 +350,7 @@ class MahjongKivyApp(App):
         self._pending_requests.clear()
         for controller in self._controllers:
             controller.flush()
+        self._pending_responses.clear()
 
     def _shutdown_controllers(self) -> None:
         for controller in self._controllers:
@@ -369,7 +370,6 @@ class MahjongKivyApp(App):
             self.wrapper = None
         self.env = None
         self._observation = None
-        self._pending_requests = {}
         self._step_ids = count()
         if self._game_screen is not None:
             self._game_screen.clear_widgets()
