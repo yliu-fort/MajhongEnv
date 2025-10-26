@@ -2489,9 +2489,10 @@ class MahjongEnvKivyWrapper:
         melds = getattr(self._env, "melds", [])
         if player_idx >= len(melds):
             return
+        num_ankan = sum([True if m["type"]=="kan" and not m["opened"] else False for m in melds[player_idx]] + [False])
         margin_side = 14
         max_meld_width = meld_tile[0] * 4 + 12
-        x = max(margin_side, play_rect.width - margin_side - max_meld_width)
+        x = max(margin_side, play_rect.width - margin_side - max_meld_width) + hand_tile[0]*max(num_ankan - 2, 0) + margin_side
         y = play_rect.bottom - hand_tile[1] - 14
         spacing = 8
         for meld in melds[player_idx]:
