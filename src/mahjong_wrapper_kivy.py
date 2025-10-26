@@ -372,6 +372,7 @@ _LANGUAGE_STRINGS: dict[str, dict[str, Any]] = {
     },
 }
 
+#@ Deprecated
 @dataclass(slots=True)
 class _RenderPayload:
     action: Optional[int]
@@ -471,6 +472,12 @@ class MahjongBoardWidget(Widget):
 class ActionPanel(BoxLayout):
     container = ObjectProperty(None)
     title_label = ObjectProperty(None)
+    def on_touch_down(self, touch):  # don't consume; let parent try siblings below
+        return False
+    def on_touch_move(self, touch):
+        return False
+    def on_touch_up(self, touch):
+        return False
 
 
 class MahjongRoot(FloatLayout):
@@ -696,8 +703,8 @@ class MahjongEnvKivyWrapper:
         self._assist_dirty = True
         self._render()
         #self._draw_status_labels()
-        self._update_control_buttons()
         self._update_assist_panel()
+        self._update_control_buttons()
 
     def _update_assist_panel(self, force: bool = False) -> None:
         if not self._root:
@@ -1112,8 +1119,8 @@ class MahjongEnvKivyWrapper:
     def _toggle_assist(self) -> None:
         self._assist_enabled = not self._assist_enabled
         self._assist_dirty = True
-        self._update_control_buttons()
         self._update_assist_panel(force=True)
+        self._update_control_buttons()
 
     def _create_assist_helper(self, seat: int) -> Optional[_AIAgent]:
         try:
@@ -1371,8 +1378,8 @@ class MahjongEnvKivyWrapper:
         if self._score_last():
             self._draw_score_panel(canvas, board, play_rect)
         #self._draw_status_labels()
-        self._update_control_buttons()
         self._update_assist_panel()
+        self._update_control_buttons()
 
     def _format_tile_short(self, tile_index: int) -> str:
         try:
@@ -1575,6 +1582,7 @@ class MahjongEnvKivyWrapper:
                         button.bind(
                             on_release=lambda _instance, act=action_id, seat_idx=seat: self._on_human_action_selected(seat_idx, act)
                         )
+
                         quick_bar.add_widget(button)
 
                     quick_bar.opacity = 1.0
@@ -1615,6 +1623,7 @@ class MahjongEnvKivyWrapper:
         Clock.schedule_once(apply, 0)
 
     def _on_human_action_selected(self, seat: int, action: int) -> None:
+        print(f"Human action selected {action}")
         agent = self._human_agents.get(seat)
         if agent is None:
             return
