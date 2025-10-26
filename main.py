@@ -31,9 +31,6 @@ from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
 from mahjong_features import get_action_type_from_index
 
 from my_types import Seat, Request, Response, ActionSketch
-from transport import InProcessTransport
-from client import Client, CNNStrategy
-from engine import RoomEngine
 
 
 @dataclass
@@ -194,20 +191,16 @@ class MahjongKivyApp(App):
             return
 
         ##################################################################################
-        ## TODO: The logic here may be updated by the modern Client, Engine, and Transport class
-        #current_seat = getattr(self.env, "current_player", 0) # should remove
-        #controller = self._controllers[current_seat] # TODO: 现在我们需要循环所有的controller
-        pending = self._pending_requests or self._pending_responses # should remove
+
+        pending = self._pending_requests or self._pending_responses
         now = time.monotonic()
 
         if not pending: # no need to check for 'pending' now. we should send Requests to everyone.
             deadline = now + self._action_timeout
             step_id = next(self._step_ids)
-            #print(step_id)
             for _, controller in enumerate(self._controllers):
                 obs = self._observation[_]
                 actions = [i for i, flag in enumerate(obs.legal_actions_mask) if flag]
-                #print(f"actions[{_}] {actions} pending {self.wrapper.pending_action}")
                 if len(actions) > 1:
                     req = Request(
                     room_id="",
@@ -219,7 +212,6 @@ class MahjongKivyApp(App):
                     deadline_ms=deadline * 1000
                     )
                     controller.submit(req)
-                    #print(f"Send {req}")
                     self._pending_requests[_] = _PendingRequest(
                     request_id=req.request_id,
                     deadline=deadline,
@@ -232,14 +224,13 @@ class MahjongKivyApp(App):
                     )
             return
 
-        #while True: # we should collect Response from everyone.
+        # we should collect Response from everyone.
         for _, req in self._pending_requests.items():
             if _ not in self._pending_responses.keys():
                 # Get response nowait
                 resp = self._controllers[_].poll()
                 if resp != None and resp.request_id == req.request_id:
                     self._pending_responses[_] = resp
-                    #print(f"Recv {resp}")
             
         for _, req in self._pending_requests.items():
             if _ not in self._pending_responses.keys():
@@ -321,7 +312,8 @@ class MahjongKivyApp(App):
         self._cleanup_game()
 
     def start_ai_vs_human(self) -> None:
-        self._start_game(human_seats=(random.choice([0, 1, 2, 3]),))
+        #self._start_game(human_seats=(random.choice([0, 1, 2, 3]),))
+        self._start_game(human_seats=(0,))
 
     def start_ai_vs_ai(self) -> None:
         self._start_game(human_seats=())
