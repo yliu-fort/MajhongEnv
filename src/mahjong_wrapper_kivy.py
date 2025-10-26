@@ -1623,7 +1623,6 @@ class MahjongEnvKivyWrapper:
         Clock.schedule_once(apply, 0)
 
     def _on_human_action_selected(self, seat: int, action: int) -> None:
-        print(f"Human action selected {action}")
         agent = self._human_agents.get(seat)
         if agent is None:
             return
