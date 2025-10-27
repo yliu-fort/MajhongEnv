@@ -348,7 +348,6 @@ class MahjongEnvBase(gym.Env):
             # 见逃玩家进入同巡振听状态
             for _ in list(set([c["who"] for c in self.claims if c["type"]=="ron"])):
                 self.furiten_1[_] = True
-                print(self.claims)
 
         # 1. 取出当前玩家
         player = self.current_player
@@ -1076,7 +1075,8 @@ class MahjongEnvBase(gym.Env):
         if  self.menzen[player] and \
             not self.riichi[player] and \
             self.scores[player] >= MahjongEnvBase.KYOUTAKU and \
-            self.hands[player][-1]//4 in self.machii_1[player]:
+            (self.hands[player][-1]//4 in self.machii_1[player] or \
+            len(self.machii[player]) > 0):
             return True
         return False
 
