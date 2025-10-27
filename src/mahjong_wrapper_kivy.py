@@ -1597,7 +1597,7 @@ class MahjongEnvKivyWrapper:
             return
         self._stop_action_countdown(clear=True)
         try:
-            agent.submit_action(action)
+            agent.submit_action({"action_id": action})
         except Exception:
             return
 
@@ -1662,10 +1662,10 @@ class MahjongEnvKivyWrapper:
         if agent is None:
             return False
 
-        for tile_index, rect in reversed(hitboxes):
+        for i, (tile_index, rect) in enumerate(hitboxes):
             left, bottom, right, top = rect
             if left <= canvas_x <= right and bottom <= canvas_y <= top:
-                return agent.submit_action(tile_index)
+                return agent.submit_action({"_":i, "action_id": tile_index}, direct_mode=True)
         return False
 
     # ------------------------------------------------------------------
@@ -2690,7 +2690,7 @@ class MahjongEnvKivyWrapper:
                 )
             )
 
-        canvas.add(Color(1, 1, 1, 1))
+        canvas.add(Color(1, 1, 1, 0.7 if highlight_data and highlight_data.tsumogiri else 1))
         canvas.add(RoundedRectangle(texture=texture, size=size, pos=(0, 0), radius=[6, 6, 6, 6]))
         canvas.add(PopMatrix())
 
