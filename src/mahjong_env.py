@@ -328,7 +328,10 @@ class MahjongEnvBase(gym.Env):
             decision = decisions[0]
             self.current_player = int(decision.from_seat)
             self.phase = str(decision.chosen.action_type).lower()
-            action, _ = self.action_map(self.current_player, decision.chosen.payload["action_id"])
+            if decision.chosen.payload.get("direct", False):
+                action = decision.chosen.payload["action_id"]
+            else:
+                action, _ = self.action_map(self.current_player, decision.chosen.payload["action_id"])
         elif len(decisions) == 2:
             # MULTI-RON
             self.current_player = int(decisions[0].from_seat)
