@@ -9,8 +9,10 @@ from agent.random_discard_agent import RandomDiscardAgent
 from agent.rule_based_agent import RuleBasedAgent
 from my_types import Response, Seat
 import time
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 
-def evaluate_model(episodes=100):
+def evaluate_model(episodes=10, start=0, step=1):
     # 创建环境
     env = MahjongEnv(num_players=4)
     agent = RuleBasedAgent(env, backbone="resnet50")
@@ -19,7 +21,7 @@ def evaluate_model(episodes=100):
     agent.load_model("legacy/model_weights/latest.pt")
  
     total_dscores = np.zeros(4, dtype=np.int32)
-    for ep in range(episodes):
+    for ep in range(start, episodes, step):
         obs = env.reset()
         done = False
         while not done:
@@ -34,12 +36,24 @@ def evaluate_model(episodes=100):
         total_dscores += np.array(info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])
         print(info["msg"])
-        #with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
-        #    f.write(info["log"])
+        with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
+            f.write(info["log"])
 
 
 if __name__ == "__main__":
-    start = time.monotonic_ns() // 1_000_000
-    evaluate_model()
-    now = time.monotonic_ns() // 1_000_000
-    print(f"Elapsed time = {(now - start) / 1000.0 / 100.0} s")
+    # Serial
+    start = time.monotonic()
+    evaluate_model(episodes=10)
+    now = time.monotonic()
+    print(f"[S] Elapsed time = {(now - start)/ 10.0} s")
+    
+    # Parallel
+    start = time.monotonic()
+    NUM_WORKERS = 8
+    NUM_EPISODES = 1000
+    with ProcessPoolExecutor(max_workers=NUM_WORKERS) as pool:
+        futures = [pool.submit(partial(evaluate_model, episodes=NUM_EPISODES, start=_, step=NUM_WORKERS)) for _ in range(NUM_WORKERS)]
+        for future in futures:
+            future.result()
+    now = time.monotonic()
+    print(f"[P] Elapsed time = {(now - start)/ NUM_EPISODES} s")
