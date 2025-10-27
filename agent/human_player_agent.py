@@ -78,15 +78,19 @@ class HumanPlayerAgent:
 
         self._invoke_show(labels, self._deadline)
 
-    def submit_action(self, action_id: int) -> bool:
+    def submit_action(self, payload: dict, direct_mode: bool=False) -> bool:
         """Record the human's selection and wake any waiting thread."""
 
         with self._lock:
             if not self._active or self._cancelled:
                 return False
+            action_id = payload["action_id"]
             if action_id not in self._legal_actions:
                 return False
-            self._selected_action = ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
+            if direct_mode:
+                self._selected_action = ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": payload["_"], "direct": True})
+            else:
+                self._selected_action = ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
             self._event.set()
             return True
 
