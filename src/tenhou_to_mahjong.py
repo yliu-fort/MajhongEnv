@@ -471,6 +471,8 @@ class TenhouRoundTracker:
         visible_counts = vc.astype(np.uint8).tolist()
         remaining_counts = remaining.astype(np.uint8).tolist()
 
+        # TODO: check the number of tiles, if 13, add back the last discarded tile
+        # add the meld_counts back to restore the tile to 14.
         shantens, ukeires = compute_all_discards_ukeire_fast(counts, remaining_counts)
         
         # legal actions
