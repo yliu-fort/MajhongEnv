@@ -1,571 +1,118 @@
-# -*- coding: utf-8 -*-
-from functools import lru_cache
+import sys, os, random, time
+sys.path.append(os.path.join(os.path.dirname(__file__), ".", "ext"))
 
-# 牌表示：0-8m, 9-17p, 18-26s, 27-33z（字牌）
-# hand: 长度34的数组，每项0..4
-# remaining: 长度34的数组，牌山里剩余张数（可含副露信息修正）
-# last_draw34: 丢弃前的“现摸牌”索引（0..33）；算法按题意先把它从手牌减1再评估
-# 返回:
-# {
-#   "shanten": 最小向听（普通/七对/国士三者取最小）,
-#   "ukeire":  受入合计张数,
-#   "tiles":   list[(tile, cnt)] 逐张受入与剩余，tile为0..33,
-#   "explain": {"best_mode": "normal|chiitoi|kokushi"}
-# }
-#
-# 核心思路：
-# - 普通手：分花色枚举(面子m, 搭子t, 对子p)的帕累托前沿，四类合并。
-# - 普通手的改良牌：只测“邻域候选”（x, x±1, x±2）与已持有字牌；对每个候选，仅重算该花色DP并与其它花色的合并缓存拼装。
-# - 七对、国士：无需试摸，直接推导改良集合。
+from _shanten_dp import compute_ukeire_advanced as _f0
+from _shanten_dp import compute_all_discards_ukeire_fast as _f1
+try:
+    from shanten_dp_cy import compute_ukeire_advanced, compute_all_discards_ukeire_fast
+    CYTHON_AVAILABLE = True
+except Exception:
+    compute_ukeire_advanced = _f0
+    compute_all_discards_ukeire_fast = _f1
+    CYTHON_AVAILABLE = False
 
-# =========================
-# 工具 & 常量
-# =========================
-# 经验：每项 ~1.4KB；10万项 ≈ 140MB；5万项 ≈ 70MB
-SUIT_CACHE_MAX = 500_000     # ~700MB 量级
-HONOR_CACHE_MAX = 100_000    # ~70-100MB 量级
-
-def _suit_range(tile):
-    """返回该tile所在花色的起止索引 [lo, hi] (含)，以及是否字牌"""
-    if tile < 9: return (0, 8, False)
-    if tile < 18: return (9, 17, False)
-    if tile < 27: return (18, 26, False)
-    return (27, 33, True)
-
-def _is_same_suit(a, b):
-    return _suit_range(a)[0] == _suit_range(b)[0]
-
-def _neighbors_for_suit_index(idx_in_0_8):
-    """给出同花色内的邻域候选索引（相对花色0..8），x, x±1, x±2 落在 0..8 内"""
-    x = idx_in_0_8
-    cand = {x}
-    if x-1 >= 0: cand.add(x-1)
-    if x-2 >= 0: cand.add(x-2)
-    if x+1 <= 8: cand.add(x+1)
-    if x+2 <= 8: cand.add(x+2)
-    return cand
-
-def _calc_shanten_from_mtp(m_total, t_total, pair_used):
-    # 常见公式：sh = 8 - 2*m - min(4-m, t) - pair_used
-    t_eff = min(4 - m_total, t_total)
-    return 8 - 2*m_total - t_eff - (1 if pair_used else 0)
-
-# =========================
-# 花色DP：返回帕累托前沿的 (m,t,p) 状态集合
-# =========================
-
-def _pareto_prune(states):
-    """去掉被支配的状态：m、t、p三个维度全不劣且至少一维更优的，保留前沿"""
-    states = list(states)
-    states.sort(reverse=True)  # 粗排减少比较
-    kept = []
-    for m,t,p in states:
-        dominated = False
-        for m2,t2,p2 in kept:
-            if m2 >= m and t2 >= t and p2 >= p and (m2>m or t2>t or p2>p):
-                dominated = True
+# --------- 工具函数 ---------
+def random_hand14():
+    """随机生成 14 张牌的 34 进制计数（每张<=4）。"""
+    counts = [0]*34
+    for _ in range(14):
+        while True:
+            t = random.randrange(34)
+            if counts[t] < 4:
+                counts[t] += 1
                 break
-        if not dominated:
-            kept.append((m,t,p))
-    return kept
+    return counts
+
+def random_last_draw(counts):
+    """按张数加权在手牌中随机选一个 last_draw 索引。"""
+    pool = []
+    for t, c in enumerate(counts):
+        if c > 0:
+            pool.extend([t]*c)
+    return random.choice(pool)
+
+def remaining_from_counts(counts):
+    """剩余牌山：简单设为 4 - 手牌数（裁剪到>=0）。"""
+    return [max(0, 4 - c) for c in counts]
+
+# --------- 测试主体 ---------
+def run_tests(n=1000, seed=42):
+    random.seed(seed)
+    # 预生成测试用例，避免把生成时间算进两边实现的计时
+    tests = []
+    for _ in range(n):
+        hand = random_hand14()
+        last_draw = random_last_draw(hand)
+        remaining = remaining_from_counts(hand)
+        tests.append((hand, last_draw, remaining))
+
+    # 两套函数句柄：cy（可能就是 py）和 py（基准）
+    cy_adv = compute_ukeire_advanced
+    cy_dis = compute_all_discards_ukeire_fast
+    py_adv = _f0
+    py_dis = _f1
+
+    # --- 测试 compute_ukeire_advanced ---
+    # 计时：Cython/当前实现
+    t0 = time.perf_counter()
+    cy_adv_out = []
+    for hand, last_draw, remaining in tests:
+        cy_adv_out.append(cy_adv(hand[:], last_draw, remaining[:]))
+    t1 = time.perf_counter()
+
+    # 计时：Python 基准
+    t2 = time.perf_counter()
+    py_adv_out = []
+    for hand, last_draw, remaining in tests:
+        py_adv_out.append(py_adv(hand[:], last_draw, remaining[:]))
+    t3 = time.perf_counter()
+
+    # 对比：按 (shanten, ukeire) 判断是否一致
+    mismatches_adv = 0
+    for a, b in zip(cy_adv_out, py_adv_out):
+        if (a.get("shanten"), a.get("ukeire")) != (b.get("shanten"), b.get("ukeire")):
+            mismatches_adv += 1
+
+    # --- 测试 compute_all_discards_ukeire_fast ---
+    t4 = time.perf_counter()
+    cy_dis_out = []
+    for hand, _, remaining in tests:
+        cy_dis_out.append(cy_dis(hand[:], remaining[:]))
+    t5 = time.perf_counter()
+
+    t6 = time.perf_counter()
+    py_dis_out = []
+    for hand, _, remaining in tests:
+        py_dis_out.append(py_dis(hand[:], remaining[:]))
+    t7 = time.perf_counter()
+
+    # 对比：整个 34 位数组完全一致才算匹配
+    mismatches_dis_hands = 0          # 有任意位置不一致的手数
+    mismatches_dis_positions = 0      # 全部手牌中逐位不一致的总数
+    for (cy_sh, cy_uk), (py_sh, py_uk) in zip(cy_dis_out, py_dis_out):
+        hand_has_mismatch = False
+        for i in range(34):
+            if cy_sh[i] != py_sh[i] or cy_uk[i] != py_uk[i]:
+                mismatches_dis_positions += 1
+                hand_has_mismatch = True
+        if hand_has_mismatch:
+            mismatches_dis_hands += 1
+
+    # 输出
+    print("====== 随机测试汇总 ======")
+    print(f"样本数: {n}, 随机种子: {seed}")
+    print(f"Cython 可用: {CYTHON_AVAILABLE}")
+    print("--- compute_ukeire_advanced ---")
+    print(f"Cython/当前实现总耗时: {(t1 - t0)*1000:.2f} ms")
+    print(f"Python 基准总耗时   : {(t3 - t2)*1000:.2f} ms")
+    print(f"不匹配手数（按 shanten+ukeire）: {mismatches_adv}/{n}")
+    print("--- compute_all_discards_ukeire_fast ---")
+    print(f"Cython/当前实现总耗时: {(t5 - t4)*1000:.2f} ms")
+    print(f"Python 基准总耗时   : {(t7 - t6)*1000:.2f} ms")
+    print(f"不匹配手数（任一位置不同）: {mismatches_dis_hands}/{n}")
+    print(f"不匹配逐位总计（34*N）   : {mismatches_dis_positions}/{34*n}")
 
-@lru_cache(maxsize=SUIT_CACHE_MAX)
-def _enumerate_suit_states(counts_tuple):
-    """
-    对一个花色(9格)计数tuple，枚举所有 (m,t,p)：
-      m: 面子数（刻/顺）
-      t: 搭子数（12、23、13 这些两张搭子；不含对子）
-      p: 对子数（用于后续合并时决定是否拿一个作雀头，其余对子可视为搭子）
-    返回帕累托前沿集合 list[(m,t,p)]
-    """
-    counts = list(counts_tuple)
-
-    @lru_cache(maxsize=None)
-    def dfs(state_tuple):
-        c = list(state_tuple)
-        # 找到第一个非0位置
-        i = next((k for k in range(9) if c[k] > 0), -1)
-        if i == -1:
-            return {(0,0,0)}  # 空
-        res = set()
-
-        # 1) 刻子
-        if c[i] >= 3:
-            c[i] -= 3
-            for m,t,p in dfs(tuple(c)):
-                res.add((m+1, t, p))
-            c[i] += 3
-
-        # 2) 顺子
-        if i <= 6 and c[i+1] > 0 and c[i+2] > 0:
-            c[i] -= 1; c[i+1] -= 1; c[i+2] -= 1
-            for m,t,p in dfs(tuple(c)):
-                res.add((m+1, t, p))
-            c[i] += 1; c[i+1] += 1; c[i+2] += 1
-
-        # 3) 两面/边 & 嵌张搭子
-        # (i,i+1)
-        if i <= 7 and c[i+1] > 0:
-            c[i] -= 1; c[i+1] -= 1
-            for m,t,p in dfs(tuple(c)):
-                res.add((m, t+1, p))
-            c[i] += 1; c[i+1] += 1
-        # (i,i+2)
-        if i <= 6 and c[i+2] > 0:
-            c[i] -= 1; c[i+2] -= 1
-            for m,t,p in dfs(tuple(c)):
-                res.add((m, t+1, p))
-            c[i] += 1; c[i+2] += 1
-
-        # 4) 对子（不立刻当雀头，先计为p，合并时决定是否用1个当雀头，其余当搭子）
-        if c[i] >= 2:
-            c[i] -= 2
-            for m,t,p in dfs(tuple(c)):
-                res.add((m, t, p+1))
-            c[i] += 2
-
-        # 5) 丢单张
-        c[i] -= 1
-        for m,t,p in dfs(tuple(c)):
-            res.add((m, t, p))
-        c[i] += 1
-
-        return frozenset(_pareto_prune(res))
-
-    return list(dfs(tuple(counts)))
-
-@lru_cache(maxsize=HONOR_CACHE_MAX)
-def _enumerate_honor_states(counts_tuple):
-    """
-    字牌(7格)版本：没有顺子，只有刻子/对子/单张
-    返回帕累托前沿 list[(m,t,p)]，t来源于“未作为雀头的对子”可当搭子
-    """
-    counts = list(counts_tuple)
-
-    @lru_cache(maxsize=None)
-    def dfs(state_tuple, idx):
-        if idx == 7:
-            return {(0,0,0)}
-        c = list(state_tuple)
-        x = c[idx]
-        res = set()
-
-        # 刻子
-        if x >= 3:
-            c[idx] -= 3
-            for m,t,p in dfs(tuple(c), idx+1):
-                res.add((m+1, t, p))
-            c[idx] += 3
-
-        # 对子
-        if x >= 2:
-            c[idx] -= 2
-            for m,t,p in dfs(tuple(c), idx+1):
-                res.add((m, t, p+1))
-            c[idx] += 2
-
-        # 用掉1张
-        if x >= 1:
-            c[idx] -= 1
-            for m,t,p in dfs(tuple(c), idx+1):
-                res.add((m, t, p))
-            c[idx] += 1
-        else:
-            # 0张，直接跳
-            for m,t,p in dfs(tuple(c), idx+1):
-                res.add((m, t, p))
-
-        return frozenset(_pareto_prune(res))
-
-    return list(dfs(tuple(counts), 0))
-
-def _combine_four_groups(ms_states, ps_states, ss_states, z_states):
-    """
-    合并4类的帕累托，返回全局“最小普通手向听”及一个用于快速重算的缓存结构
-    缓存包括：除去某一花色后的合并前缀，便于只重算单花色时快速拼回
-    """
-    # 把三门花色先两两合，最后合字牌；每步都做帕累托剪枝
-    def merge(A, B):
-        tmp = {}
-        for m1,t1,p1 in A:
-            for m2,t2,p2 in B:
-                m = m1+m2; t = t1+t2; p = p1+p2
-                # p里 >=1 可以当雀头，其余当搭子
-                pair_used = 1 if p>0 else 0
-                t_eff = t + max(0, p - pair_used)
-                sh = _calc_shanten_from_mtp(min(m,4), t_eff, pair_used)
-                # 使用 (m,t,p) 作为状态，先存最优sh，随后做剪枝
-                key = (m,t,p)
-                if key not in tmp or sh < tmp[key]:
-                    tmp[key] = sh
-        # 以 (m,t,p) 为维度的帕累托：按“计算最终sh的潜力”粗剪
-        # 这里再转回列表，真正求最小sh时还要再遍历一次
-        return list(tmp.keys())
-
-    mp = merge(ms_states, ps_states)
-    mps = merge(mp, ss_states)
-    mpsz = merge(mps, z_states)
-
-    # 计算全局最小普通手向听
-    best_sh = +10**9
-    for m,t,p in mpsz:
-        pair_used = 1 if p>0 else 0
-        t_eff = t + max(0, p - pair_used)
-        sh = _calc_shanten_from_mtp(min(m,4), t_eff, pair_used)
-        if sh < best_sh:
-            best_sh = sh
-
-    # 为“只改一门花色”做快速拼装缓存：
-    # 预先把 “(另一门合并结果)”存起来，避免每次候选重算整套
-    # 三门花色互相的合并结果：
-    mp_cache = merge(ms_states, ps_states)     # m+p
-    ps_cache = merge(ps_states, ss_states)     # p+s
-    ms_cache = merge(ms_states, ss_states)     # m+s
-
-    def merge_pair(A, B):
-        """把两个已合并列表再合上去，返回 (m,t,p) 列表（不必保存sh）"""
-        res = set()
-        for m1,t1,p1 in A:
-            for m2,t2,p2 in B:
-                res.add((m1+m2, t1+t2, p1+p2))
-        return list(res)
-
-    # (m+p)+s
-    mps_cache = merge_pair(mp_cache, ss_states)
-    # (p+s)+m
-    psm_cache = merge_pair(ps_cache, ms_states)
-    # (m+s)+p
-    msp_cache = merge_pair(ms_cache, ps_states)
-
-    # 把三组合并上字牌
-    other_than_m = merge_pair(ps_cache, z_states)  # (p+s)+z
-    other_than_p = merge_pair(ms_cache, z_states)  # (m+s)+z
-    other_than_s = merge_pair(mp_cache, z_states)  # (m+p)+z
-
-    return best_sh, {
-        "mpsz": mpsz,
-        "other_than_m": other_than_m,
-        "other_than_p": other_than_p,
-        "other_than_s": other_than_s,
-        "z_only": z_states,  # 方便仅改字牌时与(三门合并结果)拼
-        "mp_cache": mp_cache,
-        "ps_cache": ps_cache,
-        "ms_cache": ms_cache
-    }
-
-def _best_sh_from_states(states):
-    best = +10**9
-    for m,t,p in states:
-        pair_used = 1 if p>0 else 0
-        t_eff = t + max(0, p - pair_used)
-        sh = _calc_shanten_from_mtp(min(m,4), t_eff, pair_used)
-        if sh < best: best = sh
-    return best
-
-# =========================
-# 七对 & 国士：向听与改良集合
-# =========================
-
-def _chiitoi_shanten_and_improves(hand, remaining):
-    pairs = sum(1 for c in hand if c >= 2)
-    singles = sum(1 for c in hand if c == 1)
-    distinct = pairs + singles
-    # 七对向听
-    sh = 6 - pairs + max(0, 7 - distinct)
-
-    improve = set()
-    if sh <= 6:
-        # 1) 补成对子：已有1张的牌 -> 再来1张
-        for t in range(34):
-            if hand[t] == 1 and remaining[t] > 0 and hand[t] < 2:
-                improve.add(t)
-        # 2) 凑满7种：当 distinct < 7 时，任何“手里没有”的牌都能把 distinct +1
-        if distinct < 7:
-            for t in range(34):
-                if hand[t] == 0 and remaining[t] > 0:
-                    improve.add(t)
-        # 注意：已有2+张的牌，再摸同张不会立刻降向听（只是浪费）
-    return sh, improve
-
-_TERMINALS_AND_HONORS = set([0,8,9,17,18,26] + list(range(27,34)))
-
-def _kokushi_shanten_and_improves(hand, remaining):
-    have = 0
-    pair = 0
-    need_set = []
-    for t in _TERMINALS_AND_HONORS:
-        if hand[t] > 0:
-            have += 1
-            if hand[t] >= 2:
-                pair = 1
-        else:
-            need_set.append(t)
-    sh = 13 - have - pair  # 13种一张+1对
-
-    improve = set()
-    if sh >= 0:
-        if have < 13:
-            # 缺的任意一张都能降向听
-            for t in need_set:
-                if remaining[t] > 0:
-                    improve.add(t)
-        if pair == 0:
-            # 没有对时，任何已持有的幺九字再来一张也能降向听
-            for t in _TERMINALS_AND_HONORS:
-                if hand[t] > 0 and remaining[t] > 0 and hand[t] < 4:
-                    improve.add(t)
-    return sh, improve
-
-# =========================
-# 普通手：一次性DP→base，增量只改单花色→是否降向听
-# =========================
-
-def _normal_base_and_cache(hand):
-    # 拆花色
-    m_cnts = tuple(hand[0:9])
-    p_cnts = tuple(hand[9:18])
-    s_cnts = tuple(hand[18:27])
-    z_cnts = tuple(hand[27:34])
-
-    ms = _enumerate_suit_states(m_cnts)
-    ps = _enumerate_suit_states(p_cnts)
-    ss = _enumerate_suit_states(s_cnts)
-    zs = _enumerate_honor_states(z_cnts)
-
-    base_sh, cache = _combine_four_groups(ms, ps, ss, zs)
-    cache["ms"] = ms; cache["ps"] = ps; cache["ss"] = ss; cache["zs"] = zs
-    return base_sh, cache
-
-def _normal_candidate_tiles(hand, remaining):
-    cand = set()
-    # 三门花色：对每张在手牌中的格子，加入 x, x±1, x±2（同花色）
-    for base in (0,9,18):
-        arr = hand[base:base+9]
-        for i, c in enumerate(arr):
-            if c == 0: continue
-            for j in _neighbors_for_suit_index(i):
-                t = base + j
-                if hand[t] < 4 and remaining[t] > 0:
-                    cand.add(t)
-    # 字牌：只有已持有的才可能立刻改善（新摸一张只能变对子/刻子）
-    for t in range(27,34):
-        if hand[t] > 0 and hand[t] < 4 and remaining[t] > 0:
-            cand.add(t)
-    return cand
-
-def _recompute_normal_with_one_tile_added(hand, cache, add_tile):
-    """只改一个花色的DP，快速拼回全局最小普通手向听"""
-    lo, hi, is_honor = _suit_range(add_tile)
-    if is_honor:
-        # 重算字牌DP
-        z_cnts = list(hand[27:34])
-        z_cnts[add_tile-27] += 1
-        zs2 = _enumerate_honor_states(tuple(z_cnts))
-        # 其它三门已合并缓存： (m+p)+s
-        mps_cache = cache["other_than_z"] if "other_than_z" in cache else None
-        if mps_cache is None:
-            # 现算一次并挂到cache上，供后续复用
-            mps_cache = []
-            for a in _combine_four_groups(cache["ms"], cache["ps"], cache["ss"], [(0,0,0)])[1]["mpsz"]:
-                mps_cache.append(a)
-            cache["other_than_z"] = mps_cache
-        merged = []
-        for m1,t1,p1 in mps_cache:
-            for m2,t2,p2 in zs2:
-                merged.append((m1+m2, t1+t2, p1+p2))
-        return _best_sh_from_states(merged)
-
-    # 是三门花色之一
-    base = lo
-    arr = list(hand[lo:hi+1])
-    arr[add_tile-lo] += 1
-    states2 = _enumerate_suit_states(tuple(arr))
-
-    # 取“其余三类合并上字牌”的缓存，并与 states2 拼
-    if base == 0:   # 改m
-        other = cache["other_than_m"]  # (p+s)+z
-    elif base == 9: # 改p
-        other = cache["other_than_p"]  # (m+s)+z
-    else:           # 改s
-        other = cache["other_than_s"]  # (m+p)+z
-
-    merged = []
-    for m1,t1,p1 in states2:
-        for m2,t2,p2 in other:
-            merged.append((m1+m2, t1+t2, p1+p2))
-    return _best_sh_from_states(merged)
-
-# =========================
-# 主入口
-# =========================
-
-def compute_ukeire_advanced(hand, last_draw34, remaining):
-    """
-    进阶版受入计算（普通/七对/国士三合一），只对普通手做“邻域候选+单花色重算”。
-    """
-    # 先把“现摸”打出
-    hand = hand[:]  # 复制以免原地污染
-    if last_draw34 is not None:
-        hand[last_draw34] -= 1
-
-    # 1) 普通手 base + cache
-    normal_sh, cache = _normal_base_and_cache(hand)
-
-    # 为字牌的“其它三门+字牌=？”缓存 one-shot 填好
-    # 方便之后字牌重算时使用
-    if "other_than_z" not in cache:
-        mps_cache = []
-        for a in _combine_four_groups(cache["ms"], cache["ps"], cache["ss"], [(0,0,0)])[1]["mpsz"]:
-            mps_cache.append(a)
-        cache["other_than_z"] = mps_cache
-
-    # 2) 七对 & 国士
-    chiitoi_sh, chiitoi_improve = _chiitoi_shanten_and_improves(hand, remaining)
-    kokushi_sh, kokushi_improve = _kokushi_shanten_and_improves(hand, remaining)
-
-    base_sh_global = min(normal_sh, chiitoi_sh, kokushi_sh)
-
-    # 3) 普通手候选（邻域裁剪 → 极少枚数）
-    normal_cands = _normal_candidate_tiles(hand, remaining)
-
-    # 4) 汇总三种路线的改良牌集合（tile -> 是否降向听）
-    improve_tiles = set()
-    # 4.1 七对
-    if chiitoi_sh == base_sh_global:
-        improve_tiles |= chiitoi_improve
-    # 4.2 国士
-    if kokushi_sh == base_sh_global:
-        improve_tiles |= kokushi_improve
-    # 4.3 普通手（只测邻域候选）
-    if normal_sh == base_sh_global:
-        for t in normal_cands:
-            if hand[t] >= 4 or remaining[t] <= 0:
-                continue
-            new_sh = _recompute_normal_with_one_tile_added(hand, cache, t)
-            if new_sh < normal_sh:
-                improve_tiles.add(t)
-
-    # 5) 统计受入
-    tiles_list = sorted((t, remaining[t]) for t in improve_tiles if remaining[t] > 0)
-    ukeire = sum(cnt for _, cnt in tiles_list)
-    mode = "normal" if base_sh_global == normal_sh else ("chiitoi" if base_sh_global == chiitoi_sh else "kokushi")
-    return {
-        "shanten": base_sh_global - (((14 - sum(hand))//3)*2),
-        "ukeire": ukeire,
-        "tiles": tiles_list,
-        "explain": {"best_mode": mode, 
-                    "shanten_regular": normal_sh, 
-                    "shanten_chiitoi": chiitoi_sh, 
-                    "shanten_kokushi": kokushi_sh}
-    }
-
-
-def compute_all_discards_ukeire_fast(counts, remaining):
-    """
-    对每个可弃的 tile，计算“弃掉该张后”的整手最小向听与受入。
-    返回 (shantens, ukeires)，均为长度34的数组。
-    """
-    NUM_TILES = 34
-    shantens = [8] * NUM_TILES
-    ukeires = [0] * NUM_TILES
-
-    # 预先枚举“当前14张”的四类DP，后续只对被减去的那一门做 -1 增量重算
-    ms0 = _enumerate_suit_states(tuple(counts[0:9]))      # m门 DP 
-    ps0 = _enumerate_suit_states(tuple(counts[9:18]))     # p门 DP 
-    ss0 = _enumerate_suit_states(tuple(counts[18:27]))    # s门 DP 
-    zs0 = _enumerate_honor_states(tuple(counts[27:34]))   # 字牌 DP 
-
-    # 本回合内的“该门 -1 后的DP”小缓存，避免同门重复生成
-    minus1_cache = {}  # key: ('m'|'p'|'s'|'z', idx_in_suit, tuple_arr) -> states
-
-    def enum_after_minus_one(tile):
-        lo, hi, is_honor = _suit_range(tile)  # 0..8m, 9..17p, 18..26s, 27..33z
-        if is_honor:
-            # ✅ 正确：返回顺序必须是 (ms, ps, ss, zs)
-            arr = list(counts[27:34]); arr[tile-27] -= 1
-            key = ('z', tile-27, tuple(arr))
-            if key not in minus1_cache:
-                minus1_cache[key] = _enumerate_honor_states(tuple(arr))  # zs_minus1
-            zs_minus1 = minus1_cache[key]
-            return ms0, ps0, ss0, zs_minus1
-
-        # m/p/s 分支保持不变（把对应门的 -1 放到正确的位置）
-        base = lo
-        arr = list(counts[lo:hi+1]); arr[tile-lo] -= 1
-        key = ({0:'m',9:'p',18:'s'}[base], tile-lo, tuple(arr))
-        if key not in minus1_cache:
-            minus1_cache[key] = _enumerate_suit_states(tuple(arr))
-        if base == 0:   # 改m
-            return minus1_cache[key], ps0, ss0, zs0
-        if base == 9:   # 改p
-            return ms0, minus1_cache[key], ss0, zs0
-        else:           # 改s
-            return ms0, ps0, minus1_cache[key], zs0
-
-
-    for tile, cnt in enumerate(counts):
-        if cnt <= 0:
-            continue
-
-        # h13 = “假设打出 tile 后”的底座
-        h13 = counts[:]
-        h13[tile] -= 1
-
-        # 只对被减去的那门重算 DP；其它门复用
-        ms, ps, ss, zs = enum_after_minus_one(tile)
-        normal_sh, cache = _combine_four_groups(ms, ps, ss, zs)          
-        cache["ms"], cache["ps"], cache["ss"], cache["zs"] = ms, ps, ss, zs
-
-        # _recompute_normal_with_one_tile_added 计算字牌改良时会用到 other_than_z，一次性补上供复用
-        if "other_than_z" not in cache:
-            cache["other_than_z"] = list(_combine_four_groups(ms, ps, ss, [(0,0,0)])[1]["mpsz"])  
-
-        # 七对 / 国士（取最小，与原 compute_ukeire_advanced 一致）
-        chiitoi_sh, chiitoi_imp = _chiitoi_shanten_and_improves(h13, remaining)
-        kokushi_sh, kokushi_imp = _kokushi_shanten_and_improves(h13, remaining)
-        base_sh = min(normal_sh, chiitoi_sh, kokushi_sh)
-
-        # 汇总改良
-        improves = set()
-        if chiitoi_sh == base_sh: improves |= chiitoi_imp
-        if kokushi_sh == base_sh: improves |= kokushi_imp
-        if normal_sh == base_sh:
-            # 普通手只测“邻域候选”，再用“单花色 +1 快速重算”判定是否降向听 
-            for t2 in _normal_candidate_tiles(h13, remaining):
-                if h13[t2] >= 4 or remaining[t2] <= 0:
-                    continue
-                if _recompute_normal_with_one_tile_added(h13, cache, t2) < normal_sh:
-                    improves.add(t2)
-
-        ukeire = sum(remaining[t2] for t2 in improves if remaining[t2] > 0)
-        correction = ((14 - sum(h13)) // 3) * 2
-        shantens[tile] = int(base_sh - correction)       # 13张时的向听减掉额外修正项
-        ukeires[tile] = int(ukeire)
-
-    return shantens, ukeires
-
-
-# =========================
-# 示例：
-# =========================
 if __name__ == "__main__":
-    hand = [0]*34
-    # m: 123 456 678  -> 9张
-    hand[0]+=1;hand[1]+=1;hand[2]+=1
-    hand[3]+=1;hand[4]+=1;hand[5]+=1
-    hand[6]+=1;hand[7]+=1;hand[8]+=1
-    # p: 55          -> 2张
-    hand[9+4] += 2
-    # s: 23          -> 2张
-    hand[18+1] += 1; hand[18+2] += 1
-    # z: 白          -> 1张（索引 31；27:东 28:南 29:西 30:北 31:白 32:发 33:中）
-    hand[27+4] += 1
-
-    # 总数 9 + 2 + 2 + 1 = 14 张（包含现摸）
-    assert sum(hand) == 14
-
-    last_draw = 9 + 4  # 刚摸的是 5p（索引13）
-    remaining = [4]*34
-    remaining[9+4] = 2  # 牌山中 5p 还剩两张
-    res = compute_ukeire_advanced(hand, last_draw, remaining)
-    print(res, sum(hand))
+    run_tests(n=1000, seed=42)
+    run_tests(n=10000, seed=42)
+    run_tests(n=100000, seed=42)

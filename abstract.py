@@ -276,26 +276,6 @@ class AMahjongEnv(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def tiles_136_to_bool(self, tiles_136):
-        """将136张牌表示转换为bool表示。"""
-        raise NotImplementedError
-
-    @abstractmethod
-    def tiles_bool_to_34(self, tiles_bool):
-        """将bool表示转换为34表示。"""
-        raise NotImplementedError
-
-    @abstractmethod
-    def tiles_bool_to_4x34(self, tiles_bool):
-        """将bool表示转换为34表示。"""
-        raise NotImplementedError
-
-    @abstractmethod
-    def tiles_136_to_4x34(self, tiles_136):
-        """将136张牌表示转换为4x34表示。"""
-        raise NotImplementedError
-
-    @abstractmethod
     def action_map(self, player, action_grp):
         raise NotImplementedError
 

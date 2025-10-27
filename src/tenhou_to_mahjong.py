@@ -473,19 +473,6 @@ class TenhouRoundTracker:
 
         shantens, ukeires = compute_all_discards_ukeire_fast(counts, remaining_counts)
         
-        '''
-        shantens0 = [8] * NUM_TILES
-        ukeires0 = [0] * NUM_TILES
-        for tile, cnt in enumerate(counts):
-            if cnt <= 0:
-                continue
-            out = compute_ukeire_advanced(counts, tile, remaining_counts)
-            shantens0[tile] = int(out.get("shanten", shantens0[tile]))
-            ukeires0[tile] = int(out.get("ukeire", ukeires0[tile]))
-        assert all(i == j for i, j in zip(shantens, shantens0)), f"Shanten={shantens}, Ref={shantens0}, counts={counts}, remaining={remaining_counts}"
-        assert all(i == j for i, j in zip(ukeires, ukeires0)), f"Ukeire={ukeires}, Ref={ukeires0}, counts={counts}, remaining={remaining_counts}"
-        '''
-        
         # legal actions
         if legal_actions is None:
             total_tiles = sum(counts)

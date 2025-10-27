@@ -13,7 +13,9 @@ import random
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from shanten_dp import compute_ukeire_advanced, compute_all_discards_ukeire_fast
 
-
+# 建议：模块级常量，避免每次都分配
+_FULL_LEFT_34 = [4,] * NUM_TILES  # 和你原来传入 compute_all_discards_ukeire_fast 的第二个参数一致
+    
 class MahjongEnvBase(gym.Env):
     """
     一个简化的麻将环境示例。
@@ -262,6 +264,7 @@ class MahjongEnvBase(gym.Env):
 
         # 储存手牌的状态, 玩家的向听数
         self.machii = [[] for _ in range(self.num_players)]
+        self.machii_1 = [[] for _ in range(self.num_players)]
         self.shanten = [self.hand_checker.check_shanten(hand) for hand in self.hands]
         self.tenpai = [False]*self.num_players # 只在游戏结束时才使用听牌状态
 
@@ -1058,15 +1061,16 @@ class MahjongEnvBase(gym.Env):
 
     def can_riichi(self, player):
         # 立直要求手牌听牌，门清，且分数大于1000点
+        # (Deprecated) self.hand_checker.check_shanten(self.hands[player]) <= 0:
         if  self.menzen[player] and \
             not self.riichi[player] and \
             self.scores[player] >= MahjongEnvBase.KYOUTAKU and \
-            self.hand_checker.check_shanten(self.hands[player]) <= 0:
+            self.hands[player][-1]//4 in self.machii_1[player]:
             return True
         return False
 
     # Deprecated
-    def _has_yaku(self, player):
+    def __has_yaku(self, player):
         """简单检测该玩家是否有役。调用一个和牌判断函数。"""
         # 检查是否有役
         who = player
@@ -1081,11 +1085,12 @@ class MahjongEnvBase(gym.Env):
                 return False
         return True
     
-    def can_tsumo(self, player, is_rinshan=False, config = [None,]):
+    def can_tsumo(self, who, is_rinshan=False, config = [None,]):
         """简单检测该玩家是否和牌。调用一个和牌判断函数。"""
         # 检查牌型是否能和牌
+        if not self.hands[who][-1]//4 in self.machii[who]:
+            return False
         # 检查是否有役
-        who = player
         config[0]={ \
             "is_tsumo": True,
             "is_riichi": self.riichi[who],
@@ -1257,16 +1262,22 @@ class MahjongEnvBase(gym.Env):
     
     def update_machii(self, player):
         """更新玩家的待牌状态。"""
-        remaining = np.zeros((NUM_TILES,)) + 4
         hand_counts = np.zeros((NUM_TILES,))
         for pai in self.hands[player]:
             hand_counts[pai//4] += 1
+        hand_counts = hand_counts.tolist()
         # 允许形听
-        result = compute_ukeire_advanced(hand_counts, None, remaining)
+        result = compute_ukeire_advanced(hand_counts, None, _FULL_LEFT_34)
         if result["shanten"] == 0:
             self.machii[player] = [pai for pai, _ in result["tiles"]]
         else:
             self.machii[player] = []
+        
+        # 立直进张
+        if result["shanten"] == 1:
+            self.machii_1[player] = [pai for pai, _ in result["tiles"]]
+        else:
+            self.machii_1[player] = []
 
         # 检查是否舍张振听
         self.furiten_0[player] = False
@@ -1274,15 +1285,6 @@ class MahjongEnvBase(gym.Env):
             if self.discard_pile[player, t] > 0:
                 self.furiten_0[player] = True
                 return
-            
-        '''
-        # 即使牌河的牌没构成振听，被鸣走的牌也可以构成振听
-        for melds in [melds for i, melds in enumerate(self.melds) if i != player]:
-            for meld in melds:
-                if meld["fromwho"] == player and meld["claimed_tile"]//4 in self.machii[player]:
-                    self.furiten_0[player] = True
-                    return
-        '''
                 
     def can_ron(self, player, tile, is_ankan=False, is_chankan=False, config = [None,]):
         """简单检测该玩家是否和牌。调用一个和牌判断函数。"""        
@@ -1526,147 +1528,128 @@ class MahjongEnvBase(gym.Env):
         return [self._compute_legal_actions_per(who) for who in range(self.num_players)]
 
     def _compute_legal_actions_per(self, who) -> list[bool]:
-        if self.phase in ["score", "game_over", "tsumo", "ron", "ryuukyoku"]:
-            return [False]*NUM_ACTIONS
-        
-        phases = [c["type"] for c in self.claims if c["who"] == who]
+        # 早退：这些阶段无需计算
+        if self.phase in ("score", "game_over", "tsumo", "ron", "ryuukyoku"):
+            return [False] * NUM_ACTIONS
 
-        if len(self.hands[who]) in [2, 5, 8, 11, 14] and \
-            not self.is_selecting_tiles_for_claim:
-            phases.append("discard")
+        # ------- 本地绑定，减少属性查找 -------
+        hands   = self.hands[who]
+        riichi  = self.riichi[who]
+        claims  = self.claims
+        get_idx = get_action_index
+
+        # 自己回合（摸牌后 14 张 / 副露后 11/8/5/2 张） 且不在选取吃碰杠用牌
+        is_turn = (len(hands) in (2, 5, 8, 11, 14)) and (not self.is_selecting_tiles_for_claim)
+
+        # ------- 相位集合去重，并在 riichi 时一次性剔除不可能动作 -------
+        phases = {c["type"] for c in claims if c["who"] == who}
+        if is_turn:
+            phases.add("discard")
+        if riichi:
+            phases -= {"chi", "pon", "kan", "ankan", "chakan"}
 
         total_mask = [False] * NUM_ACTIONS
-        for phase in phases:
-            match phase:
-                case "discard":
-                    mask = [False] * NUM_ACTIONS
-                    if self.riichi[who]:
-                        # 立直后只能打最后摸到的牌
-                        mask[self.hands[who][-1]//4]=True
-                    else:
-                        for t136 in self.hands[who]:
-                            mask[t136//4]=True
-                    total_mask = [a | b for a, b in zip(total_mask, mask)]
 
-                case "chi":
-                    if self.riichi[who]:
-                        continue
-                    mask = [False] * NUM_ACTIONS
-                    assert self.last_discarded_tile >= 0
-                    claimed_t34 = self.last_discarded_tile//4
-                    rank = claimed_t34 % 9
-                    hand_34 = [False] * 34
-                    for t136 in self.hands[who]:
-                        hand_34[t136//4]+=1
-                    if 0 <= rank <= 6:
-                        has_required_tiles = hand_34[claimed_t34+1] > 0 and hand_34[claimed_t34+2] > 0
-                        mask[get_action_index((self.last_discarded_tile//4,0), phase)]=has_required_tiles
-                    if 1 <= rank <= 7:
-                        has_required_tiles = hand_34[claimed_t34-1] > 0 and hand_34[claimed_t34+1] > 0
-                        mask[get_action_index((self.last_discarded_tile//4-1,1), phase)]=has_required_tiles
-                    if 2 <= rank <= 8:
-                        has_required_tiles = hand_34[claimed_t34-2] > 0 and hand_34[claimed_t34-1] > 0
-                        mask[get_action_index((self.last_discarded_tile//4-2,2), phase)]=has_required_tiles
-                    mask[get_action_index(None, ("pass",phase))]=True
-                    mask[get_action_index(None, "pass")]=True
-                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+        # 常用索引：全局 pass 以及各相位的 pass
+        PASS_IDX = get_idx(None, "pass")
+        pass_idx_by_phase = {ph: get_idx(None, ("pass", ph)) for ph in phases if ph != "discard"}
 
-                case "pon"|"kan":
-                    if self.riichi[who]:
-                        continue
-                    assert self.last_discarded_tile >= 0
-                    mask = [False] * NUM_ACTIONS
-                    mask[get_action_index((self.last_discarded_tile//4,0), phase)]=True
-                    mask[get_action_index(None, ("pass",phase))]=True
-                    mask[get_action_index(None, "pass")]=True
-                    total_mask = [a | b for a, b in zip(total_mask, mask)]
-                    
-                case "ron":
-                    mask = [False] * NUM_ACTIONS
-                    # furiten justification
-                    if not (self.furiten_0[who] or self.furiten_1[who]):
-                        mask[get_action_index(None, phase)]=True
-                    mask[get_action_index(None, ("pass",phase))]=True
-                    mask[get_action_index(None, "pass")]=True
-                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+        # ------- 一次性预计算手牌的 34 号计数 / 集合 -------
+        t34_list = [t // 4 for t in hands]
+        t34_set  = set(t34_list)
+        counts34 = [0] * NUM_TILES
+        for t in t34_list:
+            counts34[t] += 1
 
-                case "tsumo":
-                    mask = [False] * NUM_ACTIONS
-                    mask[get_action_index(None, phase)]=True
-                    mask[get_action_index(None, ("pass",phase))]=True
-                    mask[get_action_index(None, "pass")]=True
-                    total_mask = [a | b for a, b in zip(total_mask, mask)]
+        last_t34 = self.last_discarded_tile // 4 if self.last_discarded_tile >= 0 else -1
 
-                case "ryuukyoku":
-                    mask = [False] * NUM_ACTIONS
-                    mask[get_action_index(None, phase)]=True
-                    if self.is_yao9(who):
-                        mask[get_action_index(None, ("pass",phase))]=True
-                        mask[get_action_index(None, "pass")]=True
-                    total_mask = [a | b for a, b in zip(total_mask, mask)]
-                
-                case "ankan":
-                    if self.riichi[who]:
-                        continue
-                    # TODO: ankan after riichi should not change the machii
-                    mask = [False] * NUM_ACTIONS
-                    if self.is_selecting_tiles_for_claim:
-                        continue
-                    else:
-                        hands_34 = [tile // 4 for tile in self.hands[who]]
-        
-                        for tile, count in Counter(hands_34).items():
-                            if count >= 4:
-                                for i, t in enumerate(hands_34):
-                                    if t == tile:
-                                        mask[get_action_index((t,None), "kan")]=True
-                        mask[get_action_index(None, ("pass",phase))]=True
-                        mask[get_action_index(None, "pass")]=True
-                        total_mask = [a | b for a, b in zip(total_mask, mask)]
+        # ------- 直接在 total_mask 上定点置位，不再分配临时 mask -------
+        # discard
+        if "discard" in phases:
+            if riichi:
+                total_mask[t34_list[-1]] = True     # 立直后只能打最后摸到的那张（同语义）
+            else:
+                for t in t34_set:                   # 去重后置位即可
+                    total_mask[t] = True
 
-                case "chakan":
-                    if self.riichi[who]:
-                        continue
-                    mask = [False] * NUM_ACTIONS
-                    if self.is_selecting_tiles_for_claim:
-                        continue
-                    else:
-                        hands_34 = [tile // 4 for tile in self.hands[who]]
-        
-                        for m in self.melds[who]:
-                            if m["type"] == "pon":
-                                tile = m["claimed_tile"] // 4
-                                for i, t in enumerate(hands_34):
-                                    if t == tile:
-                                        mask[get_action_index((t,0), "chakan")]=True
-                        mask[get_action_index(None, ("pass",phase))]=True
-                        mask[get_action_index(None, "pass")]=True
-                        total_mask = [a | b for a, b in zip(total_mask, mask)]
-                
-                case "riichi":
-                    if self.riichi[who]:
-                        continue
-                    mask = [False] * NUM_ACTIONS
-                    # 立直时只能打能使手牌听牌的牌
-                    #shantens = self.hand_checker.check_shantens(self.hands[who])
-                    #discard_for_riichi = [t//4 for i, t in enumerate(self.hands[who]) if shantens[i] <= 0]
-                    counts = [0]*NUM_TILES
-                    for tid in self.hands[who]:
-                        counts[tid // 4] += 1
-                    shantens, _ = compute_all_discards_ukeire_fast(counts, [4]*NUM_TILES)
-                    discard_for_riichi = [t34 for t34, sh in enumerate(shantens) if sh <= 0]
-                    for t34 in discard_for_riichi:
-                        mask[get_action_index(t34, "riichi")]=True
-                    mask[get_action_index(None, ("pass",phase))]=True
-                    mask[get_action_index(None, "pass")]=True
-                    total_mask = [a | b for a, b in zip(total_mask, mask)]
-        
-        # 自己回合时没有pass动作
-        if len(self.hands[who]) in [2, 5, 8, 11, 14] and \
-            not self.is_selecting_tiles_for_claim:
-            total_mask = [a if i < get_action_index(None, "pass") else False for i, a in enumerate(total_mask)]
+        # chi
+        if "chi" in phases and last_t34 >= 0:
+            rank = last_t34 % 9
+            if 0 <= rank <= 6 and counts34[last_t34+1] and counts34[last_t34+2]:
+                total_mask[get_idx((last_t34, 0), "chi")] = True
+            if 1 <= rank <= 7 and counts34[last_t34-1] and counts34[last_t34+1]:
+                total_mask[get_idx((last_t34-1, 1), "chi")] = True
+            if 2 <= rank <= 8 and counts34[last_t34-2] and counts34[last_t34-1]:
+                total_mask[get_idx((last_t34-2, 2), "chi")] = True
+            total_mask[pass_idx_by_phase["chi"]] = True
+            total_mask[PASS_IDX] = True
+
+        # pon / kan（来自他家打出的牌）
+        if "pon" in phases and last_t34 >= 0:
+            total_mask[get_idx((last_t34, 0), "pon")] = True
+            total_mask[pass_idx_by_phase["pon"]] = True
+            total_mask[PASS_IDX] = True
+
+        if "kan" in phases and last_t34 >= 0:
+            total_mask[get_idx((last_t34, 0), "kan")] = True
+            total_mask[pass_idx_by_phase["kan"]] = True
+            total_mask[PASS_IDX] = True
+
+        # ron
+        if "ron" in phases:
+            if not (self.furiten_0[who] or self.furiten_1[who]):   # 与原逻辑一致
+                total_mask[get_idx(None, "ron")] = True
+            total_mask[pass_idx_by_phase["ron"]] = True
+            total_mask[PASS_IDX] = True
+
+        # tsumo
+        if "tsumo" in phases:
+            total_mask[get_idx(None, "tsumo")] = True
+            total_mask[pass_idx_by_phase["tsumo"]] = True
+            total_mask[PASS_IDX] = True
+
+        # ryuukyoku（九种九牌）
+        if "ryuukyoku" in phases:
+            total_mask[get_idx(None, "ryuukyoku")] = True
+            if self.is_yao9(who):
+                total_mask[pass_idx_by_phase["ryuukyoku"]] = True
+                total_mask[PASS_IDX] = True
+
+        # ankan（暗杠）
+        if "ankan" in phases and not self.is_selecting_tiles_for_claim:
+            for t, c in enumerate(counts34):
+                if c >= 4:
+                    total_mask[get_idx((t, None), "kan")] = True
+            total_mask[pass_idx_by_phase["ankan"]] = True
+            total_mask[PASS_IDX] = True
+
+        # chakan（加杠）
+        if "chakan" in phases and not self.is_selecting_tiles_for_claim:
+            for m in self.melds[who]:
+                if m["type"] == "pon":
+                    tile = m["claimed_tile"] // 4
+                    if counts34[tile]:
+                        total_mask[get_idx((tile, 0), "chakan")] = True
+            total_mask[pass_idx_by_phase["chakan"]] = True
+            total_mask[PASS_IDX] = True
+
+        # riichi
+        if "riichi" in phases:
+            # 只在真的需要时计算一次 shantens（原来每次都现算且还生成了 [4]*NUM_TILES）
+            shantens, _ = compute_all_discards_ukeire_fast(counts34, _FULL_LEFT_34)
+            for t34, sh in enumerate(shantens):
+                if sh <= 0:
+                    total_mask[get_idx(t34, "riichi")] = True
+            total_mask[pass_idx_by_phase["riichi"]] = True
+            total_mask[PASS_IDX] = True
+
+        # 自己回合时去掉 pass（保持与你原来的假设一致：pass 索引 >= PASS_IDX）
+        if is_turn:
+            for i in range(PASS_IDX, NUM_ACTIONS):
+                total_mask[i] = False
 
         return total_mask
+
 
 
 class MahjongEnv(MahjongEnvBase):
