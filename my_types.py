@@ -30,21 +30,6 @@ class ActionType(IntEnum):
 
     def __repr__(self) -> str:  # optional: nicer in REPL/debugging
         return f"{self.__class__.__name__}.{self.name}"
-    
-    
-PRIORITY = {
-    ActionType.RON: 140,
-    ActionType.TSUMO: 140,
-    ActionType.RYUUKYOKU: 100,
-    ActionType.RIICHI: 10,
-    ActionType.ANKAN: 10,
-    ActionType.CHAKAN: 10,
-    ActionType.KAN: 60,
-    ActionType.PON: 60,
-    ActionType.CHI: 50,
-    ActionType.DISCARD: 10,
-    ActionType.PASS: 0,
-}
 
 @dataclass(frozen=True)
 class ActionSketch:
@@ -68,3 +53,18 @@ class Response:
     request_id: str
     from_seat: Seat
     chosen: ActionSketch
+
+
+PRIORITY = {
+    ActionType.RON: 140,
+    ActionType.TSUMO: 140,
+    ActionType.RYUUKYOKU: 100,
+    ActionType.RIICHI: 10,
+    ActionType.ANKAN: 10,
+    ActionType.CHAKAN: 10,
+    ActionType.KAN: 60,
+    ActionType.PON: 60,
+    ActionType.CHI: 50,
+    ActionType.DISCARD: 10,
+    ActionType.PASS: 0,
+}

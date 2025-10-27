@@ -2,9 +2,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from concurrent.futures import Future
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Int, Bool
 import threading
-from my_types import *
+from my_types import Seat, ActionSketch, Request, Response
 
 # ---------- 传输层抽象（未来可替换为 WebSocket） ----------
 
@@ -55,36 +55,8 @@ class ARoomEngine(ABC):
 
 
 # ---------- 麻将引擎抽象 ----------
-class AMahjongEnvBase(ABC):
-    # 用于将动作映射到具体的操作
-    PHASE_MAP = {
-        "draw": 0,
-        "kan_draw": 0,
-        "discard": 1,
-        "chi": 2,
-        "pon": 3,
-        "kan": 4,
-        "chakan": 5,
-        "ankan": 6,
-        "riichi": 7,
-        "ryuukyoku": 8,
-        "tsumo": 9,
-        "ron": 10,
-        "score": 11,
-        "game_over": 11,
-    }
 
-    HAS_KUIKAE = 0 # 食替 (TODO: 无实现)
-    HAS_NAKU = 1 # 鸣牌
-    HAS_FURITEN = 1 # 振听
-    KYOUTAKU = 10 # 供托
-    TSUMI = 1 # 积
-    RYUUKYOKU_PENALTY = 30 # 流局罚符，标准为3000点
-    MAX_ROUND = 16 # 最大局数
-    MAX_ROUND_EXTRA = 4 # 最大延长战局数 (TODO: 无实现)
-    MAX_HONBA = 8 # 最大本场数
-    MULTI_RON = False
-
+class AMahjongEnv(ABC):
     def __init__(self):
         # 初始化游戏需要在子类中实现
         raise NotImplementedError
@@ -95,7 +67,7 @@ class AMahjongEnvBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def reset_for_next_round(self, oya_continue=False):
+    def reset_for_next_round(self, oya_continue : Bool=False):
         # 初始化牌局，重新洗牌、发牌等
         raise NotImplementedError
 
