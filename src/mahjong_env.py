@@ -229,6 +229,7 @@ class MahjongEnvBase(gym.Env):
         # 发初始手牌
         self.discard_pile = np.zeros((4, 34), dtype=bool)
         self.discard_pile_seq = [[] for _ in range(self.num_players)]
+        self.tsumogiri = [[] for _ in range(self.num_players)] # 摸切指示
         self.melds = [[] for _ in range(self.num_players)]
         self.hands = [[] for _ in range(self.num_players)]
         for _ in range(3):
@@ -427,6 +428,7 @@ class MahjongEnvBase(gym.Env):
                 self.last_discarder = player
                 self.discard_pile[player, tile_to_discard//4] += 1 # 加入弃牌堆
                 self.discard_pile_seq[player].append(tile_to_discard)
+                self.tsumogiri[player].append(True if tile_to_discard == self.last_draw_tiles[player] else False)
 
                 self.last_draw_tiles[player] = -1
                 self.hands[player] = sorted(self.hands[player])
@@ -815,8 +817,11 @@ class MahjongEnvBase(gym.Env):
 
                 self.is_selecting_tiles_for_claim = True
                 # Pre-fill with selected tiles
-                for idx in action:
-                    self.selected_tiles.append(self.hands[player][idx])
+                if isinstance(action, list | tuple):
+                    for idx in action:
+                        self.selected_tiles.append(self.hands[player][idx])
+                else:
+                    raise NotImplementedError
                 self.hands[player] = [h for h in self.hands[player] if h not in self.selected_tiles]
                 # 需要选择牌(需要进行动作合法性检查)
                 # 碰/吃需要选择两张牌
@@ -829,7 +834,9 @@ class MahjongEnvBase(gym.Env):
                 # 将丢弃的牌加入自己的副露(Melds)中,清空选中的牌
                 self.last_discarded_tile = -1
                 #self.discard_pile[fromwho, claimed_tile] = False # 移出弃牌堆
-                self.discard_pile_seq[fromwho].remove(claimed_tile)
+                assert self.discard_pile_seq[fromwho][-1] == claimed_tile
+                self.discard_pile_seq[fromwho].pop()
+                self.tsumogiri[fromwho].pop()
                 new_meld = {"type":self.phase, # claim['type'] 
                             "fromwho":fromwho, "offset":self.get_distance(player, fromwho),
                             "m": sorted([t for t in self.selected_tiles] + [claimed_tile]), 
@@ -981,7 +988,7 @@ class MahjongEnvBase(gym.Env):
         self.logger.add_draw(player, tile)
         # 更新待牌状态
         #self.update_machii(player)
-
+        
     def complete_riichi(self, player):
         if self.to_riichi:
             self.num_riichi += 1
