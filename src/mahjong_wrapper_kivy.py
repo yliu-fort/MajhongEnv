@@ -2651,6 +2651,7 @@ class MahjongEnvKivyWrapper:
         if orientation:
             canvas.add(Rotate(angle=orientation))
         canvas.add(Translate(-width / 2, -height / 2))
+        
         highlight_data = highlight if highlight else None
 
         if not face_up:
