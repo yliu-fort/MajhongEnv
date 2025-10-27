@@ -386,6 +386,7 @@ class _RenderPayload:
 @dataclass(frozen=True)
 class _TileHighlight:
     dora: bool = False
+    tsumogiri: bool = False
     outline_color: Optional[Tuple[float, float, float, float]] = None
 
 
@@ -546,6 +547,7 @@ class MahjongEnvKivyWrapper:
         self._dora_overlay_color = (250 / 255.0, 210 / 255.0, 120 / 255.0, 0.45)
         self._last_draw_outline_color = (120 / 255.0, 190 / 255.0, 255 / 255.0, 1)
         self._last_discard_outline_color = (255 / 255.0, 170 / 255.0, 90 / 255.0, 1)
+        self._tsumogiri_tile_texture_background = (200 / 255.0, 200 / 255.0, 200 / 255.0, 0.55)
         self._hint_outline_width = 3
         self._dora_highlight_tiles: set[int] = set()
         self._cached_last_draw_tiles: list[int] = []
@@ -2460,6 +2462,7 @@ class MahjongEnvKivyWrapper:
             last_index = len(discard_tiles) - 1
             for idx, tile in enumerate(discard_tiles):
                 highlight_dora = self._is_dora_tile(tile)
+                highlight_tsumogiri = self._env.tsumogiri[tile]
                 outline_color = None
                 if (
                     player_idx == self._cached_last_discarder
@@ -2467,9 +2470,10 @@ class MahjongEnvKivyWrapper:
                     and tile == self._cached_last_discard_tile
                 ):
                     outline_color = self._last_discard_outline_color
-                if highlight_dora or outline_color:
+                if highlight_dora or outline_color or highlight_tsumogiri:
                     highlight_map[idx] = _TileHighlight(
                         dora=highlight_dora,
+                        tsumogiri=highlight_tsumogiri,
                         outline_color=outline_color,
                     )
         self._draw_tile_grid(
@@ -2647,6 +2651,7 @@ class MahjongEnvKivyWrapper:
         if orientation:
             canvas.add(Rotate(angle=orientation))
         canvas.add(Translate(-width / 2, -height / 2))
+        highlight_data = highlight if highlight else None
 
         if not face_up:
             canvas.add(Color(*self._face_down_color))
@@ -2656,14 +2661,15 @@ class MahjongEnvKivyWrapper:
             canvas.add(PopMatrix())
             return
         else:
-            canvas.add(Color(*self._tile_texture_background))
+            canvas.add(Color(*(self._tsumogiri_tile_texture_background if highlight_data and highlight_data.tsumogiri \
+                else self._tile_texture_background)))
             canvas.add(RoundedRectangle(pos=(0, 0), size=size, radius=[6, 6, 6, 6]))
-            canvas.add(Color(*self._tile_texture_background))
+            canvas.add(Color(*(self._tsumogiri_tile_texture_background if highlight_data and highlight_data.tsumogiri \
+                else self._tile_texture_background)))
             canvas.add(Line(rounded_rectangle=(0, 0, width, height, 6), width=1))
 
         tile_34 = self._tile_texture_index(tile_136)
-        highlight_data = highlight if highlight else None
-
+        
         texture = self._raw_tile_textures.get(tile_34)
         if texture is None:
             self._draw_tile_placeholder(canvas, board, play_rect, tile_34, size, origin, local=True)

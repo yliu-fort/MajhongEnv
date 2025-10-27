@@ -229,7 +229,6 @@ class MahjongEnvBase(gym.Env):
         # 发初始手牌
         self.discard_pile = np.zeros((4, 34), dtype=bool)
         self.discard_pile_seq = [[] for _ in range(self.num_players)]
-        self.tsumogiri = [[] for _ in range(self.num_players)] # 摸切指示
         self.melds = [[] for _ in range(self.num_players)]
         self.hands = [[] for _ in range(self.num_players)]
         for _ in range(3):
@@ -268,6 +267,7 @@ class MahjongEnvBase(gym.Env):
         self.machii_1 = [[] for _ in range(self.num_players)]
         self.shanten = [self.hand_checker.check_shanten(hand) for hand in self.hands]
         self.tenpai = [False]*self.num_players # 只在游戏结束时才使用听牌状态
+        self.tsumogiri = [False for _ in range(136)] # 摸切指示
 
         # 输出天凤格式的log
         self.logger.add_init(self.round, self.num_kyoutaku, self.dice, self.dora_indicator, self.scores, self.oya, self.hands)
@@ -428,7 +428,8 @@ class MahjongEnvBase(gym.Env):
                 self.last_discarder = player
                 self.discard_pile[player, tile_to_discard//4] += 1 # 加入弃牌堆
                 self.discard_pile_seq[player].append(tile_to_discard)
-                self.tsumogiri[player].append(True if tile_to_discard == self.last_draw_tiles[player] else False)
+                if tile_to_discard == self.last_draw_tiles[player]:
+                    self.tsumogiri[tile_to_discard] = True
 
                 self.last_draw_tiles[player] = -1
                 self.hands[player] = sorted(self.hands[player])
@@ -836,7 +837,6 @@ class MahjongEnvBase(gym.Env):
                 #self.discard_pile[fromwho, claimed_tile] = False # 移出弃牌堆
                 assert self.discard_pile_seq[fromwho][-1] == claimed_tile
                 self.discard_pile_seq[fromwho].pop()
-                self.tsumogiri[fromwho].pop()
                 new_meld = {"type":self.phase, # claim['type'] 
                             "fromwho":fromwho, "offset":self.get_distance(player, fromwho),
                             "m": sorted([t for t in self.selected_tiles] + [claimed_tile]), 
