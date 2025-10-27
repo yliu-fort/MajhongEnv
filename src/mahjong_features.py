@@ -16,7 +16,7 @@ License: MIT
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Sequence, Tuple
+from typing import List, Dict, Optional, Sequence, Tuple, Any
 import math
 from functools import lru_cache
 import torch
@@ -368,7 +368,7 @@ class RiichiResNetFeatures(torch.nn.Module):
         return quantized_score
         
     # ---------- core ----------
-    def forward(self, state: RiichiState) -> Dict[str, torch.Tensor]:
+    def forward(self, state: RiichiState) -> Dict[str, Any]:
         """Construct feature planes for a given :class:`RiichiState`.
 
         This implementation aims to be reasonably fast as feature extraction is

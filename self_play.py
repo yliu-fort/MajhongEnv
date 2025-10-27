@@ -31,7 +31,8 @@ def evaluate_model(episodes=10, start=0, step=1):
             request_id="", \
             from_seat=Seat(_), \
             chosen=agent.predict(obs[_])) for _ in range(env.num_players)}
-            obs, rewards, done, _, info = env.step(actions)
+            obs, rewards, terminations, _, info = env.step(actions)
+            done = any(terminations.values())
 
         total_dscores += np.array(info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])

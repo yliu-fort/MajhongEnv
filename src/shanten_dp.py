@@ -12,6 +12,50 @@ except Exception:
     CYTHON_AVAILABLE = False
 
 # --------- 工具函数 ---------
+def random_hand2():
+    """随机生成 14 张牌的 34 进制计数（每张<=4）。"""
+    counts = [0]*34
+    for _ in range(2):
+        while True:
+            t = random.randrange(34)
+            if counts[t] < 4:
+                counts[t] += 1
+                break
+    return counts
+
+def random_hand5():
+    """随机生成 14 张牌的 34 进制计数（每张<=4）。"""
+    counts = [0]*34
+    for _ in range(5):
+        while True:
+            t = random.randrange(34)
+            if counts[t] < 4:
+                counts[t] += 1
+                break
+    return counts
+
+def random_hand8():
+    """随机生成 14 张牌的 34 进制计数（每张<=4）。"""
+    counts = [0]*34
+    for _ in range(8):
+        while True:
+            t = random.randrange(34)
+            if counts[t] < 4:
+                counts[t] += 1
+                break
+    return counts
+
+def random_hand11():
+    """随机生成 14 张牌的 34 进制计数（每张<=4）。"""
+    counts = [0]*34
+    for _ in range(11):
+        while True:
+            t = random.randrange(34)
+            if counts[t] < 4:
+                counts[t] += 1
+                break
+    return counts
+
 def random_hand14():
     """随机生成 14 张牌的 34 进制计数（每张<=4）。"""
     counts = [0]*34
@@ -41,7 +85,7 @@ def run_tests(n=1000, seed=42):
     # 预生成测试用例，避免把生成时间算进两边实现的计时
     tests = []
     for _ in range(n):
-        hand = random_hand14()
+        hand = random.choice([random_hand14(), random_hand11(), random_hand8(), random_hand5(), random_hand2()])
         last_draw = random_last_draw(hand)
         remaining = remaining_from_counts(hand)
         tests.append((hand, last_draw, remaining))
@@ -114,5 +158,5 @@ def run_tests(n=1000, seed=42):
 
 if __name__ == "__main__":
     run_tests(n=1000, seed=42)
-    run_tests(n=10000, seed=42)
-    run_tests(n=100000, seed=42)
+    #run_tests(n=10000, seed=42)
+    #run_tests(n=100000, seed=42)

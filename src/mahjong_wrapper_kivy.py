@@ -809,7 +809,7 @@ class MahjongEnvKivyWrapper:
         container.add_widget(entry)
 
     def reset(self, *args: Any, **kwargs: Any) -> Any:
-        observation = self._env.reset(*args, **kwargs)
+        observation, _ = self._env.reset(*args, **kwargs)
         self._step_once_requested = False
         self._score_pause_active = False
         self._score_pause_pending = False
@@ -1297,7 +1297,8 @@ class MahjongEnvKivyWrapper:
                 if self._step_once_requested:
                     self._step_once_requested = False
                 action: Dict[int, Response] = self._pending_action
-                observation, reward, done, _, info = self._env.step(action)
+                observation, reward, terminations, _, info = self._env.step(action)
+                done = any(terminations.values())
                 self._pending_action = None
                 self._step_result = (observation, reward, done, info)
                 self._latest_observation = observation

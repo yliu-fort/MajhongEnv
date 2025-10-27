@@ -555,17 +555,37 @@ if __name__ == "__main__":
     hand[3]+=1;hand[4]+=1;hand[5]+=1
     hand[6]+=1;hand[7]+=1;hand[8]+=1
     # p: 55          -> 2张
-    hand[9+4] += 2
+    hand[9+4] += 3
     # s: 23          -> 2张
     hand[18+1] += 1; hand[18+2] += 1
     # z: 白          -> 1张（索引 31；27:东 28:南 29:西 30:北 31:白 32:发 33:中）
-    hand[27+4] += 1
+    hand[27+4] += 0
 
     # 总数 9 + 2 + 2 + 1 = 14 张（包含现摸）
     assert sum(hand) == 14
 
-    last_draw = 9 + 4  # 刚摸的是 5p（索引13）
+    last_draw = 9+4  # 刚摸的是 5p（索引13）
     remaining = [4]*34
     remaining[9+4] = 2  # 牌山中 5p 还剩两张
+    res = compute_ukeire_advanced(hand, last_draw, remaining)
+    print(res, sum(hand))
+
+    hand = [0]*34
+    # m: 345  -> 3张
+    hand[0]+=0;hand[1]+=0;hand[2]+=1
+    hand[3]+=1;hand[4]+=1;hand[5]+=0
+    hand[6]+=0;hand[7]+=0;hand[8]+=0
+    # p:           -> 0张
+    # s: 3456          -> 4张
+    hand[18+2] += 1; hand[18+3] += 1
+    hand[18+4] += 1; hand[18+5] += 1
+    # z: 发中          -> 3张（索引 31；27:东 28:南 29:西 30:北 31:白 32:发 33:中）
+    hand[27] += 1; hand[33] += 3
+
+    # 总数 9 + 2 + 2 + 1 = 14 张（包含现摸）
+    assert sum(hand) == 11
+
+    last_draw = 27  # 刚摸的是 东（索引27）
+    remaining = [4]*34
     res = compute_ukeire_advanced(hand, last_draw, remaining)
     print(res, sum(hand))

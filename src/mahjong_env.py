@@ -69,7 +69,7 @@ class MahjongEnvBase(gym.Env):
         # 初始化游戏需要在子类中实现
         #self.reset()
  
-    def reset(self):
+    def reset(self) -> Tuple[Dict[int, RiichiState], Dict]:
         # 初始化牌局，重新洗牌、发牌等
         # 在此进行游戏状态的重置
         self.hand_checker = MahjongHandChecker()
@@ -91,7 +91,7 @@ class MahjongEnvBase(gym.Env):
 
         # 返回所有玩家的观测
         observations = {i: self.get_observation(i, self._compute_legal_actions_per(i)) for i in range(self.num_players)}
-        return observations
+        return observations, {}
 
     def reset_for_next_round(self, oya_continue=False):
         # 初始化牌局，重新洗牌、发牌等
@@ -272,7 +272,7 @@ class MahjongEnvBase(gym.Env):
         # 输出天凤格式的log
         self.logger.add_init(self.round, self.num_kyoutaku, self.dice, self.dora_indicator, self.scores, self.oya, self.hands)
     
-    def step(self, responses: Dict[int, Response]):
+    def step(self, responses: Dict[int, Response]) -> Tuple[Dict[int, RiichiState], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         #responses = self.collect_responses(step_id, requests)
         # Filter out pass actions
         responses = {k: v for k, v in responses.items() if v is not None}
@@ -309,7 +309,7 @@ class MahjongEnvBase(gym.Env):
         # 否则仅取第一名
         return [winners[0]]
 
-    def apply_decision(self, decisions: List[Response]) -> Tuple[Dict[int, RiichiState], Dict[int, int], bool, Dict[int, bool], Dict]:
+    def apply_decision(self, decisions: List[Response]) -> Tuple[Dict[int, RiichiState], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         """
         处理当前玩家的动作，然后判断是否有其他玩家吃碰杠和的机会，
         最后确定下一个 current_player并返回新的状态。
@@ -318,7 +318,7 @@ class MahjongEnvBase(gym.Env):
 
         if self.done:
             # 如果已经结束，返回当前状态即可（或 raise）
-            return {}, {}, True, {}, {}
+            return {}, {}, {}, {}, {}
         
         # 0. 读取指令
         # action can be int, list, or None
@@ -348,6 +348,7 @@ class MahjongEnvBase(gym.Env):
             # 见逃玩家进入同巡振听状态
             for _ in list(set([c["who"] for c in self.claims if c["type"]=="ron"])):
                 self.furiten_1[_] = True
+                print(self.claims)
 
         # 1. 取出当前玩家
         player = self.current_player
@@ -891,9 +892,9 @@ class MahjongEnvBase(gym.Env):
                         else RiichiState(
                             hand_counts=[0]*NUM_TILES,
                             legal_actions_mask=valid_actions[i]) for i in range(self.num_players)}
-        rewards = {}
-        terminations = self.done
-        truncations = {}
+        rewards = {i: 0.0 for i in range(self.num_players)}
+        terminations = {i: self.done for i in range(self.num_players)}
+        truncations = {i: self.done for i in range(self.num_players)}
         #infos = {self.current_player: info}
         return observations, rewards, terminations, truncations, info
     
@@ -1275,13 +1276,18 @@ class MahjongEnvBase(gym.Env):
         hand_counts = np.zeros((NUM_TILES,))
         for pai in self.hands[player]:
             hand_counts[pai//4] += 1
+        for m in self.melds[player]:
+            for pai in m["m"][:3]:
+                hand_counts[pai//4] += 1
         hand_counts = hand_counts.tolist()
         # 允许形听
+        assert sum(hand_counts) == 13
         result = compute_ukeire_advanced(hand_counts, None, _FULL_LEFT_34)
         if result["shanten"] == 0:
             self.machii[player] = [pai for pai, _ in result["tiles"]]
         else:
             self.machii[player] = []
+        #print(f"[{player}]待牌：{tiles_printout([_*4+1 for _ in self.machii[player]])}")
         
         # 立直进张
         if result["shanten"] == 1:
@@ -1730,25 +1736,25 @@ if __name__ == "__main__":
     # 创建环境
     env = MahjongEnv(num_players=1)
 
-    obs = env.reset()
+    obs, _ = env.reset()
     while not env.done:
-        obs, reward, done, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.DISCARD, {"action_id": 0}))})
-        print(tiles_printout(obs["hands"]), reward, done, info["msg"])
+        obs, reward, done, _, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.DISCARD, {"action_id": 0}))})
+        print(tiles_printout(env.hands[0]), reward, done, info["msg"])
 
     print("----------")
     env = MahjongEnv(num_players=4)
 
-    obs = env.reset()
+    obs, _ = env.reset()
     while not env.done:
-        obs, reward, done, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.DISCARD, {"action_id": 0}))})
-        print(tiles_printout(obs["hands"]), reward, done, info["msg"])
+        obs, reward, done, _, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.DISCARD, {"action_id": 0}))})
+        print(tiles_printout(env.hands[0]), reward, done, info["msg"])
 
     print("----------")
     env = MahjongEnv(num_players=1)
     
-    obs = env.reset()
+    obs, _ = env.reset()
     env.hands[env.current_player] = [0, 1, 2, 4, 8, 12, 16, 20, 24, 28, 32, 33, 34]
     env.deck[-1] = 35
     while not env.done:
-        obs, reward, done, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.TSUMO, {"action_id": 140}))})
-        print(tiles_printout(obs["hands"]), reward, done, info["msg"])
+        obs, reward, done, _, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.TSUMO, {"action_id": 140}))})
+        print(tiles_printout(env.hands[0]), reward, done, info["msg"])
