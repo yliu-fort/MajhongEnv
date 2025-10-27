@@ -168,10 +168,10 @@ class RiichiState:
     last_discarder: int = -1
 
     # Computed features
-    visible_counts: Sequence[int] = None
-    remaining_counts: Sequence[int] = None
-    shantens: Sequence[int] = None
-    ukeires: Sequence[int] = None
+    visible_counts: Optional[Sequence[int]] = None
+    remaining_counts: Optional[Sequence[int]] = None
+    shantens: Optional[Sequence[int]] = None
+    ukeires: Optional[Sequence[int]] = None
 
     # Hooks / extra calculators
     extra: ExtraCalcs = field(default_factory=ExtraCalcs)
@@ -603,7 +603,7 @@ class RiichiResNetFeatures(torch.nn.Module):
 
 
 @lru_cache(maxsize=None)
-def get_action_index(t_34, type):
+def get_action_index(t_34, type) -> int:
     """Map an action description to the flat action index used in ``print_all_actions``."""
     """t_34 can be the tile index or the (t_34, called_index) for chi. """
     action_type = type.lower() if isinstance(type, str) else type
@@ -693,7 +693,7 @@ def get_action_index(t_34, type):
 
 
 @lru_cache(maxsize=None)
-def get_action_from_index(i):
+def get_action_from_index(i: int) -> Tuple:
     # discard
     if i < 34:
         return (i, False)
@@ -818,7 +818,7 @@ def get_actions():
 
 
 @lru_cache(maxsize=None)
-def get_action_type_from_index(i):
+def get_action_type_from_index(i: int) -> ActionType:
     # discard
     if i < 34:
         return ActionType.DISCARD
@@ -868,7 +868,7 @@ def get_action_type_from_index(i):
         return ActionType.PASS
     
     else:
-        return None
+        return ActionType.UNKNOWN
 
 
 # ----------------------------

@@ -8,11 +8,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-
-try:
-    import timm  # for ViT and other backbones
-except ImportError:
-    timm = None
+import timm  # for ViT and other backbones
 
 from mahjong_features import RiichiResNetFeatures, NUM_ACTIONS, NUM_FEATURES, NUM_TILES, get_action_from_index, get_action_index, get_action_type_from_index
 from .random_discard_agent import RandomDiscardAgent
@@ -205,3 +201,8 @@ class VisualAgent:
                 ]
                 pred = int(sorted_idx[0])
                 return pred, distribution, top
+            
+        # Default
+        fallback = 252
+        distribution[fallback] = 1.0
+        return fallback, distribution, [(fallback, 1.0)]

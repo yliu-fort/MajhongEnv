@@ -41,7 +41,7 @@ class RandomDiscardAgent:
         action_masks = obs.legal_actions_mask
         valid_action_list = [i for i in list(range(NUM_ACTIONS)) if action_masks[i]]
         if sum(action_masks) == 0:
-            return None
+            return ActionSketch(action_type=ActionType.UNKNOWN, payload={"action_id": 0})
         elif sum(action_masks) == 1:
             action_id = valid_action_list[0]
             return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})

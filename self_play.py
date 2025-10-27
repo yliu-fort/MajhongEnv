@@ -13,7 +13,7 @@ import time
 def evaluate_model(episodes=100):
     # 创建环境
     env = MahjongEnv(num_players=4)
-    agent = RandomDiscardAgent(env, backbone="resnet50")
+    agent = RuleBasedAgent(env, backbone="resnet50")
     
     # 加载训练好的模型
     agent.load_model("legacy/model_weights/latest.pt")
@@ -25,7 +25,7 @@ def evaluate_model(episodes=100):
         while not done:
             # 用智能体来选动作
             actions = {_: Response(room_id="", \
-            step_id="", \
+            step_id=0, \
             request_id="", \
             from_seat=Seat(_), \
             chosen=agent.predict(obs[_])) for _ in range(env.num_players)}

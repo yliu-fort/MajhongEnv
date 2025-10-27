@@ -38,10 +38,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing support only
 from mahjong_env import MahjongEnvBase as _BaseMahjongEnv
 from mahjong_features import get_action_from_index
 from my_types import Response
+from agent.visual_agent import VisualAgent
 
-# Dummy AI Agent class
-class _AIAgent:
-    pass
 
 _TILE_SYMBOLS: Tuple[str, ...] = (
     "Man1",
@@ -555,13 +553,13 @@ class MahjongEnvKivyWrapper:
         self._cached_last_discarder: int = -1
         self._assist_dirty = True
         self._seat_agents: dict[int, Any] = {}
-        self._assist_helpers: dict[int, _AIAgent] = {}
+        self._assist_helpers: dict[int, VisualAgent] = {}
         self._assist_model_path = (
             Path(__file__).resolve().parent.parent / "model_weights" / "latest.pt"
         )
         self._latest_observation: Optional[Any] = None
 
-        self._root = root_widget or MahjongRoot()
+        self._root: MahjongRoot = root_widget or MahjongRoot()
         self._root.size = window_size
         self._root.wrapper = self
         self._root.bind(board=self._on_board_assigned)
@@ -595,7 +593,7 @@ class MahjongEnvKivyWrapper:
 
         self._asset_root = Path(__file__).resolve().parent.parent / "assets" / "tiles" / "Export"/ "Regular"
         self._raw_tile_textures: dict[int, Any] = {}
-        self._placeholder_cache: dict[tuple[int, Tuple[int, int]], CoreLabel] = {}
+        self._placeholder_cache: Dict[Tuple[int, Tuple[int, int]], 'CoreLabel'] = {}
         self._tile_metrics: dict[str, Tuple[int, int]] = {}
         self._riichi_states: list[bool] = []
         self._riichi_pending: list[bool] = []
@@ -622,7 +620,7 @@ class MahjongEnvKivyWrapper:
         self._step_once_requested = False
         self._score_panel_was_visible = False
         self._pending_action: Optional[Dict[int, Response]] = None
-        self._step_result: Optional[Tuple[Any, float, bool, dict[str, Any]]] = None
+        self._step_result: Optional[Tuple[Any, dict, bool, dict]] = None
         self._step_event = threading.Event()
         self._scheduled = False
         self._action_deadline: Optional[float] = None
@@ -642,7 +640,7 @@ class MahjongEnvKivyWrapper:
         return self._root
 
     @property
-    def pending_action(self) -> Optional[int]:
+    def pending_action(self) -> Optional[Dict[int, Response]]:
         return self._pending_action
 
     @property
@@ -835,7 +833,7 @@ class MahjongEnvKivyWrapper:
         self._step_event.clear()
 
     # TODO: change the type of output
-    def fetch_step_result(self) -> Optional[Tuple[Any, float, bool, dict[str, Any]]]:
+    def fetch_step_result(self) -> Optional[Tuple[Any, dict, bool, dict]]:
         if self._step_result is None:
             return None
         result = self._step_result
@@ -866,7 +864,7 @@ class MahjongEnvKivyWrapper:
             raise ValueError("seat must be non-negative")
         self._seat_agents[seat] = agent
 
-    def set_assist_agent(self, seat: int, agent: _AIAgent) -> None:
+    def set_assist_agent(self, seat: int, agent: VisualAgent) -> None:
         if seat < 0:
             raise ValueError("seat must be non-negative")
         self._assist_helpers[seat] = agent
@@ -1100,9 +1098,9 @@ class MahjongEnvKivyWrapper:
         self._update_assist_panel(force=True)
         self._update_control_buttons()
 
-    def _create_assist_helper(self, seat: int) -> Optional[_AIAgent]:
+    def _create_assist_helper(self, seat: int) -> Optional[VisualAgent]:
         try:
-            helper = _AIAgent(self._env, backbone="resnet50")
+            helper = VisualAgent(self._env, backbone="resnet50")
         except Exception:
             return None
         model_path = getattr(self, "_assist_model_path", None)
@@ -1113,14 +1111,14 @@ class MahjongEnvKivyWrapper:
                 pass
         return helper
 
-    def _get_assist_agent(self, seat: int) -> Optional[_AIAgent]:
+    def _get_assist_agent(self, seat: int) -> Optional[VisualAgent]:
         helper = self._assist_helpers.get(seat)
         if helper is not None:
             return helper
         if seat not in self._seat_agents and seat not in self._assist_helpers:
             return None
         registered = self._seat_agents.get(seat)
-        if isinstance(registered, _AIAgent):
+        if isinstance(registered, VisualAgent):
             self._assist_helpers[seat] = registered
             return registered
         helper = self._create_assist_helper(seat)
@@ -1296,7 +1294,7 @@ class MahjongEnvKivyWrapper:
             if can_step:
                 if self._step_once_requested:
                     self._step_once_requested = False
-                action = self._pending_action
+                action: Dict[int, Response] = self._pending_action
                 observation, reward, done, _, info = self._env.step(action)
                 self._pending_action = None
                 self._step_result = (observation, reward, done, info)

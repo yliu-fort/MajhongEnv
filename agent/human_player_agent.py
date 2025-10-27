@@ -90,10 +90,10 @@ class HumanPlayerAgent:
             self._event.set()
             return True
 
-    def wait_for_action(self) -> int:
+    def wait_for_action(self) -> ActionSketch:
         """Block until an action is chosen or the timeout elapses."""
 
-        action: Optional[int] = None
+        action: Optional[ActionSketch] = None
         try:
             while True:
                 with self._lock:

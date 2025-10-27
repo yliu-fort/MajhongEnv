@@ -10,7 +10,7 @@ from mahjong_features import RiichiState, PlayerPublic, get_action_index, get_ac
     NUM_TILES, NUM_ACTIONS, get_action_type_from_index
 from typing import List, Dict, Optional, Tuple
 import random
-from my_types import Response, PRIORITY, ActionType, Seat
+from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from shanten_dp import compute_ukeire_advanced, compute_all_discards_ukeire_fast
 
 
@@ -62,6 +62,7 @@ class MahjongEnvBase(gym.Env):
         self.last_draw_tiles = [-1 for _ in range(self.num_players)]
         self.last_discarded_tile = -1
         self.last_discarder = -1
+        self.phase: str = ""
  
         # 初始化游戏需要在子类中实现
         #self.reset()
@@ -270,16 +271,17 @@ class MahjongEnvBase(gym.Env):
     def step(self, responses: Dict[int, Response]):
         #responses = self.collect_responses(step_id, requests)
         # Filter out pass actions
-        if responses:
-            responses = [r for r in responses.values() if r.chosen is not None and r.chosen.action_type != ActionType.PASS]
-        decisions = self.arbitrate(responses) # [(who, type, action_id)]
-        
+        responses = {k: v for k, v in responses.items() if v is not None}
+        _ = [r for r in responses.values() if not r.chosen.action_type in (ActionType.PASS, ActionType.UNKNOWN)]
+
+        decisions = self.arbitrate(_)
+
         result = self.apply_decision(decisions)
         return result
 
-    def arbitrate(self, responses: List[Response]) -> Optional[List[Response]]:
+    def arbitrate(self, responses: List[Response]) -> List[Response]:
         if not responses:
-            return None
+            return []
         discarder = self.current_player
         # 过滤非法/过期由上层保证，此处直接评分
         scored: List[Tuple[int, int, Response]] = []
@@ -303,7 +305,7 @@ class MahjongEnvBase(gym.Env):
         # 否则仅取第一名
         return [winners[0]]
 
-    def apply_decision(self, decisions):
+    def apply_decision(self, decisions: List[Response]) -> Tuple[Dict[int, RiichiState], Dict[int, int], bool, Dict[int, bool], Dict]:
         """
         处理当前玩家的动作，然后判断是否有其他玩家吃碰杠和的机会，
         最后确定下一个 current_player并返回新的状态。
@@ -312,11 +314,12 @@ class MahjongEnvBase(gym.Env):
 
         if self.done:
             # 如果已经结束，返回当前状态即可（或 raise）
-            return self.get_observation(self.current_player, None), 0.0, True, {}
+            return {}, {}, True, {}, {}
         
         # 0. 读取指令
-        if decisions is None:
-            action, _ = None, True
+        # action can be int, list, or None
+        if len(decisions) == 0:
+            action, _ = -1, True
         elif len(decisions) == 1:
             decision = decisions[0]
             self.current_player = int(decision.from_seat)
@@ -326,12 +329,12 @@ class MahjongEnvBase(gym.Env):
             # MULTI-RON
             self.current_player = int(decisions[0].from_seat)
             self.phase = str(decisions[0].chosen.action_type).split('.')[1].lower()
-            action, _ = None, True
+            action, _ = -1, True
         elif len(decisions) == 3:
             self.current_player = -1
             self.phase = "ryuukyoku"
         else:
-            action, _ = None, True
+            action, _ = -1, True
 
         # 检查
         if self.phase != "ron":
@@ -873,33 +876,11 @@ class MahjongEnvBase(gym.Env):
         requires_decision =[sum(x) > 1 for x in valid_actions]
         observations = {i: self.get_observation(i, valid_actions[i]) if requires_decision[i] \
                         else RiichiState(
-                            hand_counts=None,
-                            meld_counts_self=None,
-                            riichi=None,
-                            river_self=None,
-                            left=None, across=None, right=None,
-                            round_wind=None,
-                            seat_wind_self=None,
-                            dealer_self=None,
-                            turn_number=None,
-                            honba=None,
-                            riichi_sticks=None,
-                            score=None,
-                            rank=None,
-                            dora_indicators=None,
-                            aka5m=None, aka5p=None, aka5s=None,
-                            legal_discards_mask=None,
-                            last_draw_136=None,
-                            last_discarded_tile_136=None,
-                            last_discarder=None,
-                            visible_counts=None,
-                            remaining_counts=None,
-                            shantens=None,
-                            ukeires=None,
+                            hand_counts=[0]*NUM_TILES,
                             legal_actions_mask=valid_actions[i]) for i in range(self.num_players)}
-        rewards = None
+        rewards = {}
         terminations = self.done
-        truncations = None
+        truncations = {}
         #infos = {self.current_player: info}
         return observations, rewards, terminations, truncations, info
     
@@ -1007,9 +988,9 @@ class MahjongEnvBase(gym.Env):
             # 输出天凤格式的log. e.g. <REACH who="3" ten="250,250,250,240" step="2"/>
             self.logger.add_reach_accepted(player, self.scores)
     
-    def get_observation(self, who, legal_actions):
+    def get_observation(self, who, legal_actions) -> RiichiState:
         """根据当前玩家，返回相应的状态表示。"""
-        return {}
+        raise NotImplementedError
     
     def action_masks(self, player) -> list[bool]:
         """返回当前玩家的动作掩码。"""
@@ -1538,8 +1519,8 @@ class MahjongEnvBase(gym.Env):
         """将136张牌表示转换为4x34表示。"""
         return self.tiles_bool_to_4x34(self.tiles_136_to_bool(tiles_136))
     
-    def action_map(self, player, action_grp):
-        return action_grp
+    def action_map(self, player, action_grp) -> Tuple:
+        raise NotImplementedError
     
     def compute_legal_actions(self) -> list[list[bool]]:
         return [self._compute_legal_actions_per(who) for who in range(self.num_players)]
@@ -1727,7 +1708,7 @@ class MahjongEnv(MahjongEnvBase):
                         break
             out = [len(hand)-idx-1 for idx in out]
             if len(out) == len(tiles_34):
-                return tuple(out)
+                return list(out)
             raise ValueError(f"tiles {tiles_34} not found in hand {hand}")
         
         if self.phase == "discard":
@@ -1758,7 +1739,7 @@ if __name__ == "__main__":
 
     obs = env.reset()
     while not env.done:
-        obs, reward, done, info = env.step(0)
+        obs, reward, done, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.DISCARD, {"action_id": 0}))})
         print(tiles_printout(obs["hands"]), reward, done, info["msg"])
 
     print("----------")
@@ -1766,7 +1747,7 @@ if __name__ == "__main__":
 
     obs = env.reset()
     while not env.done:
-        obs, reward, done, info = env.step(0)
+        obs, reward, done, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.DISCARD, {"action_id": 0}))})
         print(tiles_printout(obs["hands"]), reward, done, info["msg"])
 
     print("----------")
@@ -1776,5 +1757,5 @@ if __name__ == "__main__":
     env.hands[env.current_player] = [0, 1, 2, 4, 8, 12, 16, 20, 24, 28, 32, 33, 34]
     env.deck[-1] = 35
     while not env.done:
-        obs, reward, done, info = env.step(140)
+        obs, reward, done, info = env.step({0: Response("",0,"",Seat(0),ActionSketch(ActionType.TSUMO, {"action_id": 140}))})
         print(tiles_printout(obs["hands"]), reward, done, info["msg"])

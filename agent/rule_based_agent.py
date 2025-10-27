@@ -64,7 +64,7 @@ class RuleBasedAgent:
         allowed_action_type = set([get_action_type_from_index(i) for i, a in enumerate(action_masks) if a])
         #print(allowed_action_type)
         if sum(action_masks) == 0:
-            return None
+            return ActionSketch(action_type=ActionType.UNKNOWN, payload={"action_id": 0})
         elif sum(action_masks) == 1:
             action_id = valid_action_list[0]
             return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})

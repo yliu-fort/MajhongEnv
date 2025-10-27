@@ -2,7 +2,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from concurrent.futures import Future
-from typing import List, Dict, Optional, Tuple, Int, Bool
+from typing import List, Dict, Optional, Tuple
 import threading
 from my_types import Seat, ActionSketch, Request, Response
 
@@ -67,7 +67,7 @@ class AMahjongEnv(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def reset_for_next_round(self, oya_continue : Bool=False):
+    def reset_for_next_round(self, oya_continue: bool=False):
         # 初始化牌局，重新洗牌、发牌等
         raise NotImplementedError
 

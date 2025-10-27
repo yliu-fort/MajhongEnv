@@ -30,12 +30,12 @@ from mahjong_env import MahjongEnv
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
 from mahjong_features import get_action_type_from_index
 
-from my_types import Seat, Request, Response, ActionSketch
+from my_types import Seat, Request, Response, ActionSketch, ActionType
 
 
 @dataclass
 class _PendingRequest:
-    request_id: int
+    step_id: int
     deadline: float
 
 
@@ -46,7 +46,7 @@ class AgentController:
         self.seat = seat
         self.agent = agent
         self._request_queue: "queue.Queue[Optional[Request]]" = queue.Queue() # TODO: 改成 Request
-        self._response_queue: "queue.Queue[Response]" = queue.Queue() # TODO: 改成 Response
+        self._response_queue: "queue.Queue[Optional[Response]]" = queue.Queue() # TODO: 改成 Response
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._worker,
@@ -201,6 +201,7 @@ class MahjongKivyApp(App):
             for _, controller in enumerate(self._controllers):
                 obs = self._observation[_]
                 actions = [i for i, flag in enumerate(obs.legal_actions_mask) if flag]
+                #print(f"Send {actions}")
                 if len(actions) > 1:
                     req = Request(
                     room_id="",
@@ -209,17 +210,16 @@ class MahjongKivyApp(App):
                     to_seat=Seat(_),
                     actions=actions,
                     observation=obs,
-                    deadline_ms=deadline * 1000
+                    deadline_ms= int(deadline * 1000)
                     )
                     controller.submit(req)
                     self._pending_requests[_] = _PendingRequest(
-                    request_id=req.request_id,
+                    step_id=req.step_id,
                     deadline=deadline,
                     )
                 else:
-                    self._pending_responses[_] = None
                     self._pending_requests[_] = _PendingRequest(
-                    request_id=f"req-{step_id}-{Seat(_)}",
+                    step_id=step_id,
                     deadline=now,
                     )
             return
@@ -229,14 +229,22 @@ class MahjongKivyApp(App):
             if _ not in self._pending_responses.keys():
                 # Get response nowait
                 resp = self._controllers[_].poll()
-                if resp != None and resp.request_id == req.request_id:
+                if resp != None and resp.step_id == req.step_id:
                     self._pending_responses[_] = resp
-            
+
         for _, req in self._pending_requests.items():
             if _ not in self._pending_responses.keys():
                 if now >= req.deadline:
-                    self._pending_response[_] = None
-
+                    # Fallback to default response
+                    if self._fallback_agent is not None:
+                        self._pending_responses[_] = \
+                        Response(room_id="", \
+                        step_id=req.step_id, \
+                        request_id=f"req-{req.step_id}-{Seat(_)}", \
+                        from_seat=Seat(_), \
+                        chosen=self._fallback_agent.predict(self._observation[_]))
+                        
+        #print(f"Recv {self._pending_responses}")
         if len(self._pending_responses.keys()) > 0 and \
            len(self._pending_requests.keys()) == len(self._pending_responses.keys()):
             self._queue_action_and_clear() # send to self.wrapper.pending_action
@@ -320,20 +328,12 @@ class MahjongKivyApp(App):
     def _queue_action_and_clear(self) -> None:
         for controller in self._controllers:
             controller.flush()
-        self._pending_requests = {}
-        for _ in self._pending_responses.keys():
-            if self._pending_responses[_] is None and self._fallback_agent is not None:
-                self._pending_responses[_] = \
-                Response(room_id="", \
-                step_id="", \
-                request_id="", \
-                from_seat=Seat(_), \
-                chosen=self._fallback_agent.predict(self._observation[_]))
         if self._pending_responses == {}:
             return
         if self.wrapper is not None:
-            self.wrapper.queue_action({k: v for k ,v in self._pending_responses.items()})
+            self.wrapper.queue_action({k: v for k ,v in self._pending_responses.items() if v is not None})
         self._pending_responses = {}
+        self._pending_requests = {}
 
     def _handle_environment_reset(self) -> None:
         self.return_to_menu()

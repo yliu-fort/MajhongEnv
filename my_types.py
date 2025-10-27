@@ -24,6 +24,7 @@ class ActionType(IntEnum):
     CHI = 2
     DISCARD = 1
     PASS = 0
+    UNKNOWN = 255
 
     def __str__(self) -> str:
         return self.name
@@ -42,7 +43,7 @@ class Request:
     step_id: int
     request_id: str
     to_seat: Seat
-    actions: List[ActionSketch]
+    actions: List[int]
     observation: Any
     deadline_ms: int
 
