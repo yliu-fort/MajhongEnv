@@ -314,6 +314,7 @@ class MahjongEnvBase():
         最后确定下一个 current_player并返回新的状态。
         """
         info = {}
+        rewards = {i: 0.0 for i in range(self.num_players)}
 
         if self.done:
             # 如果已经结束，返回当前状态即可（或 raise）
@@ -713,6 +714,16 @@ class MahjongEnvBase():
             case "game_over":
                 # 更新顺位
                 rank = list(reversed(sorted(list(range(self.num_players)), key=lambda x: self.scores[x])))
+                
+                for who in range(self.num_players):
+                    if rank == 0:
+                        rewards[who] = 1.0
+                    elif rank == 1:
+                        rewards[who] = 0.1
+                    elif rank == 2:
+                        rewards[who] = -0.1
+                    elif rank == 3:
+                        rewards[who] = -1.0
 
                 # 游戏结束
                 self.info = {"rank": rank,
@@ -890,7 +901,7 @@ class MahjongEnvBase():
                             else RiichiState(hand_counts=[0]*NUM_TILES, legal_actions_mask=self.valid_actions[i]),
                             "action_mask": self.valid_actions[i]
                             } for i in range(self.num_players)}
-        rewards = {i: 0.0 for i in range(self.num_players)}
+        #rewards = {i: 0.0 for i in range(self.num_players)}
         terminations = {i: self.done for i in range(self.num_players)}
         truncations = {i: False for i in range(self.num_players)}
         infos = {i: {} for i in range(self.num_players)}
