@@ -130,7 +130,7 @@ def train_mjai(
 
     # ③ ParallelEnv -> SB3 VecEnv
     env = ss.pettingzoo_env_to_vec_env_v1(env)  # 每个“子环境”对应一个agent
-    env = ss.concat_vec_envs_v1(env, 8, num_cpus=0, base_class="stable_baselines3")
+    env = ss.concat_vec_envs_v1(env, 4, num_cpus=0, base_class="stable_baselines3")
     env = SB3MaskVecAdapter(env)
     
 
@@ -139,8 +139,11 @@ def train_mjai(
         MaskableMultiInputActorCriticPolicy,
         env,
         verbose=2,
-        learning_rate=1e-3,
+        learning_rate=3e-4,
         batch_size=4,
+        n_steps=128,           # 更小
+        n_epochs=4,            # 减少优化开销
+        gae_lambda=0.95, gamma=0.99
     )
 
     model.learn(total_timesteps=steps)

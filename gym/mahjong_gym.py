@@ -36,9 +36,6 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
         self.action_spaces: dict[AgentID, Space]# = {_:Discrete(NUM_ACTIONS) for _ in self.agents}
         
         # Compatibility
-        #self.observation_space = lambda _: self.observation_spaces[_]
-        #self.action_space = lambda _: self.action_spaces[_]
-        
         self.extractor = RiichiResNetFeatures()
         self.render_mode = 'human'
         
@@ -49,7 +46,6 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
         observations, _ = MahjongEnv.reset(self)
         for k, v in observations.items():
             v["observation"] = self.extractor(v["observation"])[0] # 136 x 34
-            #v["action_mask"] = np.asarray(v["action_mask"],dtype=np.int8)[None,:]
         return observations, _
 
     @functools.lru_cache(maxsize=None)
@@ -84,7 +80,6 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
         observations, y1, y2, y3, y4 = super().step(processed_responses)
         for k, v in observations.items():
             v["observation"] = self.extractor(v["observation"])[0] # 136 x 34
-            #v["action_mask"] = np.asarray(v["action_mask"],dtype=np.int8)[None,:]
         if self.done == True:
             self.agents = []
         return observations, y1, y2, y3, y4
