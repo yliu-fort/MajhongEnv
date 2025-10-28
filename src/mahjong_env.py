@@ -35,7 +35,7 @@ _PHASE_MAP = {
     "game_over": 11,
 }
     
-class MahjongEnvBase(ParallelEnv):
+class MahjongEnvBase():
     """
     一个简化的麻将环境示例。
     """
@@ -51,7 +51,6 @@ class MahjongEnvBase(ParallelEnv):
     MULTI_RON = False
 
     def __init__(self, num_players=4, num_rounds=4, *args, **kwargs):
-        super(MahjongEnvBase, self).__init__(*args, **kwargs)
         
         # 设置玩家数量
         self.num_players = num_players
@@ -898,9 +897,6 @@ class MahjongEnvBase(ParallelEnv):
         terminations = {i: self.done for i in range(self.num_players)}
         truncations = {i: False for i in range(self.num_players)}
         infos = {i: "" for i in range(self.num_players)}
-    
-        if self.done:
-            self.agents = []
 
         return observations, rewards, terminations, truncations, infos
     
@@ -1732,7 +1728,7 @@ class MahjongEnv(MahjongEnvBase):
 
 AgentID = int
 
-class MahjongEnvPettingZoo(MahjongEnv):
+class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
     """Parallel environment class.
 
     It steps every live agent at once. If you are unsure if you
@@ -1741,7 +1737,8 @@ class MahjongEnvPettingZoo(MahjongEnv):
     """
 
     def __init__(self, *args, **kwargs):
-        super(MahjongEnvPettingZoo, self).__init__(*args, **kwargs)
+        super(ParallelEnv, self).__init__()
+        super(MahjongEnv, self).__init__(*args, **kwargs)
         
         self.metadata: dict[str, Any] = {"name": "mjai_env_v0"}
 
@@ -1775,8 +1772,10 @@ class MahjongEnvPettingZoo(MahjongEnv):
     def step(self, responses: Dict[int, int]) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         processed_responses = {k: Response(room_id="", step_id=0, request_id="", from_seat=Seat(k),
             chosen=ActionSketch(action_type=get_action_type_from_index(v), payload={"action_id": v})) for k, v in responses.items() if v is not None and sum(self.valid_actions[k])}
-
-        return super().step(processed_responses)
+        _ = super().step(processed_responses)
+        if self.done:
+            self.agents = []
+        return _
 
 if __name__ == "__main__":
     # 创建环境
