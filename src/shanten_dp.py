@@ -133,14 +133,16 @@ def run_tests(n=1000, seed=42):
     # 对比：整个 34 位数组完全一致才算匹配
     mismatches_dis_hands = 0          # 有任意位置不一致的手数
     mismatches_dis_positions = 0      # 全部手牌中逐位不一致的总数
-    for (cy_sh, cy_uk), (py_sh, py_uk) in zip(cy_dis_out, py_dis_out):
+    for i, ((cy_sh, cy_uk), (py_sh, py_uk)) in enumerate(zip(cy_dis_out, py_dis_out)):
         hand_has_mismatch = False
-        for i in range(34):
-            if cy_sh[i] != py_sh[i] or cy_uk[i] != py_uk[i]:
+        for j in range(34):
+            if cy_sh[j] != py_sh[j] or cy_uk[j] != py_uk[j]:
                 mismatches_dis_positions += 1
                 hand_has_mismatch = True
         if hand_has_mismatch:
             mismatches_dis_hands += 1
+            #from mahjong.tile import TilesConverter
+            #print(TilesConverter.to_one_line_string(TilesConverter.to_136_array(tests[i][0])))
 
     # 输出
     print("====== 随机测试汇总 ======")
@@ -158,5 +160,5 @@ def run_tests(n=1000, seed=42):
 
 if __name__ == "__main__":
     run_tests(n=1000, seed=42)
-    #run_tests(n=10000, seed=42)
-    #run_tests(n=100000, seed=42)
+    run_tests(n=10000, seed=42)
+    run_tests(n=100000, seed=42)

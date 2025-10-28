@@ -446,54 +446,23 @@ cpdef dict compute_ukeire_advanced(list hand, object last_draw34, list remaining
             mps_cache.append(a)
         cache["other_than_z"] = mps_cache
 
-    if sum(hand) < 13:
-        chiitoi_sh, chiitoi_improve = 14, set()
-        kokushi_sh, kokushi_improve = 14, set()
-    else:
-        chiitoi_sh, chiitoi_improve = _chiitoi_shanten_and_improves(hand, remaining)
-        kokushi_sh, kokushi_improve = _kokushi_shanten_and_improves(hand, remaining)
+    chiitoi_sh, chiitoi_improve = _chiitoi_shanten_and_improves(hand, remaining)
+    kokushi_sh, kokushi_improve = _kokushi_shanten_and_improves(hand, remaining)
 
     cdef int base_sh_global = normal_sh if normal_sh <= chiitoi_sh and normal_sh <= kokushi_sh else (chiitoi_sh if chiitoi_sh <= kokushi_sh else kokushi_sh)
 
     normal_cands = _normal_candidate_tiles(hand, remaining)
 
     improve_tiles = set()
-
-    # 提前声明 Cython 局部变量，避免在循环/条件块内声明 cdef
-    cdef int missing_groups
-    cdef object m_val, t_val, p_val
     if chiitoi_sh == base_sh_global:
         improve_tiles |= chiitoi_improve
     if kokushi_sh == base_sh_global:
         improve_tiles |= kokushi_improve
     if normal_sh == base_sh_global:
-        # 计算缺少的完整面子数量：每 3 张一面子
-        missing_groups = (14 - sum(hand)) // 3
         for t in normal_cands:
             if hand[t] >= 4 or remaining[t] <= 0:
                 continue
-            # 原始普通手向听
-            new_sh = _recompute_normal_with_one_tile_added(hand, cache, <int>t)
-            if new_sh < normal_sh:
-                # 当缺少一个或多个面子时，需要确保加入该牌后有使用对子(p>0)的最优拆解
-                if missing_groups >= 1:
-                    # 构造新手牌
-                    new_hand = hand.copy()
-                    new_hand[t] += 1
-                    new_normal_sh, new_cache = _normal_base_and_cache(new_hand)
-                    # 判断在最优状态中是否存在 p_val>0
-                    has_pair = False
-
-                    for m_val, t_val, p_val in new_cache["mpsz"]:
-                        # 计算该状态的普通手向听
-                        pair_used = 1 if p_val > 0 else 0
-                        t_eff = t_val + (p_val - pair_used if p_val - pair_used > 0 else 0)
-                        sh_calc = _calc_shanten_from_mtp(m_val if m_val < 4 else 4, t_eff, pair_used)
-                        if sh_calc == new_normal_sh and p_val > 0:
-                            has_pair = True
-                            break
-                    if not has_pair:
-                        continue
+            if _recompute_normal_with_one_tile_added(hand, cache, t) < normal_sh:
                 improve_tiles.add(t)
 
     # 替换生成器表达式为显式循环，避免在 cpdef 中创建闭包
@@ -539,10 +508,6 @@ cpdef tuple compute_all_discards_ukeire_fast(list counts, list remaining):
     minus1_cache = {}
 
     cdef int tile, cnt
-
-    # 声明局部变量以供后续使用（避免在循环/条件内 cdef）
-    cdef int missing_groups_
-    cdef object m_val2, t_val2, p_val2
     for tile in range(NUM_TILES):
         cnt = counts[tile]
         if cnt <= 0:
@@ -560,12 +525,8 @@ cpdef tuple compute_all_discards_ukeire_fast(list counts, list remaining):
         if "other_than_z" not in cache:
             cache["other_than_z"] = list(_combine_four_groups(ms, ps, ss, [(0,0,0)])[1]["mpsz"])  
 
-        if sum(h13) < 13:
-            chiitoi_sh, chiitoi_imp = 14, set()
-            kokushi_sh, kokushi_imp = 14, set()
-        else:
-            chiitoi_sh, chiitoi_imp = _chiitoi_shanten_and_improves(h13, remaining)
-            kokushi_sh, kokushi_imp = _kokushi_shanten_and_improves(h13, remaining)
+        chiitoi_sh, chiitoi_imp = _chiitoi_shanten_and_improves(h13, remaining)
+        kokushi_sh, kokushi_imp = _kokushi_shanten_and_improves(h13, remaining)
         base_sh = normal_sh if normal_sh <= chiitoi_sh and normal_sh <= kokushi_sh else (chiitoi_sh if chiitoi_sh <= kokushi_sh else kokushi_sh)
 
         improves = set()
@@ -574,30 +535,10 @@ cpdef tuple compute_all_discards_ukeire_fast(list counts, list remaining):
         if kokushi_sh == base_sh:
             improves |= kokushi_imp
         if normal_sh == base_sh:
-            # 计算缺少的完整面子数量
-            missing_groups_ = (14 - sum(h13)) // 3
             for t2 in _normal_candidate_tiles(h13, remaining):
                 if h13[t2] >= 4 or remaining[t2] <= 0:
                     continue
-                # 计算加入该牌后的新向听
-                new_sh2 = _recompute_normal_with_one_tile_added(h13, cache, <int>t2)
-                if new_sh2 < normal_sh:
-                    # 若缺少面子，需要验证加入该牌后最优状态含对子
-                    if missing_groups_ >= 1:
-                        new_hand2 = h13.copy()
-                        new_hand2[t2] += 1
-                        n_sh, n_cache = _normal_base_and_cache(new_hand2)
-                        has_pair2 = False
-
-                        for m_val2, t_val2, p_val2 in n_cache["mpsz"]:
-                            pair_used2 = 1 if p_val2 > 0 else 0
-                            t_eff2 = t_val2 + (p_val2 - pair_used2 if p_val2 - pair_used2 > 0 else 0)
-                            sh_calc2 = _calc_shanten_from_mtp(m_val2 if m_val2 < 4 else 4, t_eff2, pair_used2)
-                            if sh_calc2 == n_sh and p_val2 > 0:
-                                has_pair2 = True
-                                break
-                        if not has_pair2:
-                            continue
+                if _recompute_normal_with_one_tile_added(h13, cache, t2) < normal_sh:
                     improves.add(t2)
 
         ukeire = 0

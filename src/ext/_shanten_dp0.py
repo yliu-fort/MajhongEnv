@@ -420,12 +420,8 @@ def compute_ukeire_advanced(hand, last_draw34, remaining):
         cache["other_than_z"] = mps_cache
 
     # 2) 七对 & 国士
-    if sum(hand) < 13:
-        chiitoi_sh, chiitoi_improve = 14, set()
-        kokushi_sh, kokushi_improve = 14, set()
-    else:
-        chiitoi_sh, chiitoi_improve = _chiitoi_shanten_and_improves(hand, remaining)
-        kokushi_sh, kokushi_improve = _kokushi_shanten_and_improves(hand, remaining)
+    chiitoi_sh, chiitoi_improve = _chiitoi_shanten_and_improves(hand, remaining)
+    kokushi_sh, kokushi_improve = _kokushi_shanten_and_improves(hand, remaining)
 
     base_sh_global = min(normal_sh, chiitoi_sh, kokushi_sh)
 
@@ -442,34 +438,11 @@ def compute_ukeire_advanced(hand, last_draw34, remaining):
         improve_tiles |= kokushi_improve
     # 4.3 普通手（只测邻域候选）
     if normal_sh == base_sh_global:
-        # 计算当前手牌少了多少“完整面子”（每3张）
-        # 如果缺少完整面子（小牌手，举例: 10张手牌有 (14-10)//3=1 ）
-        # 则在选取改良牌时，要求新增的牌能让某个最优拆分出现对子(p>0)；
-        # 否则容易出现“无雀头”情况下的错误进张。
-        missing_groups = (14 - sum(hand)) // 3
         for t in normal_cands:
             if hand[t] >= 4 or remaining[t] <= 0:
                 continue
             new_sh = _recompute_normal_with_one_tile_added(hand, cache, t)
             if new_sh < normal_sh:
-                # 若小牌手，则进一步判定：加入该牌后，是否存在使用对子(p>0)的最优形态
-                if missing_groups >= 1:
-                    # 构造加入1张t后的新手牌
-                    new_hand = hand.copy()
-                    new_hand[t] += 1
-                    # 重新计算该手牌的普通向听及拆分状态
-                    new_normal_sh, new_cache = _normal_base_and_cache(tuple(new_hand))
-                    # 判断在最小普通向听的状态中是否有 p>0
-                    has_pair = False
-                    for m_val, t_val, p_val in new_cache["mpsz"]:
-                        pair_used = 1 if p_val > 0 else 0
-                        t_eff = t_val + max(0, p_val - pair_used)
-                        sh_calc = _calc_shanten_from_mtp(min(m_val, 4), t_eff, pair_used)
-                        if sh_calc == new_normal_sh and p_val > 0:
-                            has_pair = True
-                            break
-                    if not has_pair:
-                        continue
                 improve_tiles.add(t)
 
     # 5) 统计受入
@@ -480,9 +453,9 @@ def compute_ukeire_advanced(hand, last_draw34, remaining):
         "shanten": base_sh_global - (((14 - sum(hand))//3)*2),
         "ukeire": ukeire,
         "tiles": tiles_list,
-        "explain": {"best_mode": mode,
-                    "shanten_regular": normal_sh,
-                    "shanten_chiitoi": chiitoi_sh,
+        "explain": {"best_mode": mode, 
+                    "shanten_regular": normal_sh, 
+                    "shanten_chiitoi": chiitoi_sh, 
                     "shanten_kokushi": kokushi_sh}
     }
 
@@ -548,12 +521,8 @@ def compute_all_discards_ukeire_fast(counts, remaining):
             cache["other_than_z"] = list(_combine_four_groups(ms, ps, ss, [(0,0,0)])[1]["mpsz"])  
 
         # 七对 / 国士（取最小，与原 compute_ukeire_advanced 一致）
-        if sum(h13) < 13:
-            chiitoi_sh, chiitoi_imp = 14, set()
-            kokushi_sh, kokushi_imp = 14, set()
-        else:
-            chiitoi_sh, chiitoi_imp = _chiitoi_shanten_and_improves(h13, remaining)
-            kokushi_sh, kokushi_imp = _kokushi_shanten_and_improves(h13, remaining)
+        chiitoi_sh, chiitoi_imp = _chiitoi_shanten_and_improves(h13, remaining)
+        kokushi_sh, kokushi_imp = _kokushi_shanten_and_improves(h13, remaining)
         base_sh = min(normal_sh, chiitoi_sh, kokushi_sh)
 
         # 汇总改良
@@ -562,28 +531,10 @@ def compute_all_discards_ukeire_fast(counts, remaining):
         if kokushi_sh == base_sh: improves |= kokushi_imp
         if normal_sh == base_sh:
             # 普通手只测“邻域候选”，再用“单花色 +1 快速重算”判定是否降向听 
-            # 计算缺少的完整面子数（每3张）
-            missing_groups = (14 - sum(h13)) // 3
             for t2 in _normal_candidate_tiles(h13, remaining):
                 if h13[t2] >= 4 or remaining[t2] <= 0:
                     continue
-                new_sh = _recompute_normal_with_one_tile_added(h13, cache, t2)
-                if new_sh < normal_sh:
-                    # 若为小牌手（至少缺1个完整面子），额外判定加入该牌后是否有 p>0 的最优拆解
-                    if missing_groups >= 1:
-                        new_hand = h13.copy()
-                        new_hand[t2] += 1
-                        n_sh, n_cache = _normal_base_and_cache(tuple(new_hand))
-                        has_pair = False
-                        for m_val, t_val, p_val in n_cache["mpsz"]:
-                            pair_used = 1 if p_val > 0 else 0
-                            t_eff = t_val + max(0, p_val - pair_used)
-                            sh_calc = _calc_shanten_from_mtp(min(m_val, 4), t_eff, pair_used)
-                            if sh_calc == n_sh and p_val > 0:
-                                has_pair = True
-                                break
-                        if not has_pair:
-                            continue
+                if _recompute_normal_with_one_tile_added(h13, cache, t2) < normal_sh:
                     improves.add(t2)
 
         ukeire = sum(remaining[t2] for t2 in improves if remaining[t2] > 0)
@@ -597,79 +548,44 @@ def compute_all_discards_ukeire_fast(counts, remaining):
 # =========================
 # 示例：
 # =========================
-if __name__ == "__main__":    
-    def parse_hand(s: str):
-        """
-        解析如 '3445m23p78s5m' / '23p78s12z5m' / '3445m12z5m' / '3445m23p78s12z5m'
-        返回 (counts, last_draw)
+if __name__ == "__main__":
+    hand = [0]*34
+    # m: 123 456 678  -> 9张
+    hand[0]+=1;hand[1]+=1;hand[2]+=1
+    hand[3]+=1;hand[4]+=1;hand[5]+=1
+    hand[6]+=1;hand[7]+=1;hand[8]+=1
+    # p: 55          -> 2张
+    hand[9+4] += 3
+    # s: 23          -> 2张
+    hand[18+1] += 1; hand[18+2] += 1
+    # z: 白          -> 1张（索引 31；27:东 28:南 29:西 30:北 31:白 32:发 33:中）
+    hand[27+4] += 0
 
-        - 牌编码：0-8m, 9-17p, 18-26s, 27-33z（z=1..7 对应 东南西北白发中）
-        - 支持红五：'0' 表示该花色的 5
-        - 规则：将字符串按 “若干数字 + 花色字母(m/p/s/z)” 分组；
-                若最后一组仅含 1 张（单个数字）则视为 last_draw。
-        """
-        s = s.replace(" ", "").lower()
-        counts = [0] * 34
-        groups = []
+    # 总数 9 + 2 + 2 + 1 = 14 张（包含现摸）
+    assert sum(hand) == 14
 
-        i = 0
-        while i < len(s):
-            j = i
-            while j < len(s) and s[j].isdigit():
-                j += 1
-            if j == i or j >= len(s):
-                raise ValueError("格式错误：数字后必须跟 m/p/s/z")
-            digits = s[i:j]
-            suit = s[j]
-            groups.append((digits, suit))
-            i = j + 1
+    last_draw = 9+4  # 刚摸的是 5p（索引13）
+    remaining = [4]*34
+    remaining[9+4] = 2  # 牌山中 5p 还剩两张
+    res = compute_ukeire_advanced(hand, last_draw, remaining)
+    print(res, sum(hand))
 
-        def tile_index(suit_char: str, digit_char: str) -> int:
-            d = 5 if digit_char == '0' else int(digit_char)
-            if suit_char == 'm':
-                if not 1 <= d <= 9:
-                    raise ValueError("m 只能是 1..9 或 0(红五)")
-                return 0 + (d - 1)
-            if suit_char == 'p':
-                if not 1 <= d <= 9:
-                    raise ValueError("p 只能是 1..9 或 0(红五)")
-                return 9 + (d - 1)
-            if suit_char == 's':
-                if not 1 <= d <= 9:
-                    raise ValueError("s 只能是 1..9 或 0(红五)")
-                return 18 + (d - 1)
-            if suit_char == 'z':
-                if not 1 <= d <= 7:
-                    raise ValueError("z 只能是 1..7（东南西北白发中）")
-                return 27 + (d - 1)
-            raise ValueError(f"未知花色: {suit_char}")
+    hand = [0]*34
+    # m: 345  -> 3张
+    hand[0]+=0;hand[1]+=0;hand[2]+=1
+    hand[3]+=1;hand[4]+=1;hand[5]+=0
+    hand[6]+=0;hand[7]+=0;hand[8]+=0
+    # p:           -> 0张
+    # s: 3456          -> 4张
+    hand[18+2] += 1; hand[18+3] += 1
+    hand[18+4] += 1; hand[18+5] += 1
+    # z: 发中          -> 3张（索引 31；27:东 28:南 29:西 30:北 31:白 32:发 33:中）
+    hand[27] += 1; hand[33] += 3
 
-        # 判断最后一组是否是“单张” → 作为 last_draw
-        last_draw = None
-        if groups:
-            last_digits, last_suit = groups[-1]
-            if len(last_digits) == 1:
-                last_draw = tile_index(last_suit, last_digits)
+    # 总数 9 + 2 + 2 + 1 = 14 张（包含现摸）
+    assert sum(hand) == 11
 
-        # 计数（包括 last_draw 也会计入 counts）
-        for digits, suit in groups:
-            for ch in digits:
-                idx = tile_index(suit, ch)
-                counts[idx] += 1
-
-        return counts, last_draw
-    
-    from shanten_dp_cy import compute_ukeire_advanced as _f0
-    from shanten_dp_cy import compute_all_discards_ukeire_fast as _f1
-
-    res1 = compute_ukeire_advanced(*parse_hand("345m3456s777z"), [4]*34)
-    res2 = _f0(*parse_hand("345m3456s777z"), [4]*34)
-    print("\n", res1, "\n", res2)
-    
-    res1 = compute_ukeire_advanced(*parse_hand("3445m23p78s12z"), [4]*34)
-    res2 = _f0(*parse_hand("3445m23p78s12z"), [4]*34)
-    print("\n", res1, "\n", res2)
-
-    res1 = compute_ukeire_advanced(*parse_hand("1234567z"), [4]*34)
-    res2 = _f0(*parse_hand("1234567z"), [4]*34)
-    print("\n", res1, "\n", res2)
+    last_draw = 27  # 刚摸的是 东（索引27）
+    remaining = [4]*34
+    res = compute_ukeire_advanced(hand, last_draw, remaining)
+    print(res, sum(hand))
