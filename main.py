@@ -26,7 +26,7 @@ from agent.human_player_agent import HumanPlayerAgent
 from agent.visual_agent import VisualAgent as _AIAgent
 #from agent.rule_based_agent import RuleBasedAgent as _AIAgent
 from agent.random_discard_agent import RandomDiscardAgent
-from mahjong_env import MahjongEnv
+from mahjong_env import MahjongEnv, MahjongEnvPettingZoo
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
 from mahjong_features import get_action_type_from_index
 
@@ -199,7 +199,7 @@ class MahjongKivyApp(App):
             deadline = now + self._action_timeout
             step_id = next(self._step_ids)
             for _, controller in enumerate(self._controllers):
-                obs = self._observation[_]
+                obs = self._observation[_]["observation"]
                 actions = [i for i, flag in enumerate(obs.legal_actions_mask) if flag]
                 #print(f"Send {actions}")
                 if len(actions) > 1:
@@ -242,8 +242,8 @@ class MahjongKivyApp(App):
                         step_id=req.step_id, \
                         request_id=f"req-{req.step_id}-{Seat(_)}", \
                         from_seat=Seat(_), \
-                        chosen=self._fallback_agent.predict(self._observation[_]))
-                        
+                        chosen=self._fallback_agent.predict(self._observation[_]["observation"]))
+
         #print(f"Recv {self._pending_responses}")
         if len(self._pending_responses.keys()) > 0 and \
            len(self._pending_requests.keys()) == len(self._pending_responses.keys()):
@@ -293,7 +293,7 @@ class MahjongKivyApp(App):
     def _start_game(self, human_seats: Sequence[int]) -> None:
         self._cleanup_game()
 
-        self.env = MahjongEnv(num_players=4, num_rounds=8)
+        self.env = MahjongEnvPettingZoo(num_players=4, num_rounds=8)
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
         self._pending_requests = {}
         self._step_ids = count()

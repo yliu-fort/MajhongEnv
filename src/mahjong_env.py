@@ -1,5 +1,6 @@
 import gymnasium as gym
-from gymnasium import spaces
+from gymnasium.spaces import Space
+from pettingzoo import ParallelEnv
 import numpy as np
 from collections import Counter
 from gen_yama import YamaGenerator
@@ -8,36 +9,36 @@ from mahjong_hand_checker import MahjongHandChecker
 from mahjong_logger import MahjongLogger
 from mahjong_features import RiichiState, PlayerPublic, get_action_index, get_action_from_index, \
     NUM_TILES, NUM_ACTIONS, get_action_type_from_index
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 import random
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from shanten_dp import compute_ukeire_advanced, compute_all_discards_ukeire_fast
 
 # 建议：模块级常量，避免每次都分配
 _FULL_LEFT_34 = [4,] * NUM_TILES  # 和你原来传入 compute_all_discards_ukeire_fast 的第二个参数一致
+
+# 用于将动作映射到具体的操作
+_PHASE_MAP = {
+    "draw": 0,
+    "kan_draw": 0,
+    "discard": 1,
+    "chi": 2,
+    "pon": 3,
+    "kan": 4,
+    "chakan": 5,
+    "ankan": 6,
+    "riichi": 7,
+    "ryuukyoku": 8,
+    "tsumo": 9,
+    "ron": 10,
+    "score": 11,
+    "game_over": 11,
+}
     
-class MahjongEnvBase(gym.Env):
+class MahjongEnvBase(ParallelEnv):
     """
     一个简化的麻将环境示例。
     """
-    # 用于将动作映射到具体的操作
-    PHASE_MAP = {
-        "draw": 0,
-        "kan_draw": 0,
-        "discard": 1,
-        "chi": 2,
-        "pon": 3,
-        "kan": 4,
-        "chakan": 5,
-        "ankan": 6,
-        "riichi": 7,
-        "ryuukyoku": 8,
-        "tsumo": 9,
-        "ron": 10,
-        "score": 11,
-        "game_over": 11,
-    }
-
     HAS_KUIKAE = 0 # 食替 (TODO: 无实现)
     HAS_NAKU = 1 # 鸣牌
     HAS_FURITEN = 1 # 振听
@@ -69,7 +70,7 @@ class MahjongEnvBase(gym.Env):
         # 初始化游戏需要在子类中实现
         #self.reset()
  
-    def reset(self) -> Tuple[Dict[int, RiichiState], Dict]:
+    def reset(self) -> Tuple[Dict, Dict]:
         # 初始化牌局，重新洗牌、发牌等
         # 在此进行游戏状态的重置
         self.hand_checker = MahjongHandChecker()
@@ -90,7 +91,8 @@ class MahjongEnvBase(gym.Env):
         self.reset_for_next_round()
 
         # 返回所有玩家的观测
-        observations = {i: self.get_observation(i, self._compute_legal_actions_per(i)) for i in range(self.num_players)}
+        self.valid_actions = self.compute_legal_actions()
+        observations = {i: {"observation": self.get_observation(i), "action_mask": self.valid_actions[i]} for i in range(self.num_players)}
         return observations, {}
 
     def reset_for_next_round(self, oya_continue=False):
@@ -272,7 +274,7 @@ class MahjongEnvBase(gym.Env):
         # 输出天凤格式的log
         self.logger.add_init(self.round, self.num_kyoutaku, self.dice, self.dora_indicator, self.scores, self.oya, self.hands)
     
-    def step(self, responses: Dict[int, Response]) -> Tuple[Dict[int, RiichiState], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
+    def step(self, responses: Dict[int, Response]) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         #responses = self.collect_responses(step_id, requests)
         # Filter out pass actions
         responses = {k: v for k, v in responses.items() if v is not None}
@@ -309,7 +311,7 @@ class MahjongEnvBase(gym.Env):
         # 否则仅取第一名
         return [winners[0]]
 
-    def apply_decision(self, decisions: List[Response]) -> Tuple[Dict[int, RiichiState], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
+    def apply_decision(self, decisions: List[Response]) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         """
         处理当前玩家的动作，然后判断是否有其他玩家吃碰杠和的机会，
         最后确定下一个 current_player并返回新的状态。
@@ -331,7 +333,7 @@ class MahjongEnvBase(gym.Env):
             if decision.chosen.payload.get("direct", False):
                 action = decision.chosen.payload["action_id"]
             else:
-                action, _ = self.action_map(self.current_player, decision.chosen.payload["action_id"])
+                action, _ = self.action_remap(self.current_player, decision.chosen.payload["action_id"])
         elif len(decisions) == 2:
             # MULTI-RON
             self.current_player = int(decisions[0].from_seat)
@@ -885,12 +887,12 @@ class MahjongEnvBase(gym.Env):
         #print(f"PHASE END: {self.current_player} {self.phase}")
 
         # 5. 组装返回
-        valid_actions = self.compute_legal_actions()
-        requires_decision =[sum(x) > 1 for x in valid_actions]
-        observations = {i: self.get_observation(i, valid_actions[i]) if requires_decision[i] \
-                        else RiichiState(
-                            hand_counts=[0]*NUM_TILES,
-                            legal_actions_mask=valid_actions[i]) for i in range(self.num_players)}
+        self.valid_actions = self.compute_legal_actions()
+        requires_decision =[sum(x) > 1 for x in self.valid_actions]
+        observations = {i: {"observation": self.get_observation(i) if requires_decision[i] \
+                            else RiichiState(hand_counts=[0]*NUM_TILES, legal_actions_mask=self.valid_actions[i]),
+                            "action_mask": self.valid_actions[i]
+                            } for i in range(self.num_players)}
         rewards = {i: 0.0 for i in range(self.num_players)}
         terminations = {i: self.done for i in range(self.num_players)}
         truncations = {i: self.done for i in range(self.num_players)}
@@ -1001,9 +1003,9 @@ class MahjongEnvBase(gym.Env):
             # 输出天凤格式的log. e.g. <REACH who="3" ten="250,250,250,240" step="2"/>
             self.logger.add_reach_accepted(player, self.scores)
     
-    def get_observation(self, who, legal_actions) -> RiichiState:
+    def get_observation(self, who) -> RiichiState:
         """根据当前玩家，返回相应的状态表示。"""
-        raise NotImplementedError
+        return self.logger.snapshot_before_action(who, legal_actions=self.valid_actions[who])
     
     def action_masks(self, player) -> list[bool]:
         """返回当前玩家的动作掩码。"""
@@ -1537,8 +1539,49 @@ class MahjongEnvBase(gym.Env):
         """将136张牌表示转换为4x34表示。"""
         return self.tiles_bool_to_4x34(self.tiles_136_to_bool(tiles_136))
     
-    def action_map(self, player, action_grp) -> Tuple:
-        raise NotImplementedError
+    def action_remap(self, player: int, action_grp: int) -> Tuple:
+        payload, confirm = get_action_from_index(action_grp)
+
+        def _hand_index(tile_34: int) -> int:
+            hand = list(reversed(self.hands[player]))
+            for idx, tile in enumerate(hand):
+                if tile // 4 == tile_34:
+                    return len(hand)-idx-1
+            raise ValueError(f"tile {tile_34} not found in hand {hand}")
+
+        def _hand_indices(tiles_34: List[int]) -> List[int]:
+            hand = list(reversed(self.hands[player]))
+            out = []
+            for tile_34 in tiles_34:
+                for idx, tile in enumerate(hand):
+                    if tile // 4 == tile_34 and not (idx in out):
+                        out.append(idx)
+                        break
+            out = [len(hand)-idx-1 for idx in out]
+            if len(out) == len(tiles_34):
+                return list(out)
+            raise ValueError(f"tiles {tiles_34} not found in hand {hand}")
+        
+        if self.phase == "discard":
+            return _hand_index(payload), confirm
+
+        if self.phase == "riichi":
+            if not confirm:
+                return 0, False
+            return _hand_index(payload), True
+
+        if self.phase in {"ankan", "chakan"}:
+            if not confirm:
+                return 0, False
+            tile_34 = payload[0]
+            return _hand_index(tile_34), True
+
+        if self.phase in {"chi", "pon",  "kan"}:
+            if not confirm:
+                return 0, False
+            return _hand_indices(payload), True
+        
+        return payload, confirm
     
     def compute_legal_actions(self) -> list[list[bool]]:
         return [self._compute_legal_actions_per(who) for who in range(self.num_players)]
@@ -1677,59 +1720,51 @@ class MahjongEnv(MahjongEnvBase):
 
         # 定义动作空间
         # 维度1: 0 ~ 252: NUM_ACTIONS-dim action space
-        #self.action_space = spaces.MultiDiscrete([NUM_ACTIONS,])
- 
+        # self.action_space = spaces.MultiDiscrete([NUM_ACTIONS,])
         # 定义状态空间 (仅示例，具体需要你根据状态表示来定)
 
         self.reset()
 
-    def get_observation(self, player, legal_actions):
-        """根据当前玩家，返回相应的状态表示。"""
-        return self.logger.snapshot_before_action(player, legal_actions=legal_actions)
-    
-    def action_map(self, player: int, action_grp: int):
-        payload, confirm = get_action_from_index(action_grp)
+AgentID = int
 
-        def _hand_index(tile_34: int) -> int:
-            hand = list(reversed(self.hands[player]))
-            for idx, tile in enumerate(hand):
-                if tile // 4 == tile_34:
-                    return len(hand)-idx-1
-            raise ValueError(f"tile {tile_34} not found in hand {hand}")
+class MahjongEnvPettingZoo(MahjongEnv):
+    """Parallel environment class.
 
-        def _hand_indices(tiles_34: List[int]) -> List[int]:
-            hand = list(reversed(self.hands[player]))
-            out = []
-            for tile_34 in tiles_34:
-                for idx, tile in enumerate(hand):
-                    if tile // 4 == tile_34 and not (idx in out):
-                        out.append(idx)
-                        break
-            out = [len(hand)-idx-1 for idx in out]
-            if len(out) == len(tiles_34):
-                return list(out)
-            raise ValueError(f"tiles {tiles_34} not found in hand {hand}")
+    It steps every live agent at once. If you are unsure if you
+    have implemented a ParallelEnv correctly, try running the `parallel_api_test` in
+    the Developer documentation on the website.
+    """
+
+    def __init__(self, num_players=4, num_rounds=4):
+        super(MahjongEnvPettingZoo, self).__init__(num_players=num_players, num_rounds=num_rounds)
         
-        if self.phase == "discard":
-            return _hand_index(payload), confirm
+        self.metadata: dict[str, Any]
 
-        if self.phase == "riichi":
-            if not confirm:
-                return 0, False
-            return _hand_index(payload), True
+        self.agents: list[AgentID]
+        self.possible_agents: list[AgentID]
+        self.observation_spaces: dict[
+            AgentID, Space
+        ]  # Observation space for each agent
+        self.action_spaces: dict[AgentID, Space]
 
-        if self.phase in {"ankan", "chakan"}:
-            if not confirm:
-                return 0, False
-            tile_34 = payload[0]
-            return _hand_index(tile_34), True
+    def observation_space(self, agent: AgentID) -> Space:
+        """Takes in agent and returns the observation space for that agent.
 
-        if self.phase in {"chi", "pon",  "kan"}:
-            if not confirm:
-                return 0, False
-            return _hand_indices(payload), True
-        
-        return payload, confirm
+        MUST return the same value for the same agent name
+
+        Default implementation is to return the observation_spaces dict
+        """
+        return self.observation_spaces[agent]
+
+    def action_space(self, agent: AgentID) -> Space:
+        """Takes in agent and returns the action space for that agent.
+
+        MUST return the same value for the same agent name
+
+        Default implementation is to return the action_spaces dict
+        """
+        return self.action_spaces[agent]
+
 
 
 if __name__ == "__main__":

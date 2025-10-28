@@ -1,9 +1,9 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
-import gymnasium as gym
 import random
 from my_types import Response, ActionSketch, Seat, ActionType
 from mahjong_features import get_action_type_from_index, NUM_ACTIONS
+from typing import Any
 
 '''
 class Response:
@@ -18,7 +18,7 @@ class RandomDiscardAgent:
     A dummy agent that discards a random tile from the current hand.
     Supports fixed seed for reproducibility.
     """
-    def __init__(self, env: gym.Env, backbone=None, seed=None):
+    def __init__(self, env: Any, backbone=None, seed=None):
         self.env = env
         self.random_generator = random.Random(seed)  # Use a separate Random instance with optional seed
 

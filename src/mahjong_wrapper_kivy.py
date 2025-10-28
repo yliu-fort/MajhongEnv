@@ -749,7 +749,7 @@ class MahjongEnvKivyWrapper:
             )
             return
         try:
-            observation = self._env.get_observation(seat, legal_actions=self._env._compute_legal_actions_per(seat))
+            observation = self._env.get_observation(seat)
         except Exception:
             observation = None
         if observation is None:
