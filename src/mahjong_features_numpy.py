@@ -312,7 +312,7 @@ class RiichiResNetFeatures:
         return 4
 
     # ---------- core ----------
-    def forward(self, state: RiichiState) -> Dict[str, np.ndarray]:
+    def forward(self, state: RiichiState) -> np.ndarray:
         planes: List[np.ndarray] = []
 
         # 1) Self hand
@@ -440,18 +440,21 @@ class RiichiResNetFeatures:
 
         hand_list = hand_clamped.astype(int).tolist()
         last_draw = state.last_draw_136 // 4
-        res = compute_ukeire_advanced(hand_list, last_draw, remaining_counts)
-        sh_normal = res["explain"]["shanten_regular"]
-        sh_chiitoi = res["explain"]["shanten_chiitoi"]
-        sh_kokushi = res["explain"]["shanten_kokushi"]
-        planes.append(self._const_plane(max(sh_normal, 0) / 8.0))  # 108 shanten normal
-        planes.append(self._const_plane(max(sh_chiitoi, 0) / 6.0))  # 109 shanten chiitoi
+        sh_normal, sh_chiitoi, sh_kokushi, ukeire = 6, 8, 13, 60
+        ukeire_counts = [0] * NUM_TILES
+        if sum(hand_list) > 0:
+            res = compute_ukeire_advanced(hand_list, last_draw, remaining_counts)
+            sh_normal = res["explain"]["shanten_regular"]
+            sh_chiitoi = res["explain"]["shanten_chiitoi"]
+            sh_kokushi = res["explain"]["shanten_kokushi"]
+            ukeire = res["ukeire"]
+            for t, cnt in res["tiles"]:
+                ukeire_counts[t] = cnt
+
+        planes.append(self._const_plane(max(sh_normal, 0) / 6.0))  # 108 shanten normal
+        planes.append(self._const_plane(max(sh_chiitoi, 0) / 8.0))  # 109 shanten chiitoi
         planes.append(self._const_plane(max(sh_kokushi, 0) / 13.0))  # 110 shanten kokushi
 
-        ukeire = res["ukeire"]
-        ukeire_counts = [0] * NUM_TILES
-        for t, cnt in res["tiles"]:
-            ukeire_counts[t] = cnt
         ukeire_counts_arr = self._to_array_1d(ukeire_counts)
         planes.append(self._const_plane(min(ukeire, 60) / 60.0))  # 111 ukeire count
 
@@ -503,7 +506,9 @@ class RiichiResNetFeatures:
             shantens = np.clip(self._to_array_1d(state.shantens), 0, 8)
             ukeires = np.clip(self._to_array_1d(state.ukeires), 0, 60)
         else:
-            shantens, ukeires = RiichiResNetFeatures._get_possible_moves(hand_list, remaining_counts)
+            #shantens, ukeires = RiichiResNetFeatures._get_possible_moves(hand_list, remaining_counts)
+            shantens = self._to_array_1d([8] * NUM_TILES)
+            ukeires = self._to_array_1d([60] * NUM_TILES)
             shantens = np.clip(shantens, 0, 8)
             ukeires = np.clip(ukeires, 0, 60)
         planes.append(self._broadcast_row(shantens / 8.0))  # 127 shantens
@@ -513,15 +518,17 @@ class RiichiResNetFeatures:
         for opp in opps:
             planes.append(self._const_plane(RiichiResNetFeatures._quantize_score(opp.score) / 4.0))
 
-        planes.append(self._const_plane(state.rank / 3.0))
+        planes.append(self._const_plane(max(0.0, state.rank) / 3.0))
         for opp in opps:
-            planes.append(self._const_plane(opp.rank / 3.0))
+            planes.append(self._const_plane(max(0.0, opp.rank) / 3.0))
 
         x = np.stack(planes, axis=0).astype(np.float32)
 
         if state.legal_actions_mask is None:
             raise ValueError("legal_actions_mask must be provided")
         legal_actions = np.asarray(state.legal_actions_mask, dtype=np.float32)
+        
+        return x[None,:,:,0]
 
         return {
             "x": x,

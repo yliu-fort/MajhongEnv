@@ -38,7 +38,11 @@ class RandomDiscardAgent:
 
         #who = obs[1]["who"]
         #action_masks = self.env.action_masks(who)
-        action_masks = obs.legal_actions_mask
+        try:
+            action_masks = obs.legal_actions_mask
+        except Exception:
+            action_masks = obs["action_mask"]
+
         valid_action_list = [i for i in list(range(NUM_ACTIONS)) if action_masks[i]]
         if sum(action_masks) == 0:
             return 252
