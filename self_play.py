@@ -2,9 +2,8 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
 
-import gymnasium as gym
 import numpy as np
-from mahjong_env import MahjongEnv
+from mahjong_env import MahjongEnvPettingZoo
 from agent.random_discard_agent import RandomDiscardAgent
 from agent.rule_based_agent import RuleBasedAgent
 from my_types import Response, Seat
@@ -14,7 +13,7 @@ from functools import partial
 
 def evaluate_model(episodes=10, start=0, step=1):
     # 创建环境
-    env = MahjongEnv(num_players=4)
+    env = MahjongEnvPettingZoo(num_players=4)
     agent = RuleBasedAgent(env, backbone="resnet50")
     
     # 加载训练好的模型
@@ -22,7 +21,7 @@ def evaluate_model(episodes=10, start=0, step=1):
  
     total_dscores = np.zeros(4, dtype=np.int32)
     for ep in range(start, episodes, step):
-        obs = env.reset()
+        obs, _ = env.reset()
         done = False
         while not done:
             # 用智能体来选动作
@@ -30,15 +29,15 @@ def evaluate_model(episodes=10, start=0, step=1):
             step_id=0, \
             request_id="", \
             from_seat=Seat(_), \
-            chosen=agent.predict(obs[_])) for _ in range(env.num_players)}
+            chosen=agent.predict(obs[_]["observation"])) for _ in range(env.num_players)}
             obs, rewards, terminations, _, info = env.step(actions)
             done = any(terminations.values())
 
         total_dscores += np.array(info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])
         print(info["msg"])
-        with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
-            f.write(info["log"])
+        #with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
+        #    f.write(info["log"])
 
 
 if __name__ == "__main__":
