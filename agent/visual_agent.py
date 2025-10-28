@@ -2,13 +2,13 @@ from __future__ import annotations
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import gymnasium as gym
 import torch
 import numpy as np
 
 import torch
 import torch.nn as nn
 import timm  # for ViT and other backbones
+from typing import Any
 
 from mahjong_features import RiichiResNetFeatures, NUM_ACTIONS, NUM_FEATURES, NUM_TILES, get_action_from_index, get_action_index, get_action_type_from_index
 from .random_discard_agent import RandomDiscardAgent
@@ -58,7 +58,7 @@ class VisualClassifier(nn.Module):
         return self.model(x)
 
 class VisualAgent:
-    def __init__(self, env: gym.Env, backbone: str = "resnet18", device = None):
+    def __init__(self, env: Any, backbone: str = "resnet18", device = None):
         self.env = env
         self._device = _select_device(device)
         self.model = VisualClassifier(backbone, in_chans = NUM_FEATURES, num_classes = NUM_ACTIONS, pretrained = False)
@@ -98,13 +98,13 @@ class VisualAgent:
             return None
         elif sum(legal_mask) == 1:
             action_id = valid_action_list[0]
-            return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
-
+            return action_id
+        
         if (any([_ in allowed_action_type for _ in [ActionType.TSUMO,]])):
-            return ActionSketch(action_type=ActionType.TSUMO, payload={"action_id": 251})
+            return 251
 
         if (any([_ in allowed_action_type for _ in [ActionType.RON,]])):
-            return ActionSketch(action_type=ActionType.RON, payload={"action_id": 250})
+            return 250
 
         # 推理时获取动作
         with torch.no_grad():
@@ -128,7 +128,7 @@ class VisualAgent:
             if pred1 is not None and pred1 != 253:
                 pred = pred1 # 262-dim
             
-            return ActionSketch(action_type=get_action_type_from_index(pred), payload={"action_id": pred})
+            return pred
                     
         # if preds not in action_masks, return a random choice from action_masks.
         return self._alt_model.predict(observation)

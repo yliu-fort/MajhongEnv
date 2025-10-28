@@ -1,5 +1,5 @@
-import gymnasium as gym
-from gymnasium.spaces import Space
+import functools
+from gymnasium.spaces import Space, Discrete
 from pettingzoo import ParallelEnv
 import numpy as np
 from collections import Counter
@@ -50,8 +50,8 @@ class MahjongEnvBase(ParallelEnv):
     MAX_HONBA = 8 # 最大本场数
     MULTI_RON = False
 
-    def __init__(self, num_players=4, num_rounds=4):
-        super(MahjongEnvBase, self).__init__()
+    def __init__(self, num_players=4, num_rounds=4, *args, **kwargs):
+        super(MahjongEnvBase, self).__init__(*args, **kwargs)
         
         # 设置玩家数量
         self.num_players = num_players
@@ -70,13 +70,14 @@ class MahjongEnvBase(ParallelEnv):
         # 初始化游戏需要在子类中实现
         #self.reset()
  
-    def reset(self) -> Tuple[Dict, Dict]:
+    def reset(self, *args, **kwargs) -> Tuple[Dict, Dict]:
         # 初始化牌局，重新洗牌、发牌等
         # 在此进行游戏状态的重置
         self.hand_checker = MahjongHandChecker()
         self.yama_generator = YamaGenerator()
         self.logger = MahjongLogger(self.yama_generator.seed_str)
         self.msg = ""
+        self.info = {}
         self.done = False
 
         # 初始化局数、本场数、立直棒数、立直状态、同巡振听状态
@@ -93,7 +94,7 @@ class MahjongEnvBase(ParallelEnv):
         # 返回所有玩家的观测
         self.valid_actions = self.compute_legal_actions()
         observations = {i: {"observation": self.get_observation(i), "action_mask": self.valid_actions[i]} for i in range(self.num_players)}
-        return observations, {}
+        return observations, {i: "" for i in range(self.num_players)}
 
     def reset_for_next_round(self, oya_continue=False):
         # 初始化牌局，重新洗牌、发牌等
@@ -718,7 +719,7 @@ class MahjongEnvBase(ParallelEnv):
                 rank = list(reversed(sorted(list(range(self.num_players)), key=lambda x: self.scores[x])))
 
                 # 游戏结束
-                info = {"rank": rank,
+                self.info = {"rank": rank,
                         "scores": self.scores,
                         "msg": self.msg,
                         "log": str(self.logger)}
@@ -895,9 +896,13 @@ class MahjongEnvBase(ParallelEnv):
                             } for i in range(self.num_players)}
         rewards = {i: 0.0 for i in range(self.num_players)}
         terminations = {i: self.done for i in range(self.num_players)}
-        truncations = {i: self.done for i in range(self.num_players)}
-        #infos = {self.current_player: info}
-        return observations, rewards, terminations, truncations, info
+        truncations = {i: False for i in range(self.num_players)}
+        infos = {i: "" for i in range(self.num_players)}
+    
+        if self.done:
+            self.agents = []
+
+        return observations, rewards, terminations, truncations, infos
     
     def can_continue(self):
         # 是否结束游戏？
@@ -1715,8 +1720,8 @@ class MahjongEnv(MahjongEnvBase):
     """
     一个简化的麻将环境示例。
     """
-    def __init__(self, num_players=4, num_rounds=4):
-        super(MahjongEnv, self).__init__(num_players=num_players, num_rounds=num_rounds)
+    def __init__(self, *args, **kwargs):
+        super(MahjongEnv, self).__init__(*args, **kwargs)
 
         # 定义动作空间
         # 维度1: 0 ~ 252: NUM_ACTIONS-dim action space
@@ -1735,18 +1740,19 @@ class MahjongEnvPettingZoo(MahjongEnv):
     the Developer documentation on the website.
     """
 
-    def __init__(self, num_players=4, num_rounds=4):
-        super(MahjongEnvPettingZoo, self).__init__(num_players=num_players, num_rounds=num_rounds)
+    def __init__(self, *args, **kwargs):
+        super(MahjongEnvPettingZoo, self).__init__(*args, **kwargs)
         
-        self.metadata: dict[str, Any]
+        self.metadata: dict[str, Any] = {"name": "mjai_env_v0"}
 
-        self.agents: list[AgentID]
-        self.possible_agents: list[AgentID]
+        self.agents: list[AgentID] = [0, 1, 2, 3]
+        self.possible_agents: list[AgentID] = [0, 1, 2, 3]
         self.observation_spaces: dict[
             AgentID, Space
         ]  # Observation space for each agent
         self.action_spaces: dict[AgentID, Space]
 
+    @functools.lru_cache(maxsize=None)
     def observation_space(self, agent: AgentID) -> Space:
         """Takes in agent and returns the observation space for that agent.
 
@@ -1754,8 +1760,9 @@ class MahjongEnvPettingZoo(MahjongEnv):
 
         Default implementation is to return the observation_spaces dict
         """
-        return self.observation_spaces[agent]
+        return Discrete(2)
 
+    @functools.lru_cache(maxsize=None)
     def action_space(self, agent: AgentID) -> Space:
         """Takes in agent and returns the action space for that agent.
 
@@ -1763,9 +1770,13 @@ class MahjongEnvPettingZoo(MahjongEnv):
 
         Default implementation is to return the action_spaces dict
         """
-        return self.action_spaces[agent]
+        return Discrete(NUM_ACTIONS)
 
+    def step(self, responses: Dict[int, int]) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
+        processed_responses = {k: Response(room_id="", step_id=0, request_id="", from_seat=Seat(k),
+            chosen=ActionSketch(action_type=get_action_type_from_index(v), payload={"action_id": v})) for k, v in responses.items() if v is not None and sum(self.valid_actions[k])}
 
+        return super().step(processed_responses)
 
 if __name__ == "__main__":
     # 创建环境

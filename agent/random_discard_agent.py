@@ -41,14 +41,10 @@ class RandomDiscardAgent:
         action_masks = obs.legal_actions_mask
         valid_action_list = [i for i in list(range(NUM_ACTIONS)) if action_masks[i]]
         if sum(action_masks) == 0:
-            return ActionSketch(action_type=ActionType.UNKNOWN, payload={"action_id": 0})
-        elif sum(action_masks) == 1:
-            action_id = valid_action_list[0]
-            return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
+            return 252
         
         # Randomly pick one tile from the hand to discard
         if valid_action_list:
-            action_id = self.random_generator.choice(valid_action_list)
-            return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
+            return self.random_generator.choice(valid_action_list)
 
-        return ActionSketch(action_type=ActionType.PASS, payload={"action_id": 252})
+        return 252

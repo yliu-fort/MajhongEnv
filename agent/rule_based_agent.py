@@ -56,26 +56,25 @@ class RuleBasedAgent:
         pass
 
     
-    def predict(self, observation) -> ActionSketch:
-        #who = observation[1]["who"]
+    def predict(self, observation) -> int:
         action_masks = observation.legal_actions_mask
         valid_action_list = [i for i in list(range(NUM_ACTIONS)) if action_masks[i]]
         allowed_action_type = set([get_action_type_from_index(i) for i, a in enumerate(action_masks) if a])
-        #print(allowed_action_type)
+
         if sum(action_masks) == 0:
-            return ActionSketch(action_type=ActionType.UNKNOWN, payload={"action_id": 0})
+            return 252
         elif sum(action_masks) == 1:
             action_id = valid_action_list[0]
-            return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
+            return action_id
 
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.TSUMO,]])):
-            return ActionSketch(action_type=ActionType.TSUMO, payload={"action_id": 251})
+            return 251
 
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.RON,]])):
-            return ActionSketch(action_type=ActionType.RON, payload={"action_id": 250})
+            return 250
 
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.RYUUKYOKU,]])):
-            return ActionSketch(action_type=ActionType.RYUUKYOKU, payload={"action_id": 249})
+            return 249
                
         # 如果当前状态是和牌状态，直接返回和牌动作        
         if self.env and (ActionType.DISCARD in allowed_action_type):
@@ -92,10 +91,10 @@ class RuleBasedAgent:
             if m[discard_priority_attack[0]] == 1:
                 action_id = discard_priority_attack[0]
                 action_id = action_id+34 if action_masks[action_id+34] else action_id
-                return ActionSketch(action_type=get_action_type_from_index(action_id), payload={"action_id": action_id})
+                return action_id
 
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.CHI,]])):
-            return ActionSketch(action_type=ActionType.PASS, payload={"action_id": 252})
+            return 252
         
         # if preds not in action_masks, return a random choice from action_masks.
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.PON, ActionType.KAN]])):
@@ -116,8 +115,7 @@ class RuleBasedAgent:
             turn_number = state.turn_number
             should_call = ( new_sh < base_sh ) & (turn_number >= 6) & (base_sh > 2)
 
-            return self._alt_model.predict(observation) if should_call \
-                else ActionSketch(action_type=ActionType.PASS, payload={"action_id": 252})
+            return self._alt_model.predict(observation) if should_call else 252
         
         return self._alt_model.predict(observation)
 

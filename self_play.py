@@ -1,15 +1,15 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "src"))
 sys.path.append(os.path.join(os.path.dirname(__file__), ".", "agent"))
-
+import time
 import numpy as np
+from functools import partial
 from mahjong_env import MahjongEnvPettingZoo
 from agent.random_discard_agent import RandomDiscardAgent
 from agent.rule_based_agent import RuleBasedAgent
 from my_types import Response, Seat
-import time
 from concurrent.futures import ProcessPoolExecutor
-from functools import partial
+
 
 def evaluate_model(episodes=10, start=0, step=1):
     # 创建环境
@@ -25,17 +25,13 @@ def evaluate_model(episodes=10, start=0, step=1):
         done = False
         while not done:
             # 用智能体来选动作
-            actions = {_: Response(room_id="", \
-            step_id=0, \
-            request_id="", \
-            from_seat=Seat(_), \
-            chosen=agent.predict(obs[_]["observation"])) for _ in range(env.num_players)}
-            obs, rewards, terminations, _, info = env.step(actions)
+            actions = {_: agent.predict(obs[_]["observation"]) for _ in range(env.num_players)}
+            obs, rewards, terminations, _, _ = env.step(actions)
             done = any(terminations.values())
 
-        total_dscores += np.array(info["scores"]) - 250
-        print(f"Episode {ep} - 分数板：{total_dscores}", info["scores"])
-        print(info["msg"])
+        total_dscores += np.array(env.info["scores"]) - 250
+        print(f"Episode {ep} - 分数板：{total_dscores}", env.info["scores"])
+        print(env.info["msg"])
         #with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
         #    f.write(info["log"])
 

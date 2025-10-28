@@ -26,7 +26,7 @@ from agent.human_player_agent import HumanPlayerAgent
 from agent.visual_agent import VisualAgent as _AIAgent
 #from agent.rule_based_agent import RuleBasedAgent as _AIAgent
 from agent.random_discard_agent import RandomDiscardAgent
-from mahjong_env import MahjongEnv, MahjongEnvPettingZoo
+from mahjong_env import MahjongEnv
 from mahjong_wrapper_kivy import MahjongEnvKivyWrapper
 from mahjong_features import get_action_type_from_index
 
@@ -109,7 +109,9 @@ class AgentController:
                         action = None
                 elif self.agent is not None:
                     try:
-                        action = self.agent.predict(req.observation)
+                        action_id = self.agent.predict(req.observation)
+                        action_type = get_action_type_from_index(action_id)
+                        action = ActionSketch(action_type=action_type, payload={"action_id": action_id})
                     except Exception:
                         action = None
             else:
@@ -237,12 +239,14 @@ class MahjongKivyApp(App):
                 if now >= req.deadline:
                     # Fallback to default response
                     if self._fallback_agent is not None:
+                        action_id = self._fallback_agent.predict(self._observation[_]["observation"])
+                        action_type = get_action_type_from_index(action_id)
                         self._pending_responses[_] = \
                         Response(room_id="", \
                         step_id=req.step_id, \
                         request_id=f"req-{req.step_id}-{Seat(_)}", \
                         from_seat=Seat(_), \
-                        chosen=self._fallback_agent.predict(self._observation[_]["observation"]))
+                        chosen=ActionSketch(action_type=action_type, payload={"action_id": action_id}))
 
         #print(f"Recv {self._pending_responses}")
         if len(self._pending_responses.keys()) > 0 and \
@@ -293,7 +297,7 @@ class MahjongKivyApp(App):
     def _start_game(self, human_seats: Sequence[int]) -> None:
         self._cleanup_game()
 
-        self.env = MahjongEnvPettingZoo(num_players=4, num_rounds=8)
+        self.env = MahjongEnv(num_players=4, num_rounds=8)
         self.wrapper = MahjongEnvKivyWrapper(env=self.env)
         self._pending_requests = {}
         self._step_ids = count()
