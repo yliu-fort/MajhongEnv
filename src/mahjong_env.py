@@ -90,7 +90,7 @@ class MahjongEnvBase():
         # 返回所有玩家的观测
         self.valid_actions = self.compute_legal_actions()
         observations = {i: {"observation": self.get_observation(i), "action_mask": self.valid_actions[i]} for i in range(self.num_players)}
-        return observations, {i: "" for i in range(self.num_players)}
+        return observations, {i: {} for i in range(self.num_players)}
 
     def reset_for_next_round(self, oya_continue=False):
         # 初始化牌局，重新洗牌、发牌等
@@ -893,7 +893,7 @@ class MahjongEnvBase():
         rewards = {i: 0.0 for i in range(self.num_players)}
         terminations = {i: self.done for i in range(self.num_players)}
         truncations = {i: False for i in range(self.num_players)}
-        infos = {i: "" for i in range(self.num_players)}
+        infos = {i: {} for i in range(self.num_players)}
 
         return observations, rewards, terminations, truncations, infos
     

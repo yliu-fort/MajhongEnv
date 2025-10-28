@@ -3,7 +3,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 import functools
 import gymnasium as gym
-from gymnasium.spaces import Space, MultiBinary, Box
+from gymnasium.spaces import Space, Discrete, Box, MultiBinary
 from pettingzoo import ParallelEnv
 import numpy as np
 from mahjong_features import RiichiState, NUM_TILES, NUM_ACTIONS, get_action_type_from_index
@@ -74,7 +74,7 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
 
         Default implementation is to return the action_spaces dict
         """
-        return MultiBinary(NUM_ACTIONS)
+        return Discrete(NUM_ACTIONS)
 
     def step(self, responses: Dict[int, int]) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         if self.agents == []: # To prevent from reset

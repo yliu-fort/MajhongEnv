@@ -11,80 +11,111 @@ import os
 import time
 
 import supersuit as ss
-from stable_baselines3 import PPO
-from stable_baselines3.ppo import MlpPolicy
 from sb3_contrib import MaskablePPO
-from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy, MaskableMultiInputActorCriticPolicy
+from sb3_contrib.common.maskable.policies import MaskableMultiInputActorCriticPolicy
 
 from mahjong_gym import MahjongEnvPettingZoo
 import numpy as np
 from stable_baselines3.common.vec_env import VecEnvWrapper
 
 
-class VecActionMaskAdapter(VecEnvWrapper):
+class SB3MaskVecAdapter(VecEnvWrapper):
     """
-    从 VecEnv 的 obs / infos 中提取每个子环境的 action_mask，
-    并对外提供 action_masks()，供 MaskablePPO 调用。
+    适配 Supersuit ConcatVecEnv 到 SB3：
+    - reset(): 只返回 obs（丢弃 info，SB3 需要这样）
+    - step_wait(): 如果是 (obs, rew, term, trunc, infos) 则合并成 dones=term|trunc
+    - action_masks(): 从 obs/infos 或底层 vec_envs 聚合出掩码
     """
     def __init__(self, venv):
         super().__init__(venv, venv.observation_space, venv.action_space)
-        self._last_masks = None  # shape: (n_envs, action_dim)
+        self._last_masks = None
 
     def reset(self, **kwargs):
         out = self.venv.reset(**kwargs)
-        # 兼容 Gymnasium / SB3 v2 的返回 (obs, info)
-        if isinstance(out, tuple) and len(out) == 2:
+        if isinstance(out, tuple):
             obs, info = out
-            self._last_masks = self._extract_masks(obs, info)
-            return obs, info
-        # 旧接口（极少见）
-        obs = out
-        self._last_masks = self._extract_masks(obs, None)
-        return obs
+        else:
+            obs, info = out, None
+        self._last_masks = self._extract_masks(obs, info)
+        return obs  # 关键：SB3 期望只返回 obs
 
     def step_async(self, actions):
         return self.venv.step_async(actions)
 
     def step_wait(self):
         res = self.venv.step_wait()
-        # 兼容 SB3 v2（Gymnasium）5元组 & 旧 4元组
         if len(res) == 5:
-            obs, rewards, terms, truncs, infos = res
+            obs, rewards, terminations, truncations, infos = res
+            dones = np.logical_or(terminations, truncations)
             self._last_masks = self._extract_masks(obs, infos)
-            return obs, rewards, terms, truncs, infos
+            return obs, rewards, dones, infos
         else:
+            # 旧式 4 元组
             obs, rewards, dones, infos = res
             self._last_masks = self._extract_masks(obs, infos)
             return obs, rewards, dones, infos
 
-    # 供 sb3-contrib 读取的入口
     def action_masks(self):
         return self._last_masks
 
     def _extract_masks(self, obs, infos):
-        # 优先从观测 Dict 提取（VecEnv 下通常是 batched 的）
+        # 1) 从 batched 观测字典里取（推荐做法）
         if isinstance(obs, dict) and "action_mask" in obs:
             return np.asarray(obs["action_mask"])
-        # 其次尝试从 infos（VecEnv 通常是 list[dict]）提取
+
+        # 2) 从 infos 里聚合（VecEnv: list[dict] 或 dict）
         if isinstance(infos, (list, tuple)):
-            masks = [info.get("action_mask") for info in infos]
-            if all(m is not None for m in masks):
+            masks = [i.get("action_mask") for i in infos]
+            if masks and all(m is not None for m in masks):
                 return np.asarray(masks)
         if isinstance(infos, dict) and "action_mask" in infos:
             return np.asarray(infos["action_mask"])
+
+        # 3) 兜底：如果底层有 vec_envs 且它们各自实现了 action_masks()，把它们拼起来
+        if hasattr(self.venv, "vec_envs"):
+            try:
+                parts = []
+                for v in self.venv.vec_envs:
+                    if hasattr(v, "action_masks"):
+                        m = v.action_masks()
+                        if m is not None:
+                            parts.append(m)
+                if parts:
+                    return np.concatenate(parts, axis=0)
+            except Exception:
+                pass
+
         return None
 
+    # 覆盖这三个，确保 MaskablePPO 的探测/调用不会掉到内层 ConcatVecEnv
+    def has_attr(self, attr_name):
+        if attr_name == "action_masks":
+            return True
+        inner = getattr(self.venv, "has_attr", None)
+        if callable(inner):
+            try:
+                return inner(attr_name)
+            except Exception:
+                pass
+        return hasattr(self.venv, attr_name)
 
-# 关键：把 Supersuit 的 VecEnv 变成 SB3 认可的 VecEnv
-class SB3Compat(VecEnvWrapper):
-    def __init__(self, venv):
-        super().__init__(venv, venv.observation_space, venv.action_space)
-    
-    def reset(self):
-        return super().reset()
-    
-    def step_wait(self):
-        return super().step_wait()
+    def get_attr(self, attr_name, indices=None):
+        if attr_name == "action_masks":
+            m = self.action_masks()
+            return [row for row in np.asarray(m)]
+        inner = getattr(self.venv, "get_attr", None)
+        if callable(inner):
+            return inner(attr_name, indices=indices)
+        raise AttributeError(f"{type(self.venv).__name__} has no get_attr")
+
+    def env_method(self, method_name, *args, indices=None, **kwargs):
+        if method_name == "action_masks":
+            m = self.action_masks()
+            return [row for row in np.asarray(m)]
+        inner = getattr(self.venv, "env_method", None)
+        if callable(inner):
+            return inner(method_name, *args, indices=indices, **kwargs)
+        raise AttributeError(f"{type(self.venv).__name__} has no env_method")
 
 
 def train_mjai(
@@ -97,26 +128,17 @@ def train_mjai(
 
     print(f"Starting training on {str(env.metadata['name'])}.")
 
-    # ② （强烈建议）用 SuperSuit 包装，确保满足转换假设
-    #    - pad_observations/pad_action_space：补齐不同代理之间的维度差异
-    #    - black_death_v3：当某个代理“死亡/无动作”时，保持其存在，输出零观测+空动作
-    #env = ss.pad_observations_v0(env)
-    #env = ss.pad_action_space_v0(env)
-    #env = ss.black_death_v3(env)
-
     # ③ ParallelEnv -> SB3 VecEnv
-    print("has action_masks:", hasattr(env, "action_masks"))
-    
     env = ss.pettingzoo_env_to_vec_env_v1(env)  # 每个“子环境”对应一个agent
-    env = VecActionMaskAdapter(env)  # TODO: Fix this issue: TypeError: cannot pickle '_abc._abc_data' object Exception ignored in: <function VectorEnv.__del__ at 0x1088cd6c0>
     env = ss.concat_vec_envs_v1(env, 8, num_cpus=0, base_class="stable_baselines3")
+    env = SB3MaskVecAdapter(env)
     
 
-    # Note: Waterworld's observation space is discrete (242,) so we use an MLP policy rather than CNN
+    # Model
     model = MaskablePPO(
         MaskableMultiInputActorCriticPolicy,
         env,
-        verbose=3,
+        verbose=2,
         learning_rate=1e-3,
         batch_size=4,
     )
