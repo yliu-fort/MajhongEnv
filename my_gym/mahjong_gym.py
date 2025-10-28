@@ -76,7 +76,7 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
         if self.agents == []: # To prevent from reset
             return {}, {}, {}, {}, {}
         processed_responses = {k: Response(room_id="", step_id=0, request_id="", from_seat=Seat(k),
-            chosen=ActionSketch(action_type=get_action_type_from_index(v), payload={"action_id": v})) for k, v in responses.items() if v is not None and sum(self.valid_actions[k])}
+            chosen=ActionSketch(action_type=get_action_type_from_index(int(v)), payload={"action_id": int(v)})) for k, v in responses.items() if v is not None and sum(self.valid_actions[k])}
         observations, y1, y2, y3, y4 = super().step(processed_responses)
         for k, v in observations.items():
             v["observation"] = self.extractor(v["observation"])[0] # 136 x 34

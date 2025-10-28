@@ -9,14 +9,13 @@ from __future__ import annotations
 import glob
 import os
 import time
-
+import numpy as np
 import supersuit as ss
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableMultiInputActorCriticPolicy
+from stable_baselines3.common.vec_env import VecEnvWrapper
 
 from mahjong_gym import MahjongEnvPettingZoo
-import numpy as np
-from stable_baselines3.common.vec_env import VecEnvWrapper
 
 
 class SB3MaskVecAdapter(VecEnvWrapper):
@@ -130,7 +129,7 @@ def train_mjai(
 
     # ③ ParallelEnv -> SB3 VecEnv
     env = ss.pettingzoo_env_to_vec_env_v1(env)  # 每个“子环境”对应一个agent
-    env = ss.concat_vec_envs_v1(env, 4, num_cpus=0, base_class="stable_baselines3")
+    env = ss.concat_vec_envs_v1(env, 8, num_cpus=0, base_class="stable_baselines3")
     env = SB3MaskVecAdapter(env)
     
 
@@ -141,7 +140,7 @@ def train_mjai(
         verbose=2,
         learning_rate=3e-4,
         batch_size=4,
-        n_steps=128,           # 更小
+        n_steps=1024,           # 更小
         n_epochs=4,            # 减少优化开销
         gae_lambda=0.95, gamma=0.99
     )
@@ -157,9 +156,50 @@ def train_mjai(
     env.close()
 
 
+
+def eval_mjai(env_fn, episodes=10, start=0, step=1):
+    # Evaluate a trained agent vs a random agent
+    env = env_fn(**env_kwargs)
+
+    print(
+        f"Starting evaluation."
+    )
+
+    try:
+        latest_policy = max(
+            glob.glob(f"{env.metadata['name']}*.zip"), key=os.path.getctime
+        )
+    except ValueError:
+        print("Policy not found.")
+        exit(0)
+
+    agent = MaskablePPO.load(latest_policy)
+ 
+    total_dscores = np.zeros(4, dtype=np.int32)
+    for ep in range(start, episodes, step):
+        obs, _ = env.reset()
+
+        while env.agents:
+            # 用智能体来选动作
+            actions = {}
+            for i in range(env.num_players):
+                observation, action_mask = obs[i].values()
+                actions[i] = agent.predict(obs[i], action_masks=action_mask, deterministic=True)[0]
+                
+            obs, _, _, _, _ = env.step(actions)
+
+        total_dscores += np.array(env.info["scores"]) - 250
+        print(f"Episode {ep} - 分数板：{total_dscores}", env.info["scores"])
+        print(env.info["msg"])
+        #with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
+        #    f.write(info["log"])
+
+
 if __name__ == "__main__":
     env_fn = MahjongEnvPettingZoo
     env_kwargs = {}
 
     # Train a model (takes ~3 minutes on GPU)
-    train_mjai(env_fn, steps=196_608, seed=0, **env_kwargs)
+    #train_mjai(env_fn, steps=196_608, seed=0, **env_kwargs)
+    
+    eval_mjai(env_fn, **env_kwargs)
