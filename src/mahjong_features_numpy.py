@@ -313,6 +313,9 @@ class RiichiResNetFeatures:
 
     # ---------- core ----------
     def forward(self, state: RiichiState) -> np.ndarray:
+        if sum(state.hand_counts) == 0:
+            return np.zeros((1,NUM_FEATURES,NUM_TILES))
+        
         planes: List[np.ndarray] = []
 
         # 1) Self hand
