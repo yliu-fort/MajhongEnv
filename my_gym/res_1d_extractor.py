@@ -101,7 +101,7 @@ class ResNet1DExtractor(BaseFeaturesExtractor):
         self.pool = nn.AdaptiveAvgPool1d(2)
         self.flatten = nn.Flatten()
         #self.proj = nn.Linear(ch_in, features_dim)
-        self._features_dim = features_dim
+        self._features_dim = channels_per_stage[-1]*2
 
     def forward(self, obs):
         x = obs["observation"] if isinstance(obs, dict) else obs
