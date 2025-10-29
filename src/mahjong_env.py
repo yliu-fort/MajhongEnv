@@ -267,11 +267,14 @@ class MahjongEnvBase():
         self.shanten = [self.hand_checker.check_shanten(hand) for hand in self.hands]
         self.tenpai = [False]*self.num_players # 只在游戏结束时才使用听牌状态
         self.tsumogiri = [False for _ in range(136)] # 摸切指示
-
+        
+        # 强化学习奖励
+        self._acculmulated_rewards = [0., 0., 0., 0.]
+        
         # 输出天凤格式的log
         self.logger.add_init(self.round, self.num_kyoutaku, self.dice, self.dora_indicator, self.scores, self.oya, self.hands)
     
-    def step(self, responses: Dict[int, Response]) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
+    def step(self, responses: Dict[int, Response], observe: bool=True) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         #responses = self.collect_responses(step_id, requests)
         # Filter out pass actions
         responses = {k: v for k, v in responses.items() if v is not None}
@@ -279,7 +282,7 @@ class MahjongEnvBase():
 
         decisions = self.arbitrate(_)
 
-        result = self.apply_decision(decisions)
+        result = self.apply_decision(decisions, observe=observe)
         return result
 
     def arbitrate(self, responses: List[Response]) -> List[Response]:
@@ -308,7 +311,7 @@ class MahjongEnvBase():
         # 否则仅取第一名
         return [winners[0]]
 
-    def apply_decision(self, decisions: List[Response]) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
+    def apply_decision(self, decisions: List[Response], observe: bool=True) -> Tuple[Dict[int, Dict], Dict[int, float], Dict[int, bool], Dict[int, bool], Dict]:
         """
         处理当前玩家的动作，然后判断是否有其他玩家吃碰杠和的机会，
         最后确定下一个 current_player并返回新的状态。
@@ -677,7 +680,8 @@ class MahjongEnvBase():
                             assert sum(self.scores) + (self.num_riichi + self.num_kyoutaku) * 10 == 1000, "总分数不等于100000"
 
                             # 更新顺位
-                            rank = sorted(list(range(self.num_players)), key=lambda x: self.scores[x])
+                            #rank = sorted(list(range(self.num_players)), key=lambda x: self.scores[x])
+                            rank = list(reversed(sorted(list(range(self.num_players)), key=lambda x: self.scores[x])))
 
                             # 若还有剩余点棒和供托则加给第一名
                             if self.scores[rank[0]]>self.scores[rank[1]]:
@@ -701,6 +705,7 @@ class MahjongEnvBase():
                             rank_bonus = [50, 14, -26, -38]
                             for p in range(self.num_players):
                                 self.score_deltas[p] = rank_bonus[rank[p]]
+                                rewards[p] += np.clip(self.score_deltas[p]/100, -1.0, 1.0)
 
                             # 记录天凤格式log
                             self.logger.add_owari(rt, self.scores, self.score_deltas)
@@ -720,16 +725,6 @@ class MahjongEnvBase():
             case "game_over":
                 # 更新顺位
                 rank = list(reversed(sorted(list(range(self.num_players)), key=lambda x: self.scores[x])))
-                
-                for who in range(self.num_players):
-                    if rank == 0:
-                        rewards[who] += 50.0/50
-                    elif rank == 1:
-                        rewards[who] += 14.0/50
-                    elif rank == 2:
-                        rewards[who] += -26.0/50
-                    elif rank == 3:
-                        rewards[who] += -38.0/50
 
                 # 游戏结束
                 self.info = {"rank": rank,
@@ -902,15 +897,20 @@ class MahjongEnvBase():
 
         # 5. 组装返回
         self.valid_actions = self.compute_legal_actions()
-        requires_decision =[sum(x) > 1 for x in self.valid_actions]
-        observations = {i: {"observation": self.get_observation(i) if requires_decision[i] \
-                            else RiichiState(hand_counts=[0]*NUM_TILES, legal_actions_mask=self.valid_actions[i]),
-                            "action_mask": self.valid_actions[i]
-                            } for i in range(self.num_players)}
-        #rewards = {i: 0.0 for i in range(self.num_players)}
+        observations = {}
+        if observe:
+            requires_decision =[sum(x) > 1 for x in self.valid_actions]
+            observations = {i: {"observation": self.get_observation(i) if requires_decision[i] \
+                                else RiichiState(hand_counts=[0]*NUM_TILES, legal_actions_mask=self.valid_actions[i]),
+                                "action_mask": self.valid_actions[i]
+                                } for i in range(self.num_players)}
         terminations = {i: self.done for i in range(self.num_players)}
         truncations = {i: False for i in range(self.num_players)}
         infos = {i: {} for i in range(self.num_players)}
+        
+        # 奖励分配
+        for i in range(self.num_players):
+            self._acculmulated_rewards[i] += rewards[i]
 
         return observations, rewards, terminations, truncations, infos
     
