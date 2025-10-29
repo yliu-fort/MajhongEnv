@@ -191,7 +191,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         
         return self.step(None)
 
-    def action_mask(self):
+    def action_masks(self):
         """Separate function used in order to access the action mask."""
         return self.valid_actions[self._focus_player]
     

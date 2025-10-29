@@ -12,28 +12,55 @@ import time
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "agent"))
 import gymnasium as gym
 import numpy as np
+import torch
 import torch.nn as nn
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableMultiInputActorCriticPolicy
-from stable_baselines3.common.vec_env import VecEnvWrapper
 from sb3_contrib.common.wrappers import ActionMasker
 from mahjong_gym import MahjongEnvGym
 from res_1d_extractor import ResNet1DExtractor
 from agent.rule_based_agent import RuleBasedAgent
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
+'''
 def mask_fn(env):
     # Custom logic to determine valid actions
     return env.action_mask()  # Returns boolean array (True=valid)
+'''
 
+# --------- 1) 你的环境 & 掩码函数（必须是顶层可 pickl e 的函数！）---------
+def make_single_env(env_fn, rank: int, seed: int = 0):
+    def _init():
+        # TODO: 换成你的环境
+        env = env_fn()
+
+        # 掩码函数：返回 shape=(action_space.n,) 的 bool/0-1 向量
+        def mask_fn(env):
+            mask = env.action_masks()  # 你环境里应提供
+
+        # 用 ActionMasker 包装
+        env = ActionMasker(env, mask_fn)
+        return env
+    return _init
 
 def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     """Train a single model to play as each agent in a zero-sum game environment using invalid action masking."""
-    env = env_fn(**env_kwargs)
-    env = ActionMasker(env, mask_fn)
+    env = env_fn()
+    n_envs = 4
+    
+    # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
+    env_fns = [make_single_env(env_fn, i, seed) for i in range(n_envs)]
+    vec_env = SubprocVecEnv(env_fns)          # 多进程
+    vec_env = VecMonitor(vec_env)             # 记录回报/长度等指标
+
+    # 可选：限制 PyTorch 线程数，避免与多进程争抢
+    torch.set_num_threads(1)
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
     
     print(f"Starting training on {str(env.metadata['name'])}.")
     
-    env.reset()  # Must call reset() in order to re-define the spaces
+    #env.reset()  # Must call reset() in order to re-define the spaces
 
     # Model
     policy_kwargs = dict(
@@ -48,14 +75,14 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
         MaskableMultiInputActorCriticPolicy,
         env,
         verbose=2,
-        learning_rate=3e-4,
-        batch_size=64,
-        n_steps=1024,           # 更小
+        learning_rate=5e-5,
+        batch_size=4096,
+        n_steps=16384,           # 更小
         n_epochs=10,            # 减少优化开销
         gae_lambda=0.95, gamma=0.993,
         policy_kwargs=policy_kwargs
     )
-    #model = MaskablePPO(MaskableMultiInputActorCriticPolicy, env, verbose=1)
+
     model.set_random_seed(seed)
     model.learn(total_timesteps=steps)
 
@@ -127,6 +154,6 @@ if __name__ == "__main__":
     env_kwargs = {}
 
     # Train a model against itself (takes ~20 seconds on a laptop CPU)
-    train_mjai(env_fn, steps=20_480_0, seed=42, **env_kwargs)
+    train_mjai(env_fn, steps=20_480_00, seed=42, **env_kwargs)
     
     eval_mjai(env_fn)
