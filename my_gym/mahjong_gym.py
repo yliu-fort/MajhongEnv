@@ -100,7 +100,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
     the Developer documentation on the website.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, imitation_reward=True, *args, **kwargs):
         
         self.metadata: dict[str, Any] = {"name": "mjai_gym_env_v0"}
 
@@ -118,6 +118,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self._opponent_agent = RandomDiscardAgent(self)
         self._imitation_agent = RuleBasedAgent(self)
         self._expert_instruction = None
+        self._imitation_reward = imitation_reward
         self._queue = []
         self._responses = []
         self._pending_response = False
@@ -165,7 +166,8 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                 if not self._pending_response:
                     self._pending_response = True
                     observation = {"observation": self.get_observation(player), "action_mask": mask}
-                    self._expert_instruction = self._imitation_agent.predict(observation["observation"])
+                    if self._imitation_reward:
+                        self._expert_instruction = self._imitation_agent.predict(observation["observation"])
                     observation["observation"] = self.extractor(observation["observation"])[0]
                     reward = self._get_and_clear_accumulated_reward(player)
                     termination = self.done
@@ -180,9 +182,10 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                 observation = self.get_observation(player)
                 action_idx = self._opponent_agent.predict(observation)
             else:
-                if self._expert_instruction is not None and self._expert_instruction == action_idx:
-                    self._acculmulated_rewards[player] += 0.01
-                    self._expert_instruction = None
+                if self._imitation_reward:
+                    if self._expert_instruction is not None and self._expert_instruction == action_idx:
+                        self._acculmulated_rewards[player] += 0.01
+                        self._expert_instruction = None
 
             self._stash_response(player, action_idx)
             self._queue.pop(0)
