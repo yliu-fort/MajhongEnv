@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from mahjong_env import MahjongEnv, MahjongEnvBase
 from random_discard_agent import RandomDiscardAgent
+from rule_based_agent import RuleBasedAgent
 
 AgentID = int
 
@@ -114,6 +115,8 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         
         self._focus_player = 0
         self._opponent_agent = RandomDiscardAgent(self)
+        self._imitation_agent = RuleBasedAgent(self)
+        self._expert_instruction = None
         self._queue = []
         self._responses = []
         self._pending_response = False
@@ -161,6 +164,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                 if not self._pending_response:
                     self._pending_response = True
                     observation = {"observation": self.get_observation(player), "action_mask": mask}
+                    self._expert_instruction = self._imitation_agent.predict(observation["observation"])
                     observation["observation"] = self.extractor(observation["observation"])[0]
                     reward = self._get_and_clear_accumulated_reward(player)
                     termination = self.done
@@ -174,6 +178,10 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
             if player != self._focus_player:
                 observation = self.get_observation(player)
                 action_idx = self._opponent_agent.predict(observation)
+            else:
+                if self._expert_instruction is not None and self._expert_instruction == action_idx:
+                    self._acculmulated_rewards[player] += 1.0
+                    self._expert_instruction = None
 
             self._stash_response(player, action_idx)
             self._queue.pop(0)
