@@ -102,8 +102,11 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         
         self.metadata: dict[str, Any] = {"name": "mjai_gym_env_v0"}
 
-        self.observation_space: Space
-        self.action_spaces: Space
+        self.observation_space: Space = gym.spaces.Dict(
+            {"observation": Box(0, 1, (136, 34)),
+             "action_mask": MultiBinary(NUM_ACTIONS)}
+        )
+        self.action_space: Space = Discrete(NUM_ACTIONS)
         
         # Compatibility
         self.extractor = RiichiResNetFeatures()
@@ -128,7 +131,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self._queue = []
         self._responses = []
         self._pending_response = False
-        return self.step(None)[0]
+        return self.step(None)[0], {}
     
     def step(self, response: Optional[int]):
         if self.done: return {}, self.reward, self.done, False, self.info
@@ -158,7 +161,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                 if not self._pending_response:
                     self._pending_response = True
                     observation = {"observation": self.get_observation(player), "action_mask": mask}
-                    #observation["observation"] = self.extractor(observation["observation"])[0]
+                    observation["observation"] = self.extractor(observation["observation"])[0]
                     reward = self._get_and_clear_accumulated_reward(player)
                     termination = self.done
                     truncation = False
@@ -190,7 +193,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
 
     def action_mask(self):
         """Separate function used in order to access the action mask."""
-        return super().valid_actions[self._focus_player]
+        return self.valid_actions[self._focus_player]
     
     def _get_and_clear_accumulated_reward(self, who):
         reward = self._acculmulated_rewards[who]
