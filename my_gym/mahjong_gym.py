@@ -1,6 +1,7 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "agent"))
 import functools
 import gymnasium as gym
 from gymnasium.spaces import Space, Discrete, Box, MultiBinary
@@ -10,8 +11,8 @@ from mahjong_features import RiichiState, NUM_TILES, NUM_ACTIONS, get_action_typ
 from mahjong_features_numpy import RiichiResNetFeatures
 from typing import List, Dict, Optional, Tuple, Any
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
-from mahjong_env import MahjongEnv
-
+from mahjong_env import MahjongEnv, MahjongEnvBase
+from random_discard_agent import RandomDiscardAgent
 
 AgentID = int
 
@@ -26,7 +27,7 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
     def __init__(self, *args, **kwargs):
         ParallelEnv.__init__(self)
         
-        self.metadata: dict[str, Any] = {"name": "mjai_env_v0"}
+        self.metadata: dict[str, Any] = {"name": "mjai_pz_env_v0"}
 
         self.agents: list[AgentID] = [0, 1, 2, 3]
         self.possible_agents: list[AgentID] = [0, 1, 2, 3]
@@ -87,3 +88,141 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
     def action_mask(self):
         """Separate function used in order to access the action mask."""
         return super().valid_actions
+
+
+class MahjongEnvGym(MahjongEnv, gym.Env):
+    """Parallel environment class.
+
+    It steps every live agent at once. If you are unsure if you
+    have implemented a ParallelEnv correctly, try running the `parallel_api_test` in
+    the Developer documentation on the website.
+    """
+
+    def __init__(self, *args, **kwargs):
+        
+        self.metadata: dict[str, Any] = {"name": "mjai_gym_env_v0"}
+
+        self.observation_space: Space
+        self.action_spaces: Space
+        
+        # Compatibility
+        self.extractor = RiichiResNetFeatures()
+        self.render_mode = 'human'
+        
+        self._focus_player = 0
+        self._opponent_agent = RandomDiscardAgent(self)
+        self._queue = []
+        self._responses = []
+        self._pending_response = False
+        
+        MahjongEnvBase.__init__(self, *args, **kwargs)
+        # 某些 gym 版本的 Env 没有 __init__；这里防御性调用
+        try:
+            gym.Env.__init__(self)  # 若不存在或签名不匹配，会进 except
+        except Exception:
+            pass
+    
+    def reset(self, *args, **kwargs):
+        self.reward = 0.0
+        MahjongEnv.reset(self)
+        self._queue = []
+        self._responses = []
+        self._pending_response = False
+        return self.step(None)[0]
+    
+    def step(self, response: Optional[int]):
+        if self.done: return {}, self.reward, self.done, False, self.info
+
+        if not self._queue:
+            pending: List[Tuple[int, int, Optional[int]]] = []
+            for player in range(self.num_players):
+                mask = self.valid_actions[player]
+                if mask is None or sum(mask[:253]) == 0:
+                    self._stash_response(player, 252)
+                elif sum(mask[:253]) == 1:
+                    self._stash_response(player, mask.index(True))
+                else:
+                    pri, best_action = self._highest_priority_action(player)
+                    pending.append((pri, player, best_action))
+            if pending:
+                pending.sort(key=lambda item: item[0], reverse=True)
+                self._queue.extend(player for _, player, _ in pending)
+
+        # 如果是focus_player则中断返回，opponents使用默认agent
+        while self._queue:
+            player = self._queue[0]
+            mask = self.valid_actions[player]
+
+            # 如果是
+            if player == self._focus_player:
+                if not self._pending_response:
+                    self._pending_response = True
+                    observation = {"observation": self.get_observation(player), "action_mask": mask}
+                    #observation["observation"] = self.extractor(observation["observation"])[0]
+                    reward = self._get_and_clear_accumulated_reward(player)
+                    termination = self.done
+                    truncation = False
+                    info = self.info
+                    return observation, reward, termination, truncation, info
+                else:
+                    self._pending_response = False
+                    
+            action_idx: Optional[int] = response
+            if player != self._focus_player:
+                observation = self.get_observation(player)
+                action_idx = self._opponent_agent.predict(observation)
+
+            self._stash_response(player, action_idx)
+            self._queue.pop(0)
+        
+        assert len(self._responses) == 4, "回应不完全！"
+        assert len(self._queue) == 0, "队列不为空！"
+
+        processed_responses = {int(resp.from_seat): resp for resp in self._responses}
+        self._responses = []
+        self._queue = []
+
+        super().step(processed_responses,observe=False)
+        if self.done: 
+            return {}, self._get_and_clear_accumulated_reward(self._focus_player), self.done, False, self.info
+        
+        return self.step(None)
+
+    def action_mask(self):
+        """Separate function used in order to access the action mask."""
+        return super().valid_actions[self._focus_player]
+    
+    def _get_and_clear_accumulated_reward(self, who):
+        reward = self._acculmulated_rewards[who]
+        self._acculmulated_rewards[who] = 0.0
+        return reward
+
+    def _highest_priority_action(self, player: int) -> Tuple[int, Optional[int]]:
+        mask = self.valid_actions[player]
+        best_priority = -1
+        best_action = None
+        for action_idx, is_valid in enumerate(mask):
+            if not is_valid:
+                continue
+            pri = PRIORITY.get(get_action_type_from_index(action_idx), -1)
+            if pri > best_priority:
+                best_priority = pri
+                best_action = action_idx
+        return best_priority, best_action
+
+    def _stash_response(self, player: int, action_idx: int) -> None:
+        resp = Response(
+            room_id="",
+            step_id=0,
+            request_id="",
+            from_seat=Seat(player),
+            chosen=ActionSketch(
+                action_type=get_action_type_from_index(action_idx),
+                payload={"action_id": action_idx},
+            ),
+        )
+        for idx, existing in enumerate(self._responses):
+            if existing.from_seat == resp.from_seat:
+                raise ValueError
+        else:
+            self._responses.append(resp)
