@@ -960,6 +960,7 @@ class MahjongEnvBase():
             print(who, fromwho, winning_hand, claimed_tile, self.melds[who], config)
             print(self.furiten_0, self.furiten_1, self.menzen, self.riichi, self.to_riichi)
             print(e)
+            self.logger.write_to_file("debug.xml")
 
         sc = [result["cost"]["total"] if p == who else \
             -result["cost"]["main"]-result["cost"]["main_bonus"] if p == self.oya else \
