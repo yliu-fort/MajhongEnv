@@ -12,6 +12,7 @@ import time
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "agent"))
 import gymnasium as gym
 import numpy as np
+import psutil
 import torch
 import torch.nn as nn
 from sb3_contrib import MaskablePPO
@@ -45,8 +46,12 @@ def make_single_env(env_fn, rank: int, seed: int = 0):
 
 def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     """Train a single model to play as each agent in a zero-sum game environment using invalid action masking."""
+    print(f"物理核心数: {psutil.cpu_count(logical=False)}, 逻辑核心数: {psutil.cpu_count(logical=True)}")
+    cpu_count = psutil.cpu_count(logical=False) or 1
+    max_workers = max(1, cpu_count - 1 if cpu_count > 1 else 1)
+    
     env = env_fn()
-    n_envs = 4
+    n_envs = max_workers
     
     # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
     env_fns = [make_single_env(env_fn, i, seed) for i in range(n_envs)]
@@ -77,7 +82,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
         verbose=2,
         learning_rate=5e-5,
         batch_size=4096,
-        n_steps=16384,           # 更小
+        n_steps=4096*n_envs,           # 更小
         n_epochs=10,            # 减少优化开销
         gae_lambda=0.95, gamma=0.993,
         policy_kwargs=policy_kwargs
