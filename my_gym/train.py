@@ -15,12 +15,8 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableMultiInputActorCriticPolicy
 from stable_baselines3.common.vec_env import VecEnvWrapper
 
-
 import torch.nn as nn
 from gymnasium import spaces
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-
-
 from mahjong_gym import MahjongEnvPettingZoo
 from res_1d_extractor import ResNet1DExtractor
 

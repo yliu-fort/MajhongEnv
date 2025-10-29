@@ -405,6 +405,7 @@ class MahjongEnvBase():
                 # 立直逻辑
                 # 持有 1000 点或以上而且有下一巡摸牌时可宣告立直
                 # 打立直宣言牌放铳的情况下不需付供托(立直不成立)
+                rewards[player] += 0.01
 
                 self.riichi[player] = True
                 # 进入立直宣告阶段
