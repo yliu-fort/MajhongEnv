@@ -7,6 +7,7 @@ import gymnasium as gym
 from gymnasium.spaces import Space, Discrete, Box, MultiBinary
 from pettingzoo import ParallelEnv
 import numpy as np
+import random
 from mahjong_features import RiichiState, NUM_TILES, NUM_ACTIONS, get_action_type_from_index
 from mahjong_features_numpy import RiichiResNetFeatures
 from typing import List, Dict, Optional, Tuple, Any
@@ -113,7 +114,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self.extractor = RiichiResNetFeatures()
         self.render_mode = 'human'
         
-        self._focus_player = 0
+        self._focus_player = random.choice([0,1,2,3])
         self._opponent_agent = RandomDiscardAgent(self)
         self._imitation_agent = RuleBasedAgent(self)
         self._expert_instruction = None
