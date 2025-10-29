@@ -11,12 +11,12 @@ class BasicBlock1D(nn.Module):
     def __init__(self, in_ch, out_ch, stride=1, groups=8, dropout=0.0):
         super().__init__()
         self.conv1 = nn.Conv1d(in_ch, out_ch, kernel_size=3, stride=stride, padding=1, bias=False)
-        #self.gn1   = nn.GroupNorm(num_groups=min(groups, out_ch), num_channels=out_ch)
-        self.bn1   = nn.BatchNorm1d(out_ch)
+        self.gn1   = nn.GroupNorm(num_groups=min(groups, out_ch), num_channels=out_ch)
+        #self.bn1   = nn.BatchNorm1d(out_ch)
         self.act   = nn.SiLU(inplace=True)
         self.conv2 = nn.Conv1d(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False)
-        #self.gn2   = nn.GroupNorm(num_groups=min(groups, out_ch), num_channels=out_ch)
-        self.bn2   = nn.BatchNorm1d(out_ch)
+        self.gn2   = nn.GroupNorm(num_groups=min(groups, out_ch), num_channels=out_ch)
+        #self.bn2   = nn.BatchNorm1d(out_ch)
         self.drop  = nn.Dropout(p=dropout) if dropout > 0 else nn.Identity()
 
         # 如果通道或步幅不一致，用 1x1 投影做 downsample
@@ -32,10 +32,10 @@ class BasicBlock1D(nn.Module):
     def forward(self, x):
         identity = x
         out = self.conv1(x)
-        out = self.bn1(out)
+        out = self.gn1(out)
         out = self.act(out)
         out = self.conv2(out)
-        out = self.bn2(out)
+        out = self.gn2(out)
         out = self.drop(out)
         out = out + self.downsample(identity)
         #out += identity
@@ -58,7 +58,7 @@ class ResNet1DExtractor(BaseFeaturesExtractor):
         stem_stride: int = 1,
         use_maxpool: bool = False,
         dropout: float = 0.0,
-        groups: int = 8,
+        groups: int = 64,
         channels_last: bool = False,
     ):
         super().__init__(observation_space, features_dim)
@@ -82,8 +82,8 @@ class ResNet1DExtractor(BaseFeaturesExtractor):
         # stem
         self.stem = nn.Sequential(
             nn.Conv1d(self.in_ch, channels_per_stage[0], kernel_size=1, stride=stem_stride, padding=0, bias=False),
-            #nn.GroupNorm(num_groups=min(groups, channels_per_stage[0]), num_channels=channels_per_stage[0]),
-            nn.BatchNorm1d(channels_per_stage[0]),
+            nn.GroupNorm(num_groups=min(groups, channels_per_stage[0]), num_channels=channels_per_stage[0]),
+            #nn.BatchNorm1d(channels_per_stage[0]),
             nn.SiLU(inplace=True),
             nn.MaxPool1d(kernel_size=3, stride=2, padding=1) if use_maxpool else nn.Identity(),
         )
@@ -334,8 +334,34 @@ def visualize_resnet18(input_shape, batch_size: int = 1, **extractor_kwargs):
     return records
 
 
-# TODO: write a function, send a random batched input to resnet1d extractor and print the statistics (mean, variance) of the output
+def print_resnet1d_output_stats(input_shape=(163, 34), batch_size: int = 32, **extractor_kwargs):
+    """
+    Instantiate ResNet1DExtractor, push a random batch through it, and print mean/variance stats.
+    """
+    if isinstance(input_shape, int):
+        input_shape = (1, int(input_shape))
+    elif len(input_shape) == 1:
+        input_shape = (1, int(input_shape[0]))
+    elif len(input_shape) != 2:
+        raise ValueError(f"Expected input_shape (C, L) or (L,), got {input_shape}")
+
+    obs_space = spaces.Box(low=-1.0, high=1.0, shape=input_shape, dtype=np.float32)
+    extractor = ResNet1DExtractor(observation_space=obs_space, **extractor_kwargs).eval()
+
+    with th.no_grad():
+        sample = th.randn(batch_size, extractor.in_ch, extractor.length, dtype=th.float32)
+        if extractor.channels_last:
+            sample = sample.transpose(1, 2).contiguous()
+
+        output = extractor(sample)
+        mean = output.mean().item()
+        var = output.var(unbiased=False).item()
+
+    print(f"ResNet1D output mean: {mean:.6f}")
+    print(f"ResNet1D output variance: {var:.6f}")
+    return mean, var
 
 if __name__ == "__main__":
     visualize_resnet1d((163, 34))
     #visualize_resnet18((163, 224, 65))
+    print_resnet1d_output_stats()
