@@ -73,6 +73,19 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
         activation_fn=nn.SiLU,           # 与 SB3 默认一致，可改 ReLU
     )
 
+    model = MaskablePPO(
+        MaskableMultiInputActorCriticPolicy,
+        vec_env,
+        verbose=2,
+        learning_rate=5e-3,
+        batch_size=4096,
+        n_steps=4096,           # 更小
+        n_epochs=10,            # 减少优化开销
+        gae_lambda=0.95, gamma=0.993,
+        policy_kwargs=policy_kwargs,
+        device = "cuda" if torch.cuda.is_available else "cpu"
+    )
+
     if continue_training:
         try:
             latest_policy = max(
@@ -82,19 +95,6 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
             model = MaskablePPO.load(latest_policy, vec_env)
         except ValueError:
             print("Policy not found, start from scratch...")
-            
-            model = MaskablePPO(
-                MaskableMultiInputActorCriticPolicy,
-                vec_env,
-                verbose=2,
-                learning_rate=5e-5,
-                batch_size=4096,
-                n_steps=4096,           # 更小
-                n_epochs=10,            # 减少优化开销
-                gae_lambda=0.95, gamma=0.993,
-                policy_kwargs=policy_kwargs,
-                device = "cuda" if torch.cuda.is_available else "cpu"
-            )
             
     model.set_random_seed(seed)
     save_freq = 65536
