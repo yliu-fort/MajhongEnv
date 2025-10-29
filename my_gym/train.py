@@ -155,7 +155,7 @@ def train_mjai(
         batch_size=16,
         n_steps=256,           # 更小
         n_epochs=10,            # 减少优化开销
-        gae_lambda=0.95, gamma=0.99,
+        gae_lambda=0.95, gamma=0.993,
         policy_kwargs=policy_kwargs
     )
     print(model.policy)  # 会打印出 features extractor 和 net_arch，确认是否共享
