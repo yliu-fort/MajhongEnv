@@ -39,7 +39,7 @@ def make_single_env(env_fn, rank: int, seed: int = 0):
         return env
     return _init
 
-def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
+def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwargs):
     """Train a single model to play as each agent in a zero-sum game environment using invalid action masking."""
     print(f"物理核心数: {psutil.cpu_count(logical=False)}, 逻辑核心数: {psutil.cpu_count(logical=True)}")
     cpu_count = psutil.cpu_count(logical=False) or 1
@@ -70,19 +70,28 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
         net_arch=dict(pi=[], vf=[64,]),             # MLP
         activation_fn=nn.SiLU,           # 与 SB3 默认一致，可改 ReLU
     )
+    
+    if continue_training:
+        try:
+            latest_policy = max(
+                glob.glob(f"model_weights/{env.metadata['name']}*.zip"), key=os.path.getctime
+            )
+            model = MaskablePPO.load(latest_policy)
+        except ValueError:
+            print("Policy not found.")
 
-    model = MaskablePPO(
-        MaskableMultiInputActorCriticPolicy,
-        vec_env,
-        verbose=2,
-        learning_rate=5e-5,
-        batch_size=256,
-        n_steps=512,           # 更小
-        n_epochs=10,            # 减少优化开销
-        gae_lambda=0.95, gamma=0.993,
-        policy_kwargs=policy_kwargs,
-        device = "cuda" if torch.cuda.is_available else "cpu"
-    )
+            model = MaskablePPO(
+                MaskableMultiInputActorCriticPolicy,
+                vec_env,
+                verbose=2,
+                learning_rate=5e-5,
+                batch_size=4096,
+                n_steps=4096,           # 更小
+                n_epochs=10,            # 减少优化开销
+                gae_lambda=0.95, gamma=0.993,
+                policy_kwargs=policy_kwargs,
+                device = "cuda" if torch.cuda.is_available else "cpu"
+            )
 
     model.set_random_seed(seed)
     save_freq = 65536
