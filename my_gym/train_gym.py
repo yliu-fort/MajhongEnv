@@ -76,8 +76,8 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
         vec_env,
         verbose=2,
         learning_rate=5e-5,
-        batch_size=4096,
-        n_steps=4096,           # 更小
+        batch_size=256,
+        n_steps=512,           # 更小
         n_epochs=10,            # 减少优化开销
         gae_lambda=0.95, gamma=0.993,
         policy_kwargs=policy_kwargs,
@@ -85,15 +85,31 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     )
 
     model.set_random_seed(seed)
-    save_freq = model.n_steps
+    save_freq = 65536
+    save_freq = max(save_freq // n_envs, 1)
     checkpoint_callback = CheckpointCallback(
         save_freq=save_freq,
         save_path="model_weights",
         name_prefix=env.unwrapped.metadata.get('name', 'model'),
         save_replay_buffer=False,
         save_vecnormalize=False,
+        verbose=2
     )
     model.learn(total_timesteps=steps, callback=checkpoint_callback)
+
+    try:
+        prefix = env.unwrapped.metadata.get('name', 'model')
+        ckpt_pattern = os.path.join("model_weights", f"{prefix}*.zip")
+        ckpts = glob.glob(ckpt_pattern)
+        if len(ckpts) > 10:
+            ckpts.sort(key=os.path.getctime, reverse=True)
+            for old in ckpts[10:]:
+                try:
+                    os.remove(old)
+                except OSError:
+                    pass
+    except Exception:
+        pass
 
     model.save(f"{env.unwrapped.metadata.get('name')}_{time.strftime('%Y%m%d-%H%M%S')}")
 
@@ -163,6 +179,6 @@ if __name__ == "__main__":
     env_kwargs = {}
 
     # Train a model against itself (takes ~20 seconds on a laptop CPU)
-    train_mjai(env_fn, steps=20_480_00, seed=42, **env_kwargs)
+    train_mjai(env_fn, steps=20_480_000, seed=42, **env_kwargs)
     
     eval_mjai(env_fn)
