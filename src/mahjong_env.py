@@ -1748,6 +1748,9 @@ class MahjongEnv(MahjongEnvBase):
         # 定义状态空间 (仅示例，具体需要你根据状态表示来定)
 
         self.reset()
+    
+    def close(self):
+        pass
 
 
 if __name__ == "__main__":
