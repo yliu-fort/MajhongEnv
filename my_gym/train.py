@@ -22,7 +22,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torchvision.models import resnet18
 
 from mahjong_gym import MahjongEnvPettingZoo
-
+from res_1d_extractor import ResNet1DExtractor
 
 class SB3MaskVecAdapter(VecEnvWrapper):
     """
@@ -123,58 +123,6 @@ class SB3MaskVecAdapter(VecEnvWrapper):
         raise AttributeError(f"{type(self.venv).__name__} has no env_method")
 
 
-class ResNet18Extractor(BaseFeaturesExtractor):
-    """
-    用 ResNet-18 提取 Dict 观测中 'observation' 的特征，输出 features_dim 向量。
-    忽略 'action_mask'（MaskablePPO 会单独读取掩码）。
-    """
-    def __init__(self, observation_space: spaces.Dict, features_dim: int = 512, pretrained: bool = False):
-        # 先调用父类：声明最后的特征维度
-        super().__init__(observation_space, features_dim)
-        assert isinstance(observation_space, spaces.Dict), "请用 MultiInputPolicy + Dict 观测"
-        obs_space = observation_space["observation"]
-        assert isinstance(obs_space, spaces.Box), "observation 必须是 Box"
-
-        # 推断通道数/高/宽（支持 (H,W) 或 (C,H,W)）
-        if len(obs_space.shape) == 2:
-            c, h, w = 1, obs_space.shape[0], obs_space.shape[1]
-        elif len(obs_space.shape) == 3:
-            # SB3 期望图像是 CHW
-            c, h, w = obs_space.shape
-        else:
-            raise ValueError(f"不支持的 observation 形状: {obs_space.shape}")
-
-        # 构建 ResNet-18
-        self.backbone = resnet18(weights=None if not pretrained else "IMAGENET1K_V1")
-        # 调整第一层通道数
-        if self.backbone.conv1.in_channels != c:
-            self.backbone.conv1 = nn.Conv2d(c, 64, kernel_size=7, stride=2, padding=3, bias=False)
-
-        # 拆掉最终分类头，保留全局池化后的 512 维向量
-        in_feat = self.backbone.fc.in_features  # 一般是 512
-        self.backbone.fc = nn.Identity()
-
-        # 投影到期望的 features_dim（共享给 actor/critic）
-        #self.proj = nn.Linear(in_feat, features_dim)
-
-        # 可选：做简单的归一化层（根据你数据的范围调整）
-        self.register_buffer("_mean", th.tensor(0.0), persistent=False)
-        self.register_buffer("_std", th.tensor(1.0), persistent=False)
-
-    def forward(self, obs: dict) -> th.Tensor:
-        x = obs["observation"].float()  # (B, H, W) 或 (B, C, H, W)
-        # 统一成 (B, C, H, W)
-        if x.ndim == 3:             # (B, H, W)
-            x = x.unsqueeze(1)      # -> (B, 1, H, W)
-        elif x.ndim == 4 and x.shape[1] not in (1, 3):  # 可能是 (B, H, W, C)
-            x = x.permute(0, 3, 1, 2).contiguous()
-
-        # 如有需要，可在此做归一化（你的数据若已在[0,1]可不处理）
-        # x = (x - self._mean) / (self._std + 1e-8)
-
-        z = self.backbone(x)        # (B, 512)
-        #z = self.proj(z)            # (B, features_dim)
-        return z
 
 
 def train_mjai(
@@ -195,21 +143,22 @@ def train_mjai(
 
     # Model
     policy_kwargs = dict(
-        features_extractor_class=ResNet18Extractor,
-        features_extractor_kwargs=dict(pretrained=False),
+        features_extractor_class=ResNet1DExtractor,
+        features_extractor_kwargs=dict(),
         share_features_extractor=True,   # 默认就是 True，这里强调一下
         net_arch=dict(pi=[], vf=[64,]),             # MLP
         activation_fn=nn.SiLU,           # 与 SB3 默认一致，可改 ReLU
     )
 
+    
     model = MaskablePPO(
         MaskableMultiInputActorCriticPolicy,
         env,
         verbose=2,
         learning_rate=3e-4,
-        batch_size=4,
-        n_steps=1024,           # 更小
-        n_epochs=4,            # 减少优化开销
+        batch_size=16,
+        n_steps=256,           # 更小
+        n_epochs=10,            # 减少优化开销
         gae_lambda=0.95, gamma=0.99,
         policy_kwargs=policy_kwargs
     )

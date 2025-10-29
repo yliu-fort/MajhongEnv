@@ -502,6 +502,8 @@ class MahjongEnvBase():
                 self.num_riichi = 0
                 self.agari = self.agari_calculation(player, player, None, config[0])
                 self.num_kyoutaku = 0
+                
+                rewards[player] += 0.05
 
                 self.phase = "score"
                 self.current_player = 0
@@ -538,6 +540,8 @@ class MahjongEnvBase():
                 self.agari = self.agari_calculation(player, fromwho, claimed_tile, config[0])
                 self.num_kyoutaku = 0
                 #self.hands[player].pop()
+                
+                rewards[player] += 0.05
 
                 self.phase = "score"
                 self.current_player = 0
@@ -662,7 +666,8 @@ class MahjongEnvBase():
                     # 更新分数
                     for player in range(self.num_players):
                         self.scores[player] += self.score_deltas[player]
-
+                        rewards[player] += np.clip(self.score_deltas[player]/100, -1.0, 1.0)
+                        
                     # 是否结束游戏？
                     match self.can_continue():
                         case 'game_over':
@@ -717,13 +722,13 @@ class MahjongEnvBase():
                 
                 for who in range(self.num_players):
                     if rank == 0:
-                        rewards[who] = 1.0
+                        rewards[who] += 50.0/50
                     elif rank == 1:
-                        rewards[who] = 0.1
+                        rewards[who] += 14.0/50
                     elif rank == 2:
-                        rewards[who] = -0.1
+                        rewards[who] += -26.0/50
                     elif rank == 3:
-                        rewards[who] = -1.0
+                        rewards[who] += -38.0/50
 
                 # 游戏结束
                 self.info = {"rank": rank,
@@ -1598,7 +1603,9 @@ class MahjongEnvBase():
     def _compute_legal_actions_per(self, who) -> list[bool]:
         # 早退：这些阶段无需计算
         if self.phase in ("score", "game_over", "tsumo", "ron", "ryuukyoku"):
-            return [False] * NUM_ACTIONS
+            out = [False] * NUM_ACTIONS
+            #out[252] = True
+            return out
 
         # ------- 本地绑定，减少属性查找 -------
         hands   = self.hands[who]
