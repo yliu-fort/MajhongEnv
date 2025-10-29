@@ -60,9 +60,9 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     vec_env = VecMonitor(vec_env)             # 记录回报/长度等指标
 
     # 可选：限制 PyTorch 线程数，避免与多进程争抢
-    torch.set_num_threads(1)
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    #torch.set_num_threads(1)
+    #os.environ.setdefault("OMP_NUM_THREADS", "1")
+    #os.environ.setdefault("MKL_NUM_THREADS", "1")
     
     print(f"Starting training on {str(env.metadata['name'])}.")
     
