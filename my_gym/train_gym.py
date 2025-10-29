@@ -13,6 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "agent"))
 import gymnasium as gym
 import numpy as np
 import psutil
+from functools import partial
 import torch
 import torch.nn as nn
 from sb3_contrib import MaskablePPO
@@ -23,18 +24,19 @@ from agent.rule_based_agent import RuleBasedAgent
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback
 
-'''
-def mask_fn(env):
-    # Custom logic to determine valid actions
-    return env.action_mask()  # Returns boolean array (True=valid)
-'''
+
+IMITATION_REWARD = True
+RIICHI_REWARD = True
+AGARI_REWARD = True
+SCORE_DELTA_REWARD = True
+RANK_BONUS_REWARD = False
 
 # --------- 1) 你的环境 & 掩码函数（必须是顶层可 pickl e 的函数！）---------
 def make_single_env(env_fn, rank: int, seed: int = 0):
     def _init():
-        # TODO: 换成你的环境
         env = env_fn()
         print("spawn env in PID:", os.getpid())
+        print(f'Imitation Reward: {"on" if env._imitation_reward else "off"}')
         env.reset()
         return env
     return _init
@@ -185,7 +187,7 @@ def eval_mjai(env_fn, num_games=100, render_mode=None, **env_kwargs):
 
 
 if __name__ == "__main__":
-    env_fn = MahjongEnvGym
+    env_fn = partial(MahjongEnvGym, imitation_reward=IMITATION_REWARD)
     env_kwargs = {}
 
     # Train a model against itself (takes ~20 seconds on a laptop CPU)
