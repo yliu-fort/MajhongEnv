@@ -257,6 +257,7 @@ class MahjongEnvBase():
         self.is_selecting_tiles_for_claim = False
         self.selected_tiles = []
         self._is_chankan = None
+        self.last_draw_is_rinshan = [False, False, False, False]
 
         # 设置当前阶段
         self.phase = "draw"  # 从庄家开始摸牌
@@ -372,7 +373,10 @@ class MahjongEnvBase():
                 # 如果不处于立直状态，则解除同巡振听状态
                 if not self.riichi[player]:
                     self.furiten_1[player] = False
-
+                                
+                # 摸牌后不再持有岭上状态
+                self.last_draw_is_rinshan[player] = False
+                
                 # 检查是否可以暗杠，加杠，立直，自摸或者流局
                 claimed = self.check_self_claim(player)
                 # TODO：下一循环需要手动设置phase和current_player
@@ -400,6 +404,8 @@ class MahjongEnvBase():
 
                 # 检查是否可以暗杠，加杠，立直，自摸或者流局
                 claimed = self.check_self_claim(player, is_rinshan=True)
+                self.last_draw_is_rinshan[player] = True
+                
                 # TODO：下一循环需要手动设置phase和current_player
                 # next phase can be {discard, riichi, ankan, chakan, tsumo}
                 self.claims.append({"type": "discard", "fromwho": player, "who": player})
@@ -485,7 +491,7 @@ class MahjongEnvBase():
             case "tsumo":
                 #claim = self.claims.pop(0)
                 config = [None,]
-                self.can_tsumo(player, is_rinshan=self.to_open_dora > 0, config=config)
+                self.can_tsumo(player, is_rinshan=self.last_draw_is_rinshan[player], config=config)
 
                 self.claims = []
 
