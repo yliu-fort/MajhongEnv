@@ -50,7 +50,7 @@ class ResNet1DExtractor(BaseFeaturesExtractor):
         blocks_per_stage=(2, 2, 1, 1),  # 每个 stage 的残差块数：总卷积层数=2*sum(blocks)
         channels_per_stage=None,        # 若不指定，按 [64, 128, 128, 256] * (base_channels/64)
         stem_stride: int = 2,
-        use_maxpool: bool = True,
+        use_maxpool: bool = False,
         dropout: float = 0.0,
         groups: int = 8,
     ):
@@ -91,7 +91,7 @@ class ResNet1DExtractor(BaseFeaturesExtractor):
         for i, (num_blocks, ch_out) in enumerate(zip(blocks_per_stage, channels_per_stage)):
             for b in range(num_blocks):
                 stride = 2 if (b == 0 and i > 0) else 1  # 除第一组外，每组首块下采样
-                stages.append(BasicBlock1D(ch_in, ch_out, stride=stride, groups=groups, dropout=dropout))
+                stages.append(BasicBlock1D(ch_in, ch_out, stride=1, groups=groups, dropout=dropout))
                 ch_in = ch_out
         self.backbone = nn.Sequential(*stages)
 
