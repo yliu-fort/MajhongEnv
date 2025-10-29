@@ -17,11 +17,11 @@ import torch
 import torch.nn as nn
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableMultiInputActorCriticPolicy
-from sb3_contrib.common.wrappers import ActionMasker
 from mahjong_gym import MahjongEnvGym
 from res_1d_extractor import ResNet1DExtractor
 from agent.rule_based_agent import RuleBasedAgent
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from stable_baselines3.common.callbacks import CheckpointCallback
 
 '''
 def mask_fn(env):
@@ -35,14 +35,7 @@ def make_single_env(env_fn, rank: int, seed: int = 0):
         # TODO: 换成你的环境
         env = env_fn()
         print("spawn env in PID:", os.getpid())
-
-        # 掩码函数：返回 shape=(action_space.n,) 的 bool/0-1 向量
-        def mask_fn(env):
-            mask = env.action_masks()  # 你环境里应提供
-            return mask
-
-        # 用 ActionMasker 包装
-        env = ActionMasker(env, mask_fn)
+        env.reset()
         return env
     return _init
 
@@ -92,7 +85,15 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     )
 
     model.set_random_seed(seed)
-    model.learn(total_timesteps=steps)
+    save_freq = model.n_steps
+    checkpoint_callback = CheckpointCallback(
+        save_freq=save_freq,
+        save_path="model_weights",
+        name_prefix=env.unwrapped.metadata.get('name', 'model'),
+        save_replay_buffer=False,
+        save_vecnormalize=False,
+    )
+    model.learn(total_timesteps=steps, callback=checkpoint_callback)
 
     model.save(f"{env.unwrapped.metadata.get('name')}_{time.strftime('%Y%m%d-%H%M%S')}")
 
@@ -113,7 +114,7 @@ def eval_mjai(env_fn, num_games=100, render_mode=None, **env_kwargs):
 
     try:
         latest_policy = max(
-            glob.glob(f"{env.metadata['name']}*.zip"), key=os.path.getctime
+            glob.glob(f"model_weights/{env.metadata['name']}*.zip"), key=os.path.getctime
         )
     except ValueError:
         print("Policy not found.")

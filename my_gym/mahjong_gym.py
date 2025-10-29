@@ -180,7 +180,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                 action_idx = self._opponent_agent.predict(observation)
             else:
                 if self._expert_instruction is not None and self._expert_instruction == action_idx:
-                    self._acculmulated_rewards[player] += 1.0
+                    self._acculmulated_rewards[player] += 0.01
                     self._expert_instruction = None
 
             self._stash_response(player, action_idx)
