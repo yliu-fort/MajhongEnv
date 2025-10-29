@@ -53,7 +53,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     max_workers = max(1, cpu_count - 1 if cpu_count > 1 else 1)
     
     env = env_fn()
-    n_envs = max_workers
+    n_envs = max_workers // 2
 
     # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
     env_fns = [make_single_env(env_fn, i, seed) for i in range(n_envs)]
@@ -84,7 +84,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
         verbose=2,
         learning_rate=5e-5,
         batch_size=4096,
-        n_steps=4096*n_envs,           # 更小
+        n_steps=4096,           # 更小
         n_epochs=10,            # 减少优化开销
         gae_lambda=0.95, gamma=0.993,
         policy_kwargs=policy_kwargs,
