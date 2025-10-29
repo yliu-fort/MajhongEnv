@@ -39,6 +39,7 @@ def make_single_env(env_fn, rank: int, seed: int = 0):
         # 掩码函数：返回 shape=(action_space.n,) 的 bool/0-1 向量
         def mask_fn(env):
             mask = env.action_masks()  # 你环境里应提供
+            return mask
 
         # 用 ActionMasker 包装
         env = ActionMasker(env, mask_fn)
@@ -60,9 +61,9 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     vec_env = VecMonitor(vec_env)             # 记录回报/长度等指标
 
     # 可选：限制 PyTorch 线程数，避免与多进程争抢
-    #torch.set_num_threads(1)
-    #os.environ.setdefault("OMP_NUM_THREADS", "1")
-    #os.environ.setdefault("MKL_NUM_THREADS", "1")
+    torch.set_num_threads(1)
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
     
     print(f"Starting training on {str(env.metadata['name'])}.")
     
