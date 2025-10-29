@@ -42,19 +42,21 @@ def evaluate_model_gym(episodes=10, start=0, step=1):
     agent = RuleBasedAgent(env)
  
     total_dscores = np.zeros(4, dtype=np.int32)
+    ep_len = 0
     for ep in range(start, episodes, step):
         obs = env.reset()
-
         while not env.done:
             # 用智能体来选动作
-            action = agent.predict(obs["observation"])
+            action = agent.predict(env.get_observation(env._focus_player))
             obs, reward, _, _, _ = env.step(action)
+            ep_len += 1
 
         total_dscores += np.array(env.info["scores"]) - 250
         print(f"Episode {ep} - 分数板：{total_dscores}", env.info["scores"])
-        print(env.info["msg"], f"Reward={reward}")
+        print(env.info["msg"])
         #with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
         #    f.write(info["log"])
+    print(f"ep_len_mean {ep_len/episodes}")
 
 
 if __name__ == "__main__":
