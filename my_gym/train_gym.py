@@ -53,7 +53,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
     max_workers = max(1, cpu_count - 1 if cpu_count > 1 else 1)
     
     env = env_fn()
-    n_envs = max_workers // 2
+    n_envs = max_workers
 
     # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
     env_fns = [make_single_env(env_fn, i, seed) for i in range(n_envs)]
