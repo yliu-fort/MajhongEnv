@@ -34,6 +34,7 @@ def make_single_env(env_fn, rank: int, seed: int = 0):
     def _init():
         # TODO: 换成你的环境
         env = env_fn()
+        print("spawn env in PID:", os.getpid())
 
         # 掩码函数：返回 shape=(action_space.n,) 的 bool/0-1 向量
         def mask_fn(env):
@@ -85,7 +86,8 @@ def train_mjai(env_fn, steps=10_000, seed=0, **env_kwargs):
         n_steps=4096*n_envs,           # 更小
         n_epochs=10,            # 减少优化开销
         gae_lambda=0.95, gamma=0.993,
-        policy_kwargs=policy_kwargs
+        policy_kwargs=policy_kwargs,
+        device = "cuda" if torch.cuda.is_available else "cpu"
     )
 
     model.set_random_seed(seed)
