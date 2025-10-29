@@ -705,7 +705,7 @@ class MahjongEnvBase():
                             rank_bonus = [50, 14, -26, -38]
                             for p in range(self.num_players):
                                 self.score_deltas[p] = rank_bonus[rank[p]]
-                                rewards[p] += np.clip(self.score_deltas[p]/100, -1.0, 1.0)
+                                #rewards[p] += np.clip(self.score_deltas[p]/100, -1.0, 1.0)
 
                             # 记录天凤格式log
                             self.logger.add_owari(rt, self.scores, self.score_deltas)
