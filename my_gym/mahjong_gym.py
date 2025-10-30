@@ -9,7 +9,7 @@ from pettingzoo import ParallelEnv
 import numpy as np
 import random
 import torch
-from mahjong_features import RiichiState, NUM_TILES, NUM_ACTIONS, get_action_type_from_index
+from mahjong_features import RiichiState, NUM_TILES, NUM_ACTIONS, get_action_type_from_index, NUM_FEATURES
 from mahjong_features_numpy import RiichiResNetFeatures
 from typing import List, Dict, Optional, Tuple, Any
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
@@ -60,7 +60,7 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
         Default implementation is to return the observation_spaces dict
         """
         return gym.spaces.Dict(
-            {"observation":Box(0, 1, (136, 34)),
+            {"observation":Box(0, 1, (NUM_FEATURES, NUM_TILES)),
              "action_mask": MultiBinary(NUM_ACTIONS)}
         )
     
@@ -106,7 +106,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self.metadata: dict[str, Any] = {"name": "mjai_gym_env_v0"}
 
         self.observation_space: Space = gym.spaces.Dict(
-            {"observation": Box(0, 1, (136, 34)),
+            {"observation": Box(0, 1, (NUM_FEATURES, NUM_TILES)),
              "action_mask": MultiBinary(NUM_ACTIONS)}
         )
         self.action_space: Space = Discrete(NUM_ACTIONS)
