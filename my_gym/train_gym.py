@@ -51,7 +51,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     
     env = env_fn()
     n_envs = max_workers
-
+    
     # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
     env_fns = [make_single_env(env_fn, i, seed) for i in range(n_envs)]
     vec_env = SubprocVecEnv(env_fns)          # 多进程
@@ -124,8 +124,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     except Exception:
         pass
     '''
-    
-    MaskablePPOAgentPool.register()
+
 
     model.learn(total_timesteps=steps, callback=checkpoint_callback, progress_bar=True, reset_num_timesteps=False)
     

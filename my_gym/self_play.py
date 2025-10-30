@@ -10,7 +10,7 @@ from agent.random_discard_agent import RandomDiscardAgent
 from agent.rule_based_agent import RuleBasedAgent
 from my_types import Response, Seat
 from concurrent.futures import ProcessPoolExecutor
-#from pettingzoo.sisl import waterworld_v4
+from ppo_agent import MaskablePPOAgent, MaskablePPOAgentPool
 
 def evaluate_model_pz(episodes=10, start=0, step=1):
     # 创建环境
@@ -38,12 +38,13 @@ def evaluate_model_pz(episodes=10, start=0, step=1):
 
 def evaluate_model_gym(episodes=10, start=0, step=1):
     # 创建环境
-    env = MahjongEnvGym(num_players=4, opponent_fn=RuleBasedAgent)
+    env = MahjongEnvGym(num_players=4, opponent_fn=MaskablePPOAgentPool)
     agent = RuleBasedAgent(env)
  
     total_dscores = np.zeros(4, dtype=np.int32)
     ep_len = 0
     for ep in range(start, episodes, step):
+        env._focus_player = 0
         obs, _ = env.reset()
         while not env.done:
             # 用智能体来选动作

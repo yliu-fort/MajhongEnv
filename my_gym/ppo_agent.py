@@ -29,38 +29,39 @@ class MaskablePPOAgent:
                 )
 
 
+class MaskablePPOAgentWrapper:
+    def __init__(self, model):
+        self._model = model
+        #self._model.set_training_mode(False) # For newer version SB3
+        self._model.policy.eval()
+
+    def predict(self, obs):
+        return int(
+                    self._model.predict(
+                        obs, action_masks=obs["action_mask"], deterministic=True
+                    )[0]
+                )
+
 class MaskablePPOAgentPool:
-    _pool: list = []
-    
-    @staticmethod
-    def register(prefix=""):
-        MaskablePPOAgentPool._pool.clear()
+    def __init__(self, env):
+        self._pool=[RuleBasedAgent(env),]
         try:
-            ckpt_pattern = os.path.join("model_weights", f"{prefix}*.zip")
+            ckpt_pattern = os.path.join("model_weights", f"{env.metadata.get('name')}*.zip")
             ckpts = glob.glob(ckpt_pattern)
             ckpts.sort(key=os.path.getctime, reverse=True)
             for c in ckpts[:10]:
                 try:
-                    MaskablePPOAgentPool._pool.append(MaskablePPO.load(c))
-                    print(f"Load Frozen Policy from {c}.")
+                    self._pool.append(MaskablePPOAgentWrapper(MaskablePPO.load(c)))
+                    print(f"Pool loads Frozen Policy from {c}.")
                 except OSError:
                     pass
         except Exception:
             pass
-    
-    def __init__(self, env):
         self._selected = 0
-        self._strong_rule_based = RuleBasedAgent(env)
 
     def rselect(self):
-        if random.random() < 0.1 or len(MaskablePPOAgentPool._pool) == 0:
-            self._selected = -1
-        else:
-            self._selected = random.choice(list(range(len(MaskablePPOAgentPool._pool))))
+        if len(self._pool) == 0: raise ValueError("Pool is empty!!")
+        self._selected = random.choice(list(range(len(self._pool))))
         
     def predict(self, obs):
-        if self._selected == -1:
-            _op = self._strong_rule_based
-        else:
-            _op = MaskablePPOAgentPool._pool[self._selected]
-        return _op.predict(obs)
+        return self._pool[self._selected].predict(obs)
