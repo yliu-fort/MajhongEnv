@@ -47,7 +47,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     """Train a single model to play as each agent in a zero-sum game environment using invalid action masking."""
     print(f"物理核心数: {psutil.cpu_count(logical=False)}, 逻辑核心数: {psutil.cpu_count(logical=True)}")
     cpu_count = psutil.cpu_count(logical=False) or 1
-    max_workers = max(1, cpu_count - 1 if cpu_count > 1 else 1)
+    max_workers = min(24, max(1, cpu_count - 1 if cpu_count > 1 else 1))
     
     env = env_fn()
     n_envs = max_workers
