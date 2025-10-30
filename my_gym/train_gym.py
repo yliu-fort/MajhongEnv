@@ -210,6 +210,6 @@ if __name__ == "__main__":
     env_kwargs = {}
 
     # Train a model against itself (takes ~20 seconds on a laptop CPU)
-    #train_mjai(env_fn, steps=20_480_000, seed=42, **env_kwargs)
+    train_mjai(env_fn, steps=20_480_000, seed=42, **env_kwargs)
     
     eval_mjai(env_fn)
