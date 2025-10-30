@@ -676,7 +676,7 @@ class MahjongEnvBase():
                     # 更新分数
                     for player in range(self.num_players):
                         self.scores[player] += self.score_deltas[player]
-                        rewards[player] += np.clip(self.score_deltas[player]/100, -1.0, 1.0)
+                        rewards[player] += np.clip(self.score_deltas[player]/200.0, -1.0, 1.0)
                         
                     # 是否结束游戏？
                     match self.can_continue():
@@ -711,7 +711,7 @@ class MahjongEnvBase():
                             rank_bonus = [50, 14, -26, -38]
                             for p in range(self.num_players):
                                 self.score_deltas[p] = rank_bonus[rank[p]]
-                                #rewards[p] += np.clip(self.score_deltas[p]/100, -1.0, 1.0)
+                                rewards[p] += np.clip(self.score_deltas[p]/50.0, -1.0, 1.0)
 
                             # 记录天凤格式log
                             self.logger.add_owari(rt, self.scores, self.score_deltas)
