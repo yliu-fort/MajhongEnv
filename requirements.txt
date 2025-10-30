@@ -1,4 +1,4 @@
-numpy>=1.21.0
+numpy>=2.0
 mahjong>=1.0.0
 tqdm>=4.0.0
 psutil>=1.0.0
@@ -15,6 +15,6 @@ setuptools>=65
 wheel>=0.40
 
 pettingzoo>=1.24.0
-stable-baselines3>=2.0.0
-sb3-contrib>=2.0.0
+stable-baselines3>=2.7.0
+sb3-contrib>=2.7.0
 supersuit>=3.9.0

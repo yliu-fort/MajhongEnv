@@ -8,12 +8,12 @@ from gymnasium.spaces import Space, Discrete, Box, MultiBinary
 from pettingzoo import ParallelEnv
 import numpy as np
 import random
+import torch
 from mahjong_features import RiichiState, NUM_TILES, NUM_ACTIONS, get_action_type_from_index
-from mahjong_features_numpy import RiichiResNetFeatures
+from mahjong_features import RiichiResNetFeatures
 from typing import List, Dict, Optional, Tuple, Any
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from mahjong_env import MahjongEnv, MahjongEnvBase
-from random_discard_agent import RandomDiscardAgent
 from rule_based_agent import RuleBasedAgent
 
 AgentID = int
@@ -81,8 +81,9 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
         processed_responses = {k: Response(room_id="", step_id=0, request_id="", from_seat=Seat(k),
             chosen=ActionSketch(action_type=get_action_type_from_index(int(v)), payload={"action_id": int(v)})) for k, v in responses.items() if v is not None and sum(self.valid_actions[k])}
         observations, y1, y2, y3, y4 = super().step(processed_responses)
-        for k, v in observations.items():
-            v["observation"] = self.extractor(v["observation"])[0] # 136 x 34
+        with torch.no_grad():
+            for k, v in observations.items():
+                v["observation"] = self.extractor(v["observation"])[0] # 136 x 34
         if self.done == True:
             self.agents = []
         return observations, y1, y2, y3, y4
@@ -100,7 +101,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
     the Developer documentation on the website.
     """
 
-    def __init__(self, imitation_reward=True, *args, **kwargs):
+    def __init__(self, imitation_reward=True, opponent_fn=None, *args, **kwargs):
         
         self.metadata: dict[str, Any] = {"name": "mjai_gym_env_v0"}
 
@@ -115,7 +116,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self.render_mode = 'human'
         
         self._focus_player = random.choice([0,1,2,3])
-        self._opponent_agent = RandomDiscardAgent(self)
+        self._opponent_agent = opponent_fn(self)
         self._imitation_agent = RuleBasedAgent(self)
         self._expert_instruction = None
         self._imitation_reward = imitation_reward
@@ -168,7 +169,8 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                     observation = {"observation": self.get_observation(player), "action_mask": mask}
                     if self._imitation_reward:
                         self._expert_instruction = self._imitation_agent.predict(observation["observation"])
-                    observation["observation"] = self.extractor(observation["observation"])[0]
+                    with torch.no_grad():
+                        observation["observation"] = self.extractor(observation["observation"])[0]
                     reward = self._get_and_clear_accumulated_reward(player)
                     termination = self.done
                     truncation = False
@@ -179,7 +181,8 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                     
             action_idx: Optional[int] = response
             if player != self._focus_player:
-                observation = self.get_observation(player)
+                with torch.no_grad():
+                    observation = {"observation": self.extractor(self.get_observation(player))[0], "action_mask": self.valid_actions[player]}
                 action_idx = self._opponent_agent.predict(observation)
             else:
                 if self._imitation_reward:

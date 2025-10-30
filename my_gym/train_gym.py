@@ -23,13 +23,37 @@ from res_1d_extractor import ResNet1DExtractor
 from agent.rule_based_agent import RuleBasedAgent
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback
-
+from random_discard_agent import RandomDiscardAgent
+from rule_based_agent import RuleBasedAgent
+from mahjong_features import RiichiResNetFeatures
 
 IMITATION_REWARD = True
 RIICHI_REWARD = True
 AGARI_REWARD = True
 SCORE_DELTA_REWARD = True
 RANK_BONUS_REWARD = False
+FURITEN_PENALTY = False
+
+class MaskablePPOAgent:
+    def __init__(self, env):
+        try:
+            latest_policy = max(
+                glob.glob(f"model_weights/{env.metadata['name']}*.zip"), key=os.path.getctime
+            )
+        except ValueError:
+            print("Policy not found.")
+            exit(0)
+
+        self._model = MaskablePPO.load(latest_policy)
+        print(f"Load Policy from {latest_policy}.")
+
+    def predict(self, obs):
+        return int(
+                    self._model.predict(
+                        obs, action_masks=obs["action_mask"], deterministic=True
+                    )[0]
+                )
+
 
 # --------- 1) 你的环境 & 掩码函数（必须是顶层可 pickl e 的函数！）---------
 def make_single_env(env_fn, rank: int, seed: int = 0):
@@ -40,6 +64,7 @@ def make_single_env(env_fn, rank: int, seed: int = 0):
         env.reset()
         return env
     return _init
+
 
 def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwargs):
     """Train a single model to play as each agent in a zero-sum game environment using invalid action masking."""
@@ -97,7 +122,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
             print("Policy not found, start from scratch...")
             
     model.set_random_seed(seed)
-    save_freq = 65536
+    save_freq = 1048576
     save_freq = max(save_freq // n_envs, 1)
     checkpoint_callback = CheckpointCallback(
         save_freq=save_freq,
@@ -107,8 +132,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
         save_vecnormalize=False,
         verbose=2
     )
-    model.learn(total_timesteps=steps, callback=checkpoint_callback)
-
+    
     try:
         prefix = env.unwrapped.metadata.get('name', 'model')
         ckpt_pattern = os.path.join("model_weights", f"{prefix}*.zip")
@@ -123,6 +147,8 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     except Exception:
         pass
 
+    model.learn(total_timesteps=steps, callback=checkpoint_callback)
+    
     model.save(f"{env.unwrapped.metadata.get('name')}_{time.strftime('%Y%m%d-%H%M%S')}")
 
     print("Model has been saved.")
@@ -148,8 +174,7 @@ def eval_mjai(env_fn, num_games=100, render_mode=None, **env_kwargs):
         print("Policy not found.")
         exit(0)
 
-    model = MaskablePPO.load(latest_policy)
-    alt = RuleBasedAgent(env)
+    model = MaskablePPOAgent(env)
 
     score = 0
     dan = 0
@@ -168,12 +193,7 @@ def eval_mjai(env_fn, num_games=100, render_mode=None, **env_kwargs):
                     dan += env.info["rank"].index(env._focus_player)
                 break
             else:
-                act = int(
-                    model.predict(
-                        obs, action_masks=obs["action_mask"], deterministic=True
-                    )[0]
-                )
-                #act = alt.predict(env.get_observation(env._focus_player))
+                act = model.predict(obs)
             obs, reward, termination, truncation, info = env.step(act)
     env.close()
 
@@ -185,12 +205,11 @@ def eval_mjai(env_fn, num_games=100, render_mode=None, **env_kwargs):
     print("Avg. Dan: ", avg_dan + 1)
 
 
-
 if __name__ == "__main__":
-    env_fn = partial(MahjongEnvGym, imitation_reward=IMITATION_REWARD)
+    env_fn = partial(MahjongEnvGym, imitation_reward=IMITATION_REWARD, opponent_fn=MaskablePPOAgent)
     env_kwargs = {}
 
     # Train a model against itself (takes ~20 seconds on a laptop CPU)
-    train_mjai(env_fn, steps=20_480_000, seed=42, **env_kwargs)
+    #train_mjai(env_fn, steps=20_480_000, seed=42, **env_kwargs)
     
     eval_mjai(env_fn)

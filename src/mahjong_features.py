@@ -15,6 +15,8 @@ Author: ChatGPT (GPT-5 Thinking)
 License: MIT
 """
 from __future__ import annotations
+import os, sys
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Sequence, Tuple, Any
 import math
@@ -571,13 +573,11 @@ class RiichiResNetFeatures(torch.nn.Module):
         if state.shantens:
             shantens = self._to_tensor_1d(state.shantens).clamp(min=0, max=8)
             ukeires = self._to_tensor_1d(state.ukeires).clamp(min=0, max=60)
+            planes.append(self._broadcast_row(shantens / 8.0)) # 127 possible discards & its shantens
+            planes.append(self._broadcast_row(ukeires / 60.0)) # 128 possible discards & its ukeires
         else:
-            hand_mask = (hand_clamped > 0).float()
-            shantens, ukeires = RiichiResNetFeatures._get_possible_moves(hand_list, remaining_counts)
-            shantens = shantens.clamp(min=0, max=8)
-            ukeires = ukeires.clamp(min=0, max=60)
-        planes.append(self._broadcast_row(shantens / 8.0)) # 127 possible discards & its shantens
-        planes.append(self._broadcast_row(ukeires / 60.0)) # 128 possible discards & its ukeires
+            planes.append(self._const_plane(1.0))
+            planes.append(self._const_plane(1.0))
         
         planes.append(self._const_plane(RiichiResNetFeatures._quantize_score(state.score) / 4.0))        # 129 - 132 scores
         for opp in opps:
@@ -590,8 +590,12 @@ class RiichiResNetFeatures(torch.nn.Module):
         # --- Features end ---
         x = torch.stack(planes, dim=0)  # (C,34,34)
 
+        if state.legal_actions_mask is None:
+            raise ValueError("legal_actions_mask must be provided")
         legal_actions = torch.as_tensor(state.legal_actions_mask)
 
+        return x[None,:,:,0]
+    
         return {
             "x": x,                              # model input
             "legal_mask": legal_actions,                 # (253,)

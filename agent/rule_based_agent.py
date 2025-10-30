@@ -82,9 +82,10 @@ class RuleBasedAgent:
             state = observation
             shantens = state.shantens
             ukeires = state.ukeires
-            out = self.extractor(state)
-            x = out["x"][:,:,0].numpy()
-            m = out["legal_mask"].numpy()
+            #out = self.extractor(state)
+            #x = out["x"][:,:,0].numpy()
+            #m = out["legal_mask"].numpy()
+            m = [x > 0 for x in state.hand_counts]
             #hands_34 = (np.array(self.env.hands[who]) // 4).tolist()
 
             discard_priority_attack = sorted(list(range(NUM_TILES)), key=lambda i: (-int(m[i]), shantens[i], -ukeires[i], i))
