@@ -16,7 +16,7 @@ class MaskablePPOAgent:
             print("Policy not found.")
             exit(0)
 
-        self._model = MaskablePPO.load(latest_policy)
+        self._model = MaskablePPO.load(latest_policy,device="cpu")
         #self._model.set_training_mode(False) # For newer version SB3
         self._model.policy.eval()
         print(f"Load Frozen Policy from {latest_policy}.")
