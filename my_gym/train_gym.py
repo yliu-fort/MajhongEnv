@@ -85,7 +85,8 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
         n_epochs=10,            # 减少优化开销
         gae_lambda=0.95, gamma=0.993,
         policy_kwargs=policy_kwargs,
-        device = "cuda" if torch.cuda.is_available else "cpu"
+        device = "cuda" if torch.cuda.is_available else "cpu",
+        tensorboard_log="runs/"
     )
 
     if continue_training:
@@ -124,7 +125,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     except Exception:
         pass
 
-    model.learn(total_timesteps=steps, callback=checkpoint_callback, progress_bar=True)
+    model.learn(total_timesteps=steps, callback=checkpoint_callback, progress_bar=True, reset_num_timesteps=False)
     
     model.save(f"{env.unwrapped.metadata.get('name')}_{time.strftime('%Y%m%d-%H%M%S')}")
 
