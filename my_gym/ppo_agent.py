@@ -14,7 +14,9 @@ class MaskablePPOAgent:
             exit(0)
 
         self._model = MaskablePPO.load(latest_policy)
-        print(f"Load Policy from {latest_policy}.")
+        #self._model.set_training_mode(False) # For newer version SB3
+        self._model.policy.eval()
+        print(f"Load Frozen Policy from {latest_policy}.")
 
     def predict(self, obs):
         return int(
