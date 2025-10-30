@@ -414,7 +414,7 @@ class MahjongEnvBase():
                 # 立直逻辑
                 # 持有 1000 点或以上而且有下一巡摸牌时可宣告立直
                 # 打立直宣言牌放铳的情况下不需付供托(立直不成立)
-                rewards[player] += 0.01
+                #rewards[player] += 0.01
 
                 self.riichi[player] = True
                 # 进入立直宣告阶段
@@ -513,7 +513,7 @@ class MahjongEnvBase():
                 self.agari = self.agari_calculation(player, player, None, config[0])
                 self.num_kyoutaku = 0
                 
-                rewards[player] += 0.05
+                #rewards[player] += 0.05
 
                 self.phase = "score"
                 self.current_player = 0
@@ -551,7 +551,7 @@ class MahjongEnvBase():
                 self.num_kyoutaku = 0
                 #self.hands[player].pop()
                 
-                rewards[player] += 0.05
+                #rewards[player] += 0.05
 
                 self.phase = "score"
                 self.current_player = 0
