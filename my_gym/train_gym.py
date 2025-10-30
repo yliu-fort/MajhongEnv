@@ -124,7 +124,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     except Exception:
         pass
 
-    model.learn(total_timesteps=steps, callback=checkpoint_callback)
+    model.learn(total_timesteps=steps, callback=checkpoint_callback, progress_bar=True)
     
     model.save(f"{env.unwrapped.metadata.get('name')}_{time.strftime('%Y%m%d-%H%M%S')}")
 

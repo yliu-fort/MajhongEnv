@@ -167,10 +167,10 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                 if not self._pending_response:
                     self._pending_response = True
                     observation = {"observation": self.get_observation(player), "action_mask": mask}
-                    if self._imitation_reward:
-                        self._expert_instruction = self._imitation_agent.predict(observation["observation"])
                     with torch.no_grad():
                         observation["observation"] = self.extractor(observation["observation"])[0]
+                        if self._imitation_reward:
+                            self._expert_instruction = self._imitation_agent.predict(observation["observation"])
                     reward = self._get_and_clear_accumulated_reward(player)
                     termination = self.done
                     truncation = False
@@ -183,7 +183,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
             if player != self._focus_player:
                 with torch.no_grad():
                     observation = {"observation": self.extractor(self.get_observation(player))[0], "action_mask": self.valid_actions[player]}
-                action_idx = self._opponent_agent.predict(observation)
+                    action_idx = self._opponent_agent.predict(observation)
             else:
                 if self._imitation_reward:
                     if self._expert_instruction is not None and self._expert_instruction == action_idx:
