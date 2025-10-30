@@ -49,9 +49,9 @@ class MaskablePPOAgentPool:
             ckpt_pattern = os.path.join("model_weights", f"{env.metadata.get('name')}*.zip")
             ckpts = glob.glob(ckpt_pattern)
             ckpts.sort(key=os.path.getctime, reverse=True)
-            for c in ckpts[:3]:
+            for c in ckpts[:10]:
                 try:
-                    self._pool.append(MaskablePPOAgentWrapper(MaskablePPO.load(c)))
+                    self._pool.append(MaskablePPOAgentWrapper(MaskablePPO.load(c, device='cpu')))
                     print(f"Pool loads Frozen Policy from {c}.")
                 except OSError:
                     pass
