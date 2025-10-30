@@ -1,9 +1,9 @@
-"""Uses Stable-Baselines3 to train agents in the Connect Four environment using invalid action masking.
+"""Uses Stable-Baselines3 to train agents in the MJAI environment using invalid action masking.
 
 For information about invalid action masking in PettingZoo, see https://pettingzoo.farama.org/api/aec/#action-masking
 For more information about invalid action masking in SB3, see https://sb3-contrib.readthedocs.io/en/master/modules/ppo_mask.html
 
-Author: Elliot (https://github.com/elliottower)
+Author: Y. Liu (https://github.com/yliu-fort)
 """
 
 import glob
@@ -22,6 +22,7 @@ from mahjong_gym import MahjongEnvGym
 from res_1d_extractor import ResNet1DExtractor
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback
+from ppo_agent import MaskablePPOAgent
 
 IMITATION_REWARD = True
 RIICHI_REWARD = True
@@ -29,26 +30,6 @@ AGARI_REWARD = True
 SCORE_DELTA_REWARD = True
 RANK_BONUS_REWARD = False
 FURITEN_PENALTY = False
-
-class MaskablePPOAgent:
-    def __init__(self, env):
-        try:
-            latest_policy = max(
-                glob.glob(f"model_weights/{env.metadata['name']}*.zip"), key=os.path.getctime
-            )
-        except ValueError:
-            print("Policy not found.")
-            exit(0)
-
-        self._model = MaskablePPO.load(latest_policy)
-        print(f"Load Policy from {latest_policy}.")
-
-    def predict(self, obs):
-        return int(
-                    self._model.predict(
-                        obs, action_masks=obs["action_mask"], deterministic=True
-                    )[0]
-                )
 
 
 # --------- 1) 你的环境 & 掩码函数（必须是顶层可 pickl e 的函数！）---------
