@@ -28,6 +28,8 @@ class MaskablePPOAgent:
                     )[0]
                 )
 
+    def __getitem__(self, _):
+        return self
 
 class MaskablePPOAgentWrapper:
     def __init__(self, model):

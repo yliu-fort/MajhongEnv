@@ -185,7 +185,7 @@ def eval_mjai(env_fn, num_games=100, render_mode=None, **env_kwargs):
 
 
 if __name__ == "__main__":
-    env_fn = partial(MahjongEnvGym, imitation_reward=IMITATION_REWARD)
+    env_fn = partial(MahjongEnvGym, imitation_reward=IMITATION_REWARD, opponent_fn=MaskablePPOAgent)
     env_kwargs = {}
 
     # Train a model against itself (takes ~20 seconds on a laptop CPU)
