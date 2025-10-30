@@ -63,8 +63,6 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     
     print(f"Starting training on {str(env.metadata['name'])}.")
-    
-    #env.reset()  # Must call reset() in order to re-define the spaces
 
     # Model
     policy_kwargs = dict(
@@ -111,6 +109,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
         verbose=2
     )
     
+    '''
     try:
         prefix = env.unwrapped.metadata.get('name', 'model')
         ckpt_pattern = os.path.join("model_weights", f"{prefix}*.zip")
@@ -124,6 +123,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
                     pass
     except Exception:
         pass
+    '''
 
     model.learn(total_timesteps=steps, callback=checkpoint_callback, progress_bar=True, reset_num_timesteps=False)
     
