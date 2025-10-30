@@ -10,7 +10,7 @@ import numpy as np
 import random
 import torch
 from mahjong_features import RiichiState, NUM_TILES, NUM_ACTIONS, get_action_type_from_index
-from mahjong_features import RiichiResNetFeatures
+from mahjong_features_numpy import RiichiResNetFeatures
 from typing import List, Dict, Optional, Tuple, Any
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from mahjong_env import MahjongEnv, MahjongEnvBase
