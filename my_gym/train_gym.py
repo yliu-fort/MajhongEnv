@@ -22,13 +22,13 @@ from mahjong_gym import MahjongEnvGym
 from res_1d_extractor import ResNet1DExtractor
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback
-from ppo_agent import MaskablePPOAgent
+from ppo_agent import MaskablePPOAgent, MaskablePPOAgentPool
 
-IMITATION_REWARD = True
-RIICHI_REWARD = True
-AGARI_REWARD = True
+IMITATION_REWARD = False
+RIICHI_REWARD = False
+AGARI_REWARD = False
 SCORE_DELTA_REWARD = True
-RANK_BONUS_REWARD = False
+RANK_BONUS_REWARD = True
 FURITEN_PENALTY = False
 
 
@@ -124,6 +124,8 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
     except Exception:
         pass
     '''
+    
+    MaskablePPOAgentPool.register()
 
     model.learn(total_timesteps=steps, callback=checkpoint_callback, progress_bar=True, reset_num_timesteps=False)
     
@@ -184,7 +186,7 @@ def eval_mjai(env_fn, num_games=100, render_mode=None, **env_kwargs):
 
 
 if __name__ == "__main__":
-    env_fn = partial(MahjongEnvGym, imitation_reward=IMITATION_REWARD, opponent_fn=MaskablePPOAgent)
+    env_fn = partial(MahjongEnvGym, imitation_reward=IMITATION_REWARD)
     env_kwargs = {}
 
     # Train a model against itself (takes ~20 seconds on a laptop CPU)

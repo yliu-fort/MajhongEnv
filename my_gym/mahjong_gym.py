@@ -15,6 +15,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from my_types import Response, PRIORITY, ActionType, Seat, ActionSketch
 from mahjong_env import MahjongEnv, MahjongEnvBase
 from rule_based_agent import RuleBasedAgent
+from ppo_agent import MaskablePPOAgentPool
 
 AgentID = int
 
@@ -98,7 +99,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
     Gym environment class.
     """
     
-    def __init__(self, imitation_reward=True, opponent_fn=None, *args, **kwargs):
+    def __init__(self, opponent_fn = MaskablePPOAgentPool, imitation_reward=True, randomize_seat=True, *args, **kwargs):
         
         self.metadata: dict[str, Any] = {"name": "mjai_gym_env_v0"}
 
@@ -112,14 +113,15 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self.extractor = RiichiResNetFeatures()
         self.render_mode = 'human'
         
-        self._focus_player = random.choice([0,1,2,3])
-        self._opponent_agent = opponent_fn(self)
+        self._focus_player = 0
+        self._opponent_agents = [opponent_fn(self), opponent_fn(self), opponent_fn(self), opponent_fn(self)]
         self._imitation_agent = RuleBasedAgent(self)
         self._expert_instruction = None
         self._imitation_reward = imitation_reward
         self._queue = []
         self._responses = []
         self._pending_response = False
+        self._randomize_seat = randomize_seat
         
         MahjongEnvBase.__init__(self, *args, **kwargs)
         # 某些 gym 版本的 Env 没有 __init__；这里防御性调用
@@ -134,6 +136,12 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self._queue = []
         self._responses = []
         self._pending_response = False
+        if self._randomize_seat:
+            self._focus_player = random.choice([0,1,2,3])
+        try:
+            [opp.rselect() for opp in self._opponent_agents] # If it is an opponent pool then we should re-select the opponent each round.
+        except Exception:
+            pass
         return self.step(None)[0], {}
     
     def step(self, response: Optional[int]):
@@ -180,7 +188,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
             if player != self._focus_player:
                 with torch.no_grad():
                     observation = {"observation": self.extractor(self.get_observation(player))[0], "action_mask": self.valid_actions[player]}
-                    action_idx = self._opponent_agent.predict(observation)
+                    action_idx = self._opponent_agents[player].predict(observation)
             else:
                 if self._imitation_reward:
                     if self._expert_instruction is not None and self._expert_instruction == action_idx:
