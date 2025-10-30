@@ -94,13 +94,10 @@ class MahjongEnvPettingZoo(MahjongEnv, ParallelEnv):
 
 
 class MahjongEnvGym(MahjongEnv, gym.Env):
-    """Parallel environment class.
-
-    It steps every live agent at once. If you are unsure if you
-    have implemented a ParallelEnv correctly, try running the `parallel_api_test` in
-    the Developer documentation on the website.
     """
-
+    Gym environment class.
+    """
+    
     def __init__(self, imitation_reward=True, opponent_fn=None, *args, **kwargs):
         
         self.metadata: dict[str, Any] = {"name": "mjai_gym_env_v0"}
@@ -170,7 +167,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
                     with torch.no_grad():
                         observation["observation"] = self.extractor(observation["observation"])[0]
                         if self._imitation_reward:
-                            self._expert_instruction = self._imitation_agent.predict(observation["observation"])
+                            self._expert_instruction = self._imitation_agent.predict(observation)
                     reward = self._get_and_clear_accumulated_reward(player)
                     termination = self.done
                     truncation = False
