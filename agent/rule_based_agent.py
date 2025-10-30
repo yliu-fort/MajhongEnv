@@ -57,7 +57,10 @@ class RuleBasedAgent:
 
     
     def predict(self, observation) -> int:
-        action_masks = observation.legal_actions_mask
+        if isinstance(observation, dict):
+            action_masks = observation["action_mask"]
+        else:
+            action_masks = observation.legal_actions_mask
         valid_action_list = [i for i in list(range(NUM_ACTIONS)) if action_masks[i]]
         allowed_action_type = set([get_action_type_from_index(i) for i, a in enumerate(action_masks) if a])
 
@@ -79,14 +82,21 @@ class RuleBasedAgent:
         # 如果当前状态是和牌状态，直接返回和牌动作        
         if self.env and (ActionType.DISCARD in allowed_action_type):
             # 推理时获取动作
-            state = observation
-            shantens = state.shantens
-            ukeires = state.ukeires
-            #out = self.extractor(state)
-            #x = out["x"][:,:,0].numpy()
-            #m = out["legal_mask"].numpy()
-            m = [x > 0 for x in state.hand_counts]
-            #hands_34 = (np.array(self.env.hands[who]) // 4).tolist()
+            if isinstance(observation, dict):
+                state = observation["observation"]
+                if isinstance(state, np.ndarray):
+                    shantens = state[126].tolist()
+                    ukeires = state[127].tolist()
+                    m =  [x > 0 for x in state[0].tolist()]
+                else:
+                    shantens = state.shantens
+                    ukeires = state.ukeires
+                    m = [x > 0 for x in state.hand_counts]
+            else:
+                state = observation
+                shantens = state.shantens
+                ukeires = state.ukeires
+                m = [x > 0 for x in state.hand_counts]
 
             discard_priority_attack = sorted(list(range(NUM_TILES)), key=lambda i: (-int(m[i]), shantens[i], -ukeires[i], i))
             if m[discard_priority_attack[0]] == 1:
@@ -99,12 +109,18 @@ class RuleBasedAgent:
         
         # if preds not in action_masks, return a random choice from action_masks.
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.PON, ActionType.KAN]])):
-            state = observation
+            if isinstance(observation, dict):
+                state = observation["observation"]
+                if isinstance(state, np.ndarray):
+                    hand_counts =  [x > 0 for x in state[0].tolist()]
+                else:
+                    hand_counts = [x > 0 for x in state.hand_counts]
+            else:
+                state = observation
+                hand_counts = [x > 0 for x in state.hand_counts]
             
-            remaining = RiichiResNetFeatures._default_visible_counts(state)
             claim = self.env.claims[0] # e.g., {"type": "pon", "fromwho": player, "who": other_player, "tile": tile})
-            hand_counts = state.hand_counts[:] # should be 4, 7, 10, 13
-            base_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
+            base_sh = good_moves(hand_counts, [4]*NUM_TILES)[0][1]['shanten']
 
             # get valid moves
             if ActionType.KAN in allowed_action_type:
@@ -112,9 +128,8 @@ class RuleBasedAgent:
             elif ActionType.PON in allowed_action_type:
                 hand_counts[claim["tile"]//4]-=2
 
-            new_sh = good_moves(hand_counts, remaining)[0][1]['shanten']
-            turn_number = state.turn_number
-            should_call = ( new_sh < base_sh ) & (turn_number >= 6) & (base_sh > 2)
+            new_sh = good_moves(hand_counts, [4]*NUM_TILES)[0][1]['shanten']
+            should_call = ( new_sh < base_sh ) & (base_sh > 2)
 
             return self._alt_model.predict(observation) if should_call else 252
         
