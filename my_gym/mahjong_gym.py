@@ -114,7 +114,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self.render_mode = 'human'
         
         self._focus_player = 0
-        self._opponent_agents = [opponent_fn(self), opponent_fn(self), opponent_fn(self), opponent_fn(self)]
+        self._opponent_agents = opponent_fn(self)
         self._imitation_agent = RuleBasedAgent(self)
         self._expert_instruction = None
         self._imitation_reward = imitation_reward
@@ -139,7 +139,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         if self._randomize_seat:
             self._focus_player = random.choice([0,1,2,3])
         try:
-            [opp.rselect() for opp in self._opponent_agents] # If it is an opponent pool then we should re-select the opponent each round.
+            self._opponent_agents.shuffle() # If it is an opponent pool then we should re-select the opponent each round.
         except Exception:
             pass
         return self.step(None)[0], {}

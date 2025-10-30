@@ -51,17 +51,18 @@ class MaskablePPOAgentPool:
             ckpts.sort(key=os.path.getctime, reverse=True)
             for c in ckpts[:10]:
                 try:
-                    self._pool.append(MaskablePPOAgentWrapper(MaskablePPO.load(c, device='cpu')))
+                    self._pool.append(MaskablePPOAgentWrapper(MaskablePPO.load(c)))
                     print(f"Pool loads Frozen Policy from {c}.")
                 except OSError:
                     pass
         except Exception:
             pass
-        self._selected = 0
+        self._selected = [0, 0, 0, 0]
 
-    def rselect(self):
+    def shuffle(self):
         if len(self._pool) == 0: raise ValueError("Pool is empty!!")
-        self._selected = random.choice(list(range(len(self._pool))))
-        
-    def predict(self, obs):
-        return self._pool[self._selected].predict(obs)
+        for idx in range(4):
+            self._selected[idx] = random.choice(list(range(len(self._pool))))
+    
+    def __getitem__(self, index):
+        return self._pool[self._selected[index%4]]
