@@ -20,12 +20,8 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableMultiInputActorCriticPolicy
 from mahjong_gym import MahjongEnvGym
 from res_1d_extractor import ResNet1DExtractor
-from agent.rule_based_agent import RuleBasedAgent
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback
-from random_discard_agent import RandomDiscardAgent
-from rule_based_agent import RuleBasedAgent
-from mahjong_features import RiichiResNetFeatures
 
 IMITATION_REWARD = True
 RIICHI_REWARD = True
