@@ -21,10 +21,10 @@ from sb3_contrib.common.maskable.policies import MaskableMultiInputActorCriticPo
 from mahjong_gym import MahjongEnvGym
 from res_1d_extractor import ResNet1DExtractor
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
-from stable_baselines3.common.callbacks import CheckpointCallback
-from ppo_agent import MaskablePPOAgent, MaskablePPOAgentPool
+from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
+from ppo_agent import MaskablePPOAgent, MaskablePPOAgentPool, ImitationWeightProxyWrapper
 
-IMITATION_REWARD = False
+IMITATION_REWARD = True
 RIICHI_REWARD = False
 AGARI_REWARD = False
 SCORE_DELTA_REWARD = True
@@ -33,11 +33,13 @@ FURITEN_PENALTY = False
 
 
 # --------- 1) 你的环境 & 掩码函数（必须是顶层可 pickl e 的函数！）---------
-def make_single_env(env_fn, rank: int, seed: int = 0):
+def make_single_env(env_fn, rank: int, seed: int = 0, wrapper=None, wrapper_kwargs={}):
     def _init():
         env = env_fn()
+        if wrapper is not None:
+            env = wrapper(env, **wrapper_kwargs)
         print("spawn env in PID:", os.getpid())
-        print(f'Imitation Reward: {"on" if env._imitation_reward else "off"}')
+        print(f'Imitation Reward: {"on" if IMITATION_REWARD else "off"}')
         env.reset()
         return env
     return _init
@@ -52,8 +54,17 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=False, **env_kwar
     env = env_fn()
     n_envs = max_workers
     
+    wrapper_class=ImitationWeightProxyWrapper
+    wrapper_kwargs=dict(
+        attr_name="_imitation_reward_weight",
+        init_weight=1.0 if IMITATION_REWARD else 0.0,
+        min_weight=0.0001 if IMITATION_REWARD else 0.0,
+        max_weight=1.0,
+        clip_weight=True,
+    )
+    
     # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
-    env_fns = [make_single_env(env_fn, i, seed) for i in range(n_envs)]
+    env_fns = [make_single_env(env_fn, i, seed, wrapper_class, wrapper_kwargs) for i in range(n_envs)]
     vec_env = SubprocVecEnv(env_fns)          # 多进程
     vec_env = VecMonitor(vec_env)             # 记录回报/长度等指标
 
@@ -110,24 +121,9 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=False, **env_kwar
         verbose=2
     )
     
-    '''
-    try:
-        prefix = env.unwrapped.metadata.get('name', 'model')
-        ckpt_pattern = os.path.join("model_weights", f"{prefix}*.zip")
-        ckpts = glob.glob(ckpt_pattern)
-        if len(ckpts) > 10:
-            ckpts.sort(key=os.path.getctime, reverse=True)
-            for old in ckpts[10:]:
-                try:
-                    os.remove(old)
-                except OSError:
-                    pass
-    except Exception:
-        pass
-    '''
+    callbacks = CallbackList([checkpoint_callback])
 
-
-    model.learn(total_timesteps=steps, callback=checkpoint_callback, progress_bar=True, reset_num_timesteps=False)
+    model.learn(total_timesteps=steps, callback=callbacks, progress_bar=True, reset_num_timesteps=False)
     
     model.save(f"{env.unwrapped.metadata.get('name')}_{time.strftime('%Y%m%d-%H%M%S')}")
 

@@ -118,6 +118,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
         self._imitation_agent = RuleBasedAgent(self)
         self._expert_instruction = None
         self._imitation_reward = imitation_reward
+        self._imitation_reward_weight = 1.0 if imitation_reward else 0.0
         self._queue = []
         self._responses = []
         self._pending_response = False
@@ -192,7 +193,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
             else:
                 if self._imitation_reward:
                     if self._expert_instruction is not None and self._expert_instruction == action_idx:
-                        self._acculmulated_rewards[player] += 0.01
+                        self._acculmulated_rewards[player] += self._imitation_reward_weight
                         self._expert_instruction = None
 
             self._stash_response(player, action_idx)
