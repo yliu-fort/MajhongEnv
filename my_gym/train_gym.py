@@ -77,10 +77,11 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
         MaskableMultiInputActorCriticPolicy,
         vec_env,
         verbose=2,
-        learning_rate=5e-3,
-        batch_size=4096,
-        n_steps=4096,           # 更小
-        n_epochs=10,            # 减少优化开销
+        learning_rate=3e-4,
+        batch_size=64,
+        n_steps=4096 // n_envs,           # 更小
+        n_epochs=3,            # 减少优化开销
+        target_kl=0.1,
         gae_lambda=0.95, gamma=0.993,
         policy_kwargs=policy_kwargs,
         device = "cuda" if torch.cuda.is_available else "cpu",
@@ -94,6 +95,10 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwarg
             )
             print(f"Load from latest policy {latest_policy}.")
             model = MaskablePPO.load(latest_policy, vec_env)
+            model.batch_size=64
+            model.n_steps=4096 // n_envs
+            model.n_epochs=3
+            model.target_kl=0.1
         except ValueError:
             print("Policy not found, start from scratch...")
             
