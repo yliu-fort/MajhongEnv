@@ -104,10 +104,12 @@ class RuleBasedAgent:
                 action_id = action_id+34 if action_masks[action_id+34] else action_id
                 return action_id
 
+
+        # if preds not in action_masks, return a random choice from action_masks.
+        '''        
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.CHI,]])):
             return 252
-        
-        # if preds not in action_masks, return a random choice from action_masks.
+            
         if self.env and (any([_ in allowed_action_type for _ in [ActionType.PON, ActionType.KAN]])):
             if isinstance(observation, dict):
                 state = observation["observation"]
@@ -132,6 +134,7 @@ class RuleBasedAgent:
             should_call = ( new_sh < base_sh ) & (base_sh > 2)
 
             return self._alt_model.predict(observation) if should_call else 252
+        '''
         
         return self._alt_model.predict(observation)
 
