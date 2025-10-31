@@ -38,7 +38,7 @@ def evaluate_model_pz(episodes=10, start=0, step=1):
 
 def evaluate_model_gym(episodes=10, start=0, step=1):
     # 创建环境
-    env = MahjongEnvGym(num_players=4, opponent_fn=MaskablePPOAgentPool)
+    env = MahjongEnvGym(num_players=4, randomize_seat=False, opponent_fn=MaskablePPOAgent)
     agent = RuleBasedAgent(env)
  
     total_dscores = np.zeros(4, dtype=np.int32)
