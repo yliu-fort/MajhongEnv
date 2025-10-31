@@ -167,7 +167,11 @@ class EVRewardScaleCallback(BaseCallback):
         self.logger.record("adaptive/ev_rollout", float(ev))
         self.logger.record("adaptive/imit_weight", new_mean)
         self.logger.record("adaptive/imit_factor", float(factor))
+        self.logger.record("time/total_timesteps", self.num_timesteps)
 
+        # 让这一批立即写入 TensorBoard（否则要等到 SB3 内部下次 dump）
+        self.logger.dump(self.num_timesteps)   # <- 关键 4：主动 flush
+        
         if self.verbose:
             print(f"[EV→_imit_w] EV={ev:.3f} | w_mean {cur:.4f} -> {new_mean:.4f} (x{factor:.3f})")
         return True

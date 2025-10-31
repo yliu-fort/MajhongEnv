@@ -61,6 +61,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=False, **env_kwar
         min_weight=0.0001 if IMITATION_REWARD else 0.0,
         max_weight=1.0,
         clip_weight=True,
+        verbose=1
     )
     
     # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
