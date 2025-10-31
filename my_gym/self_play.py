@@ -42,6 +42,7 @@ def evaluate_model_gym(episodes=10, start=0, step=1):
     agent = RuleBasedAgent(env)
  
     total_dscores = np.zeros(4, dtype=np.int32)
+    placement_counts = np.zeros(4, dtype=np.int32)
     ep_len = 0
     for ep in range(start, episodes, step):
         env._focus_player = 0
@@ -52,8 +53,12 @@ def evaluate_model_gym(episodes=10, start=0, step=1):
             obs, reward, _, _, _ = env.step(action)
             ep_len += 1
 
+        rank = env.info["rank"]
+        placement = rank.index(env._focus_player)
+        placement_counts[placement] += 1
+        placement_ratio = placement_counts / placement_counts.sum()
         total_dscores += np.array(env.info["scores"]) - 250
-        print(f"Episode {ep} - 分数板：{total_dscores}", env.info["scores"])
+        print(f"Episode {ep} - 分数板：{total_dscores}", env.info["scores"], f"名次 {placement_ratio}")
         print(env.info["msg"])
         #with open(f'../log_analyser/paipu/evaluate_log_{ep}.mjlog', "w") as f:
         #    f.write(info["log"])
