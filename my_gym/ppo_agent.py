@@ -82,7 +82,7 @@ class ImitationWeightProxyWrapper(gym.Wrapper):
     `unwrapped._imitation_reward_weight` 属性。不会改 reward。
     """
     def __init__(self, env, attr_name: str = "_imitation_reward_weight",
-                 init_weight: float = 0.0, min_weight: float = 0.0001, max_weight: float = 1.0,
+                 init_weight: float = 0.0, min_weight: float = 0.001, max_weight: float = 1.0,
                  clip_weight: bool = True):
         super().__init__(env)
         self._attr = str(attr_name)
@@ -137,6 +137,10 @@ class EVRewardScaleCallback(BaseCallback):
         self.every = max(1, int(every_n_rollouts))
         self._k = 0
 
+    def _on_step(self) -> bool:
+        # 必须实现；不做事就返回 True
+        return True
+    
     def _on_rollout_end(self) -> bool:
         self._k += 1
         if self._k % self.every != 0:
@@ -167,10 +171,6 @@ class EVRewardScaleCallback(BaseCallback):
         self.logger.record("adaptive/ev_rollout", float(ev))
         self.logger.record("adaptive/imit_weight", new_mean)
         self.logger.record("adaptive/imit_factor", float(factor))
-        self.logger.record("time/total_timesteps", self.num_timesteps)
-
-        # 让这一批立即写入 TensorBoard（否则要等到 SB3 内部下次 dump）
-        self.logger.dump(self.num_timesteps)   # <- 关键 4：主动 flush
         
         if self.verbose:
             print(f"[EV→_imit_w] EV={ev:.3f} | w_mean {cur:.4f} -> {new_mean:.4f} (x{factor:.3f})")

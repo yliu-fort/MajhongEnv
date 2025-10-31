@@ -22,7 +22,7 @@ from mahjong_gym import MahjongEnvGym
 from res_1d_extractor import ResNet1DExtractor
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
-from ppo_agent import MaskablePPOAgent, MaskablePPOAgentPool, ImitationWeightProxyWrapper
+from ppo_agent import MaskablePPOAgent, MaskablePPOAgentPool, ImitationWeightProxyWrapper, EVRewardScaleCallback
 
 IMITATION_REWARD = True
 RIICHI_REWARD = False
@@ -60,8 +60,7 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=False, **env_kwar
         init_weight=1.0 if IMITATION_REWARD else 0.0,
         min_weight=0.0001 if IMITATION_REWARD else 0.0,
         max_weight=1.0,
-        clip_weight=True,
-        verbose=1
+        clip_weight=True
     )
     
     # Windows/macOS 推荐 spawn（SB3 内部会处理）；确保在 __main__ 保护下运行
@@ -121,8 +120,11 @@ def train_mjai(env_fn, steps=10_000, seed=0, continue_training=False, **env_kwar
         save_vecnormalize=False,
         verbose=2
     )
+    adaptive_imitation_weight_ev_callback = EVRewardScaleCallback(
+        verbose=1
+    )
     
-    callbacks = CallbackList([checkpoint_callback])
+    callbacks = CallbackList([checkpoint_callback, adaptive_imitation_weight_ev_callback])
 
     model.learn(total_timesteps=steps, callback=callbacks, progress_bar=True, reset_num_timesteps=False)
     
