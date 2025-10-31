@@ -19,3 +19,4 @@ stable-baselines3>=2.7.0
 sb3-contrib>=2.7.0
 supersuit>=3.9.0
 rich>=14.2.0
+tensorboard>=2.0

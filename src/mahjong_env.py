@@ -711,7 +711,7 @@ class MahjongEnvBase():
                             rank_bonus = [50, 14, -26, -38]
                             for p in range(self.num_players):
                                 self.score_deltas[p] = rank_bonus[rank[p]]
-                                rewards[p] += np.clip(self.score_deltas[p]/50.0, -1.0, 1.0)
+                                #rewards[p] += np.clip(self.score_deltas[p]/50.0, -1.0, 1.0)
 
                             # 记录天凤格式log
                             self.logger.add_owari(rt, self.scores, self.score_deltas)
@@ -726,7 +726,6 @@ class MahjongEnvBase():
 
                 else:
                     self.current_player = (player + 1) % self.num_players if (player + 1) < self.num_players else -1
-                    #self.apply_decision(None)
             
             case "game_over":
                 # 更新顺位

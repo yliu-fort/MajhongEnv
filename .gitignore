@@ -10,3 +10,4 @@ src/ext/shanten_dp_cy.html
 src/ext/shanten_dp_cy.c
 src/ext/shanten_dp_cy.*.so
 src/ext/shanten_dp_cy.cp310-win_amd64.pyd
+/runs

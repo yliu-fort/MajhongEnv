@@ -43,7 +43,7 @@ def make_single_env(env_fn, rank: int, seed: int = 0):
     return _init
 
 
-def train_mjai(env_fn, steps=10_000, seed=0, continue_training=True, **env_kwargs):
+def train_mjai(env_fn, steps=10_000, seed=0, continue_training=False, **env_kwargs):
     """Train a single model to play as each agent in a zero-sum game environment using invalid action masking."""
     print(f"物理核心数: {psutil.cpu_count(logical=False)}, 逻辑核心数: {psutil.cpu_count(logical=True)}")
     cpu_count = psutil.cpu_count(logical=False) or 1
