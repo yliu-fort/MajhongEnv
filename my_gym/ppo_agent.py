@@ -82,7 +82,7 @@ class ImitationWeightProxyWrapper(gym.Wrapper):
     `unwrapped._imitation_reward_weight` 属性。不会改 reward。
     """
     def __init__(self, env, attr_name: str = "_imitation_reward_weight",
-                 init_weight: float = 0.0, min_weight: float = 0.001, max_weight: float = 1.0,
+                 init_weight: float = 0.0, min_weight: float = 0.0, max_weight: float = 1.0,
                  clip_weight: bool = True):
         super().__init__(env)
         self._attr = str(attr_name)

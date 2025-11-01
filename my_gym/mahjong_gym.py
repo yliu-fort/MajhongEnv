@@ -193,7 +193,7 @@ class MahjongEnvGym(MahjongEnv, gym.Env):
             else:
                 if self._imitation_reward:
                     if self._expert_instruction is not None and self._expert_instruction == action_idx:
-                        self._acculmulated_rewards[player] += self._imitation_reward_weight
+                        self._acculmulated_rewards[player] += self._imitation_reward_weight * 0.1
                         self._expert_instruction = None
 
             self._stash_response(player, action_idx)
