@@ -464,10 +464,26 @@ class MahjongBoardWidget(Widget):
     def on_touch_down(self, touch: Any) -> bool:  # type: ignore[override]
         if super().on_touch_down(touch):
             return True
+        if self.wrapper is not None and self.wrapper.handle_score_panel_touch_down(self, touch):
+            return True
         pos = getattr(touch, "pos", None)
         if pos is None or not self.collide_point(*pos):
             return False
         if self.wrapper is not None and self.wrapper.handle_board_touch(self, touch):
+            return True
+        return False
+
+    def on_touch_move(self, touch: Any) -> bool:  # type: ignore[override]
+        if super().on_touch_move(touch):
+            return True
+        if self.wrapper is not None and self.wrapper.handle_score_panel_touch_move(self, touch):
+            return True
+        return False
+
+    def on_touch_up(self, touch: Any) -> bool:  # type: ignore[override]
+        if super().on_touch_up(touch):
+            return True
+        if self.wrapper is not None and self.wrapper.handle_score_panel_touch_up(self, touch):
             return True
         return False
 
@@ -621,6 +637,13 @@ class MahjongEnvKivyWrapper:
         self._score_pause_pending = False
         self._step_once_requested = False
         self._score_panel_was_visible = False
+        self._score_panel_offset = (0.0, 0.0)
+        self._score_panel_bounds: Optional[Tuple[float, float, float, float]] = None
+        self._score_panel_size: Tuple[float, float] = (0.0, 0.0)
+        self._dragging_score_panel = False
+        self._drag_anchor = (0.0, 0.0)
+        self._drag_start_offset = (0.0, 0.0)
+        self._reset_score_panel_offset = True
         self._pending_action: Optional[Dict[int, Response]] = None
         self._step_result: Optional[Tuple[Any, dict, bool, dict]] = None
         self._step_event = threading.Event()
@@ -1317,11 +1340,7 @@ class MahjongEnvKivyWrapper:
         if board is None:
             return
 
-        width, height = board.size
-        play_size = height
-        play_rect = _Rect(0, 0, play_size, play_size)
-        play_rect.top = 0
-        play_rect.centerx = width / 2
+        play_rect = self._compute_play_rect(board)
 
         if self._show_hints:
             self._dora_highlight_tiles = self._compute_dora_highlight_tiles()
@@ -1351,6 +1370,14 @@ class MahjongEnvKivyWrapper:
         self._draw_player_areas(canvas, board, play_rect)
         if self._score_last():
             self._draw_score_panel(canvas, board, play_rect)
+        else:
+            self._score_panel_bounds = None
+            self._score_panel_size = (0.0, 0.0)
+            if self._dragging_score_panel:
+                self._dragging_score_panel = False
+                self._drag_anchor = (0.0, 0.0)
+                self._drag_start_offset = (0.0, 0.0)
+            self._reset_score_panel_offset = True
         self._update_assist_panel()
         self._update_control_buttons()
 
@@ -1645,6 +1672,36 @@ class MahjongEnvKivyWrapper:
         label.text = text
         label.opacity = 1.0 if text else 0.0
 
+    def _compute_play_rect(self, board: MahjongBoardWidget) -> _Rect:
+        width, height = board.size
+        play_size = height
+        play_rect = _Rect(0, 0, play_size, play_size)
+        play_rect.top = 0
+        play_rect.centerx = width / 2
+        return play_rect
+
+    def _clamp_score_panel_offset(
+        self,
+        play_rect: _Rect,
+        panel_width: float,
+        panel_height: float,
+        offset_x: float,
+        offset_y: float,
+    ) -> Tuple[float, float]:
+        base_rect = _Rect(0, 0, panel_width, panel_height)
+        base_rect.center = play_rect.center
+        min_offset_x = play_rect.left - base_rect.left
+        max_offset_x = play_rect.right - panel_width - base_rect.left
+        min_offset_y = play_rect.top - base_rect.top
+        max_offset_y = play_rect.bottom - panel_height - base_rect.top
+        if min_offset_x > max_offset_x:
+            min_offset_x = max_offset_x = 0.0
+        if min_offset_y > max_offset_y:
+            min_offset_y = max_offset_y = 0.0
+        clamped_x = min(max(offset_x, min_offset_x), max_offset_x)
+        clamped_y = min(max(offset_y, min_offset_y), max_offset_y)
+        return (clamped_x, clamped_y)
+
     def handle_board_touch(self, board: MahjongBoardWidget, touch: Any) -> bool:
         pos = getattr(touch, "pos", None)
         if pos is None:
@@ -1671,6 +1728,60 @@ class MahjongEnvKivyWrapper:
             if left <= canvas_x <= right and bottom <= canvas_y <= top:
                 return agent.submit_action({"_":i, "action_id": tile_index}, direct_mode=True)
         return False
+
+    def handle_score_panel_touch_down(
+        self, board: MahjongBoardWidget, touch: Any
+    ) -> bool:
+        if not self._score_last():
+            return False
+        pos = getattr(touch, "pos", None)
+        if pos is None or self._score_panel_bounds is None:
+            return False
+        x, y = float(pos[0]), float(pos[1])
+        left, bottom, right, top = self._score_panel_bounds
+        if left <= x <= right and bottom <= y <= top:
+            self._dragging_score_panel = True
+            self._drag_anchor = (x, y)
+            self._drag_start_offset = self._score_panel_offset
+            return True
+        return False
+
+    def handle_score_panel_touch_move(
+        self, board: MahjongBoardWidget, touch: Any
+    ) -> bool:
+        if not self._dragging_score_panel:
+            return False
+        pos = getattr(touch, "pos", None)
+        if pos is None:
+            return False
+        panel_width, panel_height = self._score_panel_size
+        if panel_width <= 0 or panel_height <= 0:
+            return False
+        anchor_x, anchor_y = self._drag_anchor
+        start_x, start_y = self._drag_start_offset
+        current_x, current_y = float(pos[0]), float(pos[1])
+        delta_x = current_x - anchor_x
+        delta_y = current_y - anchor_y
+        new_offset_x = start_x + delta_x
+        new_offset_y = start_y - delta_y
+        play_rect = self._compute_play_rect(board)
+        new_offset_x, new_offset_y = self._clamp_score_panel_offset(
+            play_rect, panel_width, panel_height, new_offset_x, new_offset_y
+        )
+        if (new_offset_x, new_offset_y) != self._score_panel_offset:
+            self._score_panel_offset = (new_offset_x, new_offset_y)
+            self._render()
+        return True
+
+    def handle_score_panel_touch_up(
+        self, _board: MahjongBoardWidget, _touch: Any
+    ) -> bool:
+        if not self._dragging_score_panel:
+            return False
+        self._dragging_score_panel = False
+        self._drag_anchor = (0.0, 0.0)
+        self._drag_start_offset = (0.0, 0.0)
+        return True
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -2372,12 +2483,34 @@ class MahjongEnvKivyWrapper:
         else:
             panel_size = min(panel_size, min_dimension)
 
-        panel_rect = _Rect(0, 0, panel_size, panel_size)
-        panel_rect.center = play_rect.center
+        base_panel_rect = _Rect(0, 0, panel_size, panel_size)
+        base_panel_rect.center = play_rect.center
+        if self._reset_score_panel_offset:
+            self._score_panel_offset = (0.0, 0.0)
+            self._reset_score_panel_offset = False
+        offset_x, offset_y = self._score_panel_offset
+        offset_x, offset_y = self._clamp_score_panel_offset(
+            play_rect, base_panel_rect.width, base_panel_rect.height, offset_x, offset_y
+        )
+        if (offset_x, offset_y) != self._score_panel_offset:
+            self._score_panel_offset = (offset_x, offset_y)
+        panel_rect = _Rect(
+            base_panel_rect.left + offset_x,
+            base_panel_rect.top + offset_y,
+            base_panel_rect.width,
+            base_panel_rect.height,
+        )
 
         panel_pos = self._to_canvas_pos(
             board, play_rect, panel_rect.left, panel_rect.top, panel_rect.width, panel_rect.height
         )
+        self._score_panel_bounds = (
+            panel_pos[0],
+            panel_pos[1],
+            panel_pos[0] + panel_rect.width,
+            panel_pos[1] + panel_rect.height,
+        )
+        self._score_panel_size = (panel_rect.width, panel_rect.height)
         canvas.add(Color(*self._panel_color))
         canvas.add(
             RoundedRectangle(
