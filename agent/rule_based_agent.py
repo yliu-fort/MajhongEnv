@@ -139,6 +139,9 @@ class RuleBasedAgent:
         return self._alt_model.predict(observation)
 
 
+    def __getitem__(self, _):
+        return self
+
 if __name__ == "__main__":
     def display_good_moves(tile):
         hand = tile[:-2]
