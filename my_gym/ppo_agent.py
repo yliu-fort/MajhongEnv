@@ -122,8 +122,6 @@ class EVRewardScaleCallback(BaseCallback):
         tol: float = 0.1,         # 容忍带
         up: float = 1.05,         # EV 太低时微增倍率
         down: float = 0.90,       # EV 太高时下调倍率
-        min_scale: float = 0.001,
-        max_scale: float = 1.0,
         every_n_rollouts: int = 1,
         verbose: int = 0,
     ):
@@ -132,8 +130,6 @@ class EVRewardScaleCallback(BaseCallback):
         self.tol = tol
         self.up = up
         self.down = down
-        self.min_scale = min_scale
-        self.max_scale = max_scale
         self.every = max(1, int(every_n_rollouts))
         self._k = 0
 
