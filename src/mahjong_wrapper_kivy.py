@@ -846,7 +846,10 @@ class MahjongEnvKivyWrapper:
         if self._scheduled:
             self._clock_event.cancel()
             self._scheduled = False
-        self._env.close()
+        try:
+            self._env.close()
+        except Exception:
+            pass
 
     def bind_human_ui(self, seat: int, agent: "HumanPlayerAgent") -> None:
         """Register callbacks that display human actions and handle input."""
